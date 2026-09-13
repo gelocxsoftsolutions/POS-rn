@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,69 +7,79 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProductService } from "@/lib/services/product.service";
+import type { ProductDTO, CategoryDTO } from "@/lib/types/inventory";
 
 const { width } = Dimensions.get("window");
 
-interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  price: number;
-  stock: number;
-  category: string;
-  minStock: number;
-}
-
-const DEMO_PRODUCTS: Product[] = [
-  { id: "1", name: "Fresh Salmon Fillet", sku: "SAL-001", price: 450, stock: 50, category: "Fish", minStock: 10 },
-  { id: "2", name: "Tuna Belly (Toro)", sku: "TUN-001", price: 680, stock: 30, category: "Fish", minStock: 8 },
-  { id: "3", name: "Shrimp (Large)", sku: "SHR-001", price: 320, stock: 100, category: "Shellfish", minStock: 15 },
-  { id: "4", name: "Squid (Fresh)", sku: "SQU-001", price: 220, stock: 75, category: "Seafood", minStock: 12 },
-  { id: "5", name: "Milkfish (Bangus)", sku: "MIL-001", price: 150, stock: 60, category: "Fish", minStock: 10 },
-  { id: "6", name: "Crab (Mud Crab)", sku: "CRA-001", price: 380, stock: 5, category: "Shellfish", minStock: 8 },
-  { id: "7", name: "Octopus (Small)", sku: "OCT-001", price: 290, stock: 40, category: "Seafood", minStock: 10 },
-  { id: "8", name: "Fish Balls (Pack)", sku: "FBA-001", price: 120, stock: 200, category: "Processed", minStock: 30 },
-  { id: "9", name: "Squid Rings (Pack)", sku: "SRG-001", price: 180, stock: 80, category: "Processed", minStock: 20 },
-  { id: "10", name: "Prawns (Jumbo)", sku: "PRW-001", price: 520, stock: 0, category: "Shellfish", minStock: 10 },
-];
-
-const CATEGORIES = ["All", "Fish", "Shellfish", "Seafood", "Processed"];
 const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 
 export default function ProductsScreen() {
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState("All");
   const [page, setPage] = useState(1);
-  const pageSize = 8;
+  const [products, setProducts] = useState<ProductDTO[]>([]);
+  const [categories, setCategories] = useState<CategoryDTO[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const pageSize = 20;
 
-  const filtered = DEMO_PRODUCTS.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.sku.toLowerCase().includes(search.toLowerCase());
-    const matchesCategory = selectedCategory === "All" || p.category === selectedCategory;
-    let matchesStock = true;
-    if (stockFilter === "In Stock") matchesStock = p.stock > p.minStock;
-    if (stockFilter === "Low") matchesStock = p.stock > 0 && p.stock <= p.minStock;
-    if (stockFilter === "Out of Stock") matchesStock = p.stock === 0;
-    return matchesSearch && matchesCategory && matchesStock;
-  });
+  const loadProducts = useCallback(async () => {
+    try {
+      const filters: any = { page, pageSize };
+      if (search) filters.search = search;
+      if (selectedCategoryId) filters.categoryId = selectedCategoryId;
+      if (stockFilter === "In Stock") filters.stockStatus = "in_stock";
+      if (stockFilter === "Low") filters.stockStatus = "low";
+      if (stockFilter === "Out of Stock") filters.stockStatus = "out_of_stock";
 
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+      const result = await ProductService.search(filters);
+      setProducts(result.items);
+      setTotalPages(result.totalPages || 1);
+    } catch {
+      // keep empty
+    }
+  }, [search, selectedCategoryId, stockFilter, page, pageSize]);
 
-  const stockStatus = (stock: number, min: number) => {
+  const loadCategories = useCallback(async () => {
+    try {
+      const cats = await ProductService.listCategories();
+      setCategories(cats);
+    } catch {
+      // keep empty
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await Promise.all([loadProducts(), loadCategories()]);
+      setLoading(false);
+    })();
+  }, [loadProducts, loadCategories]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, selectedCategoryId, stockFilter]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [page, loadProducts]);
+
+  const stockStatus = (product: ProductDTO) => {
+    const stock = product.retailPrice ?? 0;
     if (stock === 0) return { label: "Out of Stock", color: "#dc3545" };
-    if (stock <= min) return { label: "Low Stock", color: "#ffc107" };
     return { label: "In Stock", color: "#28a745" };
   };
 
-  const renderProduct = ({ item }: { item: Product }) => {
-    const status = stockStatus(item.stock, item.minStock);
+  const renderProduct = ({ item }: { item: ProductDTO }) => {
+    const status = stockStatus(item);
     return (
       <Card style={styles.productCard}>
         <View style={styles.productRow}>
@@ -80,15 +90,19 @@ export default function ProductsScreen() {
             <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
             <Text style={styles.productSku}>{item.sku}</Text>
             <View style={styles.productMeta}>
-              <Text style={styles.productPrice}>₱{item.price.toFixed(2)}</Text>
+              <Text style={styles.productPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
               <Badge label={status.label} color={status.color} size="sm" />
             </View>
-            <Text style={styles.stockText}>Stock: {item.stock}</Text>
+            {item.categoryName && (
+              <Text style={styles.stockText}>Category: {item.categoryName}</Text>
+            )}
           </View>
         </View>
       </Card>
     );
   };
+
+  const allCategories = [{ id: null, name: "All" } as any, ...categories];
 
   return (
     <View style={styles.container}>
@@ -109,22 +123,22 @@ export default function ProductsScreen() {
       </View>
 
       <FlatList
-        data={CATEGORIES}
+        data={allCategories}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.filterRow}
         contentContainerStyle={styles.filterContent}
         renderItem={({ item: cat }) => (
           <TouchableOpacity
-            style={[styles.filterChip, selectedCategory === cat && styles.filterChipActive]}
-            onPress={() => { setSelectedCategory(cat); setPage(1); }}
+            style={[styles.filterChip, selectedCategoryId === cat.id && styles.filterChipActive]}
+            onPress={() => { setSelectedCategoryId(cat.id); setPage(1); }}
           >
-            <Text style={[styles.filterText, selectedCategory === cat && styles.filterTextActive]}>
-              {cat}
+            <Text style={[styles.filterText, selectedCategoryId === cat.id && styles.filterTextActive]}>
+              {cat.name}
             </Text>
           </TouchableOpacity>
         )}
-        keyExtractor={(item) => item}
+        keyExtractor={(item) => item.id ?? "all"}
       />
 
       <FlatList
@@ -146,12 +160,24 @@ export default function ProductsScreen() {
         keyExtractor={(item) => item}
       />
 
-      <FlatList
-        data={paginated}
-        renderItem={renderProduct}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#17386b" />
+        </View>
+      ) : (
+        <FlatList
+          data={products}
+          renderItem={renderProduct}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
+              <Text style={styles.emptyText}>No products found</Text>
+            </View>
+          }
+        />
+      )}
 
       {totalPages > 1 && (
         <View style={styles.pagination}>
@@ -180,6 +206,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#6b7b8d",
+    marginTop: 8,
   },
   searchBar: {
     flexDirection: "row",

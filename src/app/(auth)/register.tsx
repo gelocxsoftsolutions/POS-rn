@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,14 @@ import {
   Platform,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useDeviceStore } from "@/lib/stores/device-store";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { DeviceService } from "@/lib/services/device.service";
+import * as Constants from "expo-constants";
+import { Platform } from "react-native";
 
 const { width } = Dimensions.get("window");
 
@@ -22,9 +26,9 @@ export default function RegisterDevice() {
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
   const router = useRouter();
-  const setDevice = useDeviceStore((s) => s.setDevice);
-  const setRegistrationState = useDeviceStore((s) => s.setRegistrationState);
 
   const handleManualRegister = async () => {
     if (!token.trim()) {
@@ -32,27 +36,83 @@ export default function RegisterDevice() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setDevice({
-        deviceId: "device-" + Date.now(),
-        deviceCode: "POS-" + Math.random().toString(36).substring(2, 8).toUpperCase(),
-        publicIdentifier: token,
-        branchId: 1,
-        branchName: "Main Branch",
-        branchAddress: "123 Seafood Ave",
-        deviceName: "POS Terminal 1",
-        registeredAt: new Date().toISOString(),
+    try {
+      const result = await DeviceService.register({
+        activationToken: token.trim(),
+        publicKey: "",
+        privateKey: "",
+        machineIdentifier: Constants.default?.sessionId ?? "unknown",
+        computerName: Constants.default?.deviceName ?? "POS Terminal",
+        appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
+        osVersion: Platform.Version?.toString() ?? "unknown",
+        serverUrl: serverUrl.trim() || undefined,
       });
-      setRegistrationState("registered");
+
+      if (result.success) {
+        Alert.alert("Success", "Device registered successfully!", [
+          { text: "OK", onPress: () => router.replace("/(auth)") },
+        ]);
+      } else {
+        Alert.alert("Error", result.error ?? "Registration failed.");
+      }
+    } catch {
+      Alert.alert("Error", "An unexpected error occurred during registration.");
+    } finally {
       setLoading(false);
-      Alert.alert("Success", "Device registered successfully!", [
-        { text: "OK", onPress: () => router.replace("/(auth)") },
-      ]);
-    }, 1500);
+    }
   };
 
-  const handleQRScan = () => {
+  const handleQRScan = async () => {
+    if (!permission?.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert("Permission Required", "Camera access is needed to scan QR codes.");
+        return;
+      }
+    }
     setMode("qr");
+  };
+
+  const handleBarcodeScanned = async ({ data }: { data: string }) => {
+    if (scanned) return;
+    setScanned(true);
+    try {
+      const parsed = JSON.parse(data);
+      const activationToken = parsed.activationToken ?? parsed.token;
+      const server = parsed.serverUrl ?? parsed.url;
+
+      if (!activationToken) {
+        Alert.alert("Invalid QR", "QR code does not contain an activation token.");
+        setScanned(false);
+        return;
+      }
+
+      setLoading(true);
+      const result = await DeviceService.register({
+        activationToken,
+        publicKey: "",
+        privateKey: "",
+        machineIdentifier: Constants.default?.sessionId ?? "unknown",
+        computerName: Constants.default?.deviceName ?? "POS Terminal",
+        appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
+        osVersion: Platform.Version?.toString() ?? "unknown",
+        serverUrl: server,
+      });
+
+      if (result.success) {
+        Alert.alert("Success", "Device registered successfully!", [
+          { text: "OK", onPress: () => router.replace("/(auth)") },
+        ]);
+      } else {
+        Alert.alert("Error", result.error ?? "Registration failed.");
+        setScanned(false);
+      }
+    } catch {
+      Alert.alert("Invalid QR", "Could not parse QR code data.");
+      setScanned(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (mode === "choose") {
@@ -103,19 +163,44 @@ export default function RegisterDevice() {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setMode("choose")} style={styles.backButton}>
+          <TouchableOpacity onPress={() => { setMode("choose"); setScanned(false); }} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#17386b" />
           </TouchableOpacity>
         </View>
         <View style={styles.qrContainer}>
-          <Ionicons name="camera-outline" size={80} color="#17386b" />
+          {permission?.granted ? (
+            <View style={styles.cameraWrapper}>
+              <CameraView
+                style={styles.camera}
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+              />
+              {loading && (
+                <View style={styles.cameraOverlay}>
+                  <ActivityIndicator size="large" color="#ffffff" />
+                  <Text style={styles.cameraOverlayText}>Registering...</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.permissionContainer}>
+              <Ionicons name="camera-outline" size={80} color="#17386b" />
+              <Text style={styles.qrTitle}>Camera Permission Needed</Text>
+              <Text style={styles.qrSubtitle}>
+                Allow camera access to scan QR codes
+              </Text>
+              <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
+                <Text style={styles.permissionBtnText}>Grant Permission</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <Text style={styles.qrTitle}>Scan QR Code</Text>
           <Text style={styles.qrSubtitle}>
             Point your camera at the QR code displayed on your OMS dashboard
           </Text>
           <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => setMode("choose")}
+            onPress={() => { setMode("choose"); setScanned(false); }}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
@@ -173,9 +258,11 @@ export default function RegisterDevice() {
             disabled={loading}
             activeOpacity={0.7}
           >
-            <Text style={styles.registerBtnText}>
-              {loading ? "Registering..." : "Register Device"}
-            </Text>
+            {loading ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.registerBtnText}>Register Device</Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -269,6 +356,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 40,
+  },
+  cameraWrapper: {
+    width: 280,
+    height: 280,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraOverlayText: {
+    color: "#ffffff",
+    fontSize: 14,
+    marginTop: 8,
+  },
+  permissionContainer: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  permissionBtn: {
+    backgroundColor: "#17386b",
+    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  permissionBtnText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "600",
   },
   qrTitle: {
     fontSize: 20,

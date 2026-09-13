@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Dimensions,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
@@ -17,21 +18,14 @@ import { Badge } from "@/components/ui/badge";
 import { Modal, BottomSheet } from "@/components/ui/modal";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { useDeviceStore } from "@/lib/stores/device-store";
+import { ProductService } from "@/lib/services/product.service";
+import { SaleService } from "@/lib/services/sale.service";
 import type { PosCartItem, PaymentMethodType } from "@/lib/types/pos";
+import type { ProductDTO } from "@/lib/types/inventory";
 
 const { width } = Dimensions.get("window");
 const GRID_COLUMNS = width >= 768 ? 3 : 2;
-
-const DEMO_PRODUCTS: PosCartItem[] = [
-  { productId: "1", name: "Fresh Salmon Fillet", sku: "SAL-001", barcode: "123456", unitPrice: 450, quantity: 0, maxQuantity: 50 },
-  { productId: "2", name: "Tuna Belly (Toro)", sku: "TUN-001", barcode: "123457", unitPrice: 680, quantity: 0, maxQuantity: 30 },
-  { productId: "3", name: "Shrimp (Large)", sku: "SHR-001", barcode: "123458", unitPrice: 320, quantity: 0, maxQuantity: 100 },
-  { productId: "4", name: "Squid (Fresh)", sku: "SQU-001", barcode: "123459", unitPrice: 220, quantity: 0, maxQuantity: 75 },
-  { productId: "5", name: "Milkfish (Bangus)", sku: "MIL-001", barcode: "123460", unitPrice: 150, quantity: 0, maxQuantity: 60 },
-  { productId: "6", name: "Crab (Mud Crab)", sku: "CRA-001", barcode: "123461", unitPrice: 380, quantity: 0, maxQuantity: 25 },
-  { productId: "7", name: "Octopus (Small)", sku: "OCT-001", barcode: "123462", unitPrice: 290, quantity: 0, maxQuantity: 40 },
-  { productId: "8", name: "Fish Balls (Pack)", sku: "FBA-001", barcode: "123463", unitPrice: 120, quantity: 0, maxQuantity: 200 },
-];
 
 export default function SalesScreen() {
   const [search, setSearch] = useState("");
@@ -41,10 +35,61 @@ export default function SalesScreen() {
   const [customerName, setCustomerName] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [lastReceipt, setLastReceipt] = useState<any>(null);
+  const [products, setProducts] = useState<PosCartItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
   const cart = useCartStore();
   const cashier = useAuthStore((s) => s.cashier);
+  const device = useDeviceStore((s) => s.device);
 
-  const filteredProducts = DEMO_PRODUCTS.filter((p) =>
+  const loadProducts = useCallback(async () => {
+    try {
+      const result = await ProductService.search({ page: 1, pageSize: 100 });
+      const items: PosCartItem[] = result.items.map((p: ProductDTO) => ({
+        productId: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.sku,
+        unitPrice: p.retailPrice ?? 0,
+        quantity: 0,
+        maxQuantity: 999,
+      }));
+      setProducts(items);
+    } catch {
+      // keep empty
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await loadProducts();
+      setLoading(false);
+    })();
+  }, [loadProducts]);
+
+  useEffect(() => {
+    if (search.length === 0) {
+      loadProducts();
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      const result = await ProductService.search({ search, page: 1, pageSize: 100 });
+      const items: PosCartItem[] = result.items.map((p: ProductDTO) => ({
+        productId: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.sku,
+        unitPrice: p.retailPrice ?? 0,
+        quantity: 0,
+        maxQuantity: 999,
+      }));
+      setProducts(items);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [search, loadProducts]);
+
+  const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.sku.toLowerCase().includes(search.toLowerCase())
   );
@@ -64,32 +109,61 @@ export default function SalesScreen() {
     setCheckoutVisible(true);
   };
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
     const total = cart.total();
     const paid = parseFloat(paidAmount) || total;
     if (paid < total) {
       Alert.alert("Insufficient Payment", "Paid amount is less than total.");
       return;
     }
-    setLastReceipt({
-      receiptNumber: "RCP-" + Date.now().toString().slice(-8),
-      items: [...cart.items],
-      subtotal: total,
-      tax: total * 0.12,
-      total: total * 1.12,
-      paidAmount: paid,
-      change: paid - total * 1.12,
-      paymentMethod,
-      customerName,
-      cashierName: cashier?.name ?? "Cashier",
-      date: new Date().toISOString(),
-    });
-    setCheckoutVisible(false);
-    setReceiptVisible(true);
-    cart.clear();
-    setCustomerName("");
-    setPaidAmount("");
-    setPaymentMethod("CASH");
+    setProcessing(true);
+    try {
+      const result = await SaleService.create({
+        cashierId: cashier?.id ?? "",
+        cashierName: cashier?.name ?? "Cashier",
+        customerName: customerName || undefined,
+        paymentMethod,
+        items: cart.items.map((i) => ({
+          productId: i.productId,
+          productName: i.name,
+          sku: i.sku,
+          barcode: i.barcode,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+        })),
+        paidAmount: paid,
+        deviceId: device.deviceId ?? undefined,
+        branchId: device.branchId ?? undefined,
+      });
+
+      if (result.success && result.sale) {
+        setLastReceipt({
+          receiptNumber: result.sale.receiptNumber,
+          items: [...cart.items],
+          subtotal: result.sale.subtotal,
+          tax: result.sale.tax,
+          total: result.sale.total,
+          paidAmount: result.sale.paidAmount,
+          change: result.sale.changeAmount,
+          paymentMethod,
+          customerName,
+          cashierName: cashier?.name ?? "Cashier",
+          date: result.sale.createdAt,
+        });
+        setCheckoutVisible(false);
+        setReceiptVisible(true);
+        cart.clear();
+        setCustomerName("");
+        setPaidAmount("");
+        setPaymentMethod("CASH");
+      } else {
+        Alert.alert("Error", result.error ?? "Failed to create sale.");
+      }
+    } catch {
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const renderProduct = ({ item }: { item: PosCartItem }) => {
@@ -137,88 +211,100 @@ export default function SalesScreen() {
         )}
       </View>
 
-      <View style={styles.layout}>
-        <View style={styles.productSection}>
-          <FlatList
-            data={filteredProducts}
-            renderItem={renderProduct}
-            keyExtractor={(item) => item.productId}
-            numColumns={GRID_COLUMNS}
-            columnWrapperStyle={styles.productRow}
-            contentContainerStyle={styles.productList}
-          />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#17386b" />
         </View>
-
-        <Card style={styles.cartPanel}>
-          <View style={styles.cartHeader}>
-            <Ionicons name="cart" size={20} color="#17386b" />
-            <Text style={styles.cartTitle}>Cart ({cart.items.length})</Text>
-            {cart.items.length > 0 && (
-              <TouchableOpacity onPress={() => cart.clear()}>
-                <Text style={styles.clearText}>Clear</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <ScrollView style={styles.cartItems} showsVerticalScrollIndicator={false}>
-            {cart.items.length === 0 ? (
-              <View style={styles.emptyCart}>
-                <Ionicons name="cart-outline" size={40} color="#d1d9e6" />
-                <Text style={styles.emptyCartText}>Cart is empty</Text>
-              </View>
-            ) : (
-              cart.items.map((item) => (
-                <View key={item.productId} style={styles.cartItem}>
-                  <View style={styles.cartItemInfo}>
-                    <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.cartItemPrice}>₱{item.unitPrice.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.cartItemActions}>
-                    <TouchableOpacity
-                      style={styles.qtyBtn}
-                      onPress={() => cart.updateQuantity(item.productId, item.quantity - 1)}
-                    >
-                      <Ionicons name="remove" size={14} color="#17386b" />
-                    </TouchableOpacity>
-                    <Text style={styles.qtyText}>{item.quantity}</Text>
-                    <TouchableOpacity
-                      style={styles.qtyBtn}
-                      onPress={() => cart.updateQuantity(item.productId, item.quantity + 1)}
-                    >
-                      <Ionicons name="add" size={14} color="#17386b" />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.cartItemTotal}>
-                    ₱{(item.unitPrice * item.quantity).toFixed(2)}
-                  </Text>
+      ) : (
+        <View style={styles.layout}>
+          <View style={styles.productSection}>
+            <FlatList
+              data={filteredProducts}
+              renderItem={renderProduct}
+              keyExtractor={(item) => item.productId}
+              numColumns={GRID_COLUMNS}
+              columnWrapperStyle={styles.productRow}
+              contentContainerStyle={styles.productList}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
+                  <Text style={styles.emptyText}>No products found</Text>
                 </View>
-              ))
-            )}
-          </ScrollView>
-
-          <View style={styles.cartSummary}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>₱{cart.total().toFixed(2)}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tax (12%)</Text>
-              <Text style={styles.summaryValue}>₱{(cart.total() * 0.12).toFixed(2)}</Text>
-            </View>
-            <View style={[styles.summaryRow, styles.totalRow]}>
-              <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>₱{(cart.total() * 1.12).toFixed(2)}</Text>
-            </View>
+              }
+            />
           </View>
 
-          <Button
-            title="Checkout"
-            onPress={handleCheckout}
-            icon="card-outline"
-            style={styles.checkoutBtn}
-          />
-        </Card>
-      </View>
+          <Card style={styles.cartPanel}>
+            <View style={styles.cartHeader}>
+              <Ionicons name="cart" size={20} color="#17386b" />
+              <Text style={styles.cartTitle}>Cart ({cart.items.length})</Text>
+              {cart.items.length > 0 && (
+                <TouchableOpacity onPress={() => cart.clear()}>
+                  <Text style={styles.clearText}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView style={styles.cartItems} showsVerticalScrollIndicator={false}>
+              {cart.items.length === 0 ? (
+                <View style={styles.emptyCart}>
+                  <Ionicons name="cart-outline" size={40} color="#d1d9e6" />
+                  <Text style={styles.emptyCartText}>Cart is empty</Text>
+                </View>
+              ) : (
+                cart.items.map((item) => (
+                  <View key={item.productId} style={styles.cartItem}>
+                    <View style={styles.cartItemInfo}>
+                      <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.cartItemPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.cartItemActions}>
+                      <TouchableOpacity
+                        style={styles.qtyBtn}
+                        onPress={() => cart.updateQuantity(item.productId, item.quantity - 1)}
+                      >
+                        <Ionicons name="remove" size={14} color="#17386b" />
+                      </TouchableOpacity>
+                      <Text style={styles.qtyText}>{item.quantity}</Text>
+                      <TouchableOpacity
+                        style={styles.qtyBtn}
+                        onPress={() => cart.updateQuantity(item.productId, item.quantity + 1)}
+                      >
+                        <Ionicons name="add" size={14} color="#17386b" />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.cartItemTotal}>
+                      ₱{(item.unitPrice * item.quantity).toFixed(2)}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={styles.cartSummary}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Subtotal</Text>
+                <Text style={styles.summaryValue}>₱{cart.total().toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Tax (12%)</Text>
+                <Text style={styles.summaryValue}>₱{(cart.total() * 0.12).toFixed(2)}</Text>
+              </View>
+              <View style={[styles.summaryRow, styles.totalRow]}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>₱{(cart.total() * 1.12).toFixed(2)}</Text>
+              </View>
+            </View>
+
+            <Button
+              title="Checkout"
+              onPress={handleCheckout}
+              icon="card-outline"
+              style={styles.checkoutBtn}
+            />
+          </Card>
+        </View>
+      )}
 
       <BottomSheet visible={checkoutVisible} onClose={() => setCheckoutVisible(false)}>
         <Text style={styles.checkoutTitle}>Checkout</Text>
@@ -271,7 +357,12 @@ export default function SalesScreen() {
           )}
         </View>
 
-        <Button title="Confirm Sale" onPress={handleConfirmSale} icon="checkmark-circle" />
+        <Button
+          title={processing ? "Processing..." : "Confirm Sale"}
+          onPress={handleConfirmSale}
+          icon="checkmark-circle"
+          disabled={processing}
+        />
       </BottomSheet>
 
       <Modal visible={receiptVisible} onClose={() => setReceiptVisible(false)}>
@@ -321,6 +412,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#6b7b8d",
+    marginTop: 8,
   },
   searchBar: {
     flexDirection: "row",

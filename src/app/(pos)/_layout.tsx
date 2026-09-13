@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, Dimensions } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, Dimensions, ActivityIndicator } from "react-native";
 import { usePathname, Slot, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useUiStore } from "@/lib/stores/ui-store";
@@ -8,6 +8,8 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { SessionIndicator } from "@/components/layout/session-indicator";
 import { Sidebar } from "@/components/layout/sidebar";
 import { LockScreen } from "@/components/auth/lock-screen";
+import { getDatabase } from "@/lib/db/connection";
+import { SeedService } from "@/lib/services/seed.service";
 
 const { width } = Dimensions.get("window");
 const WIDE_BREAKPOINT = 768;
@@ -44,10 +46,35 @@ export default function POSLayout() {
   const navigationMode = useUiStore((s) => s.navigationMode);
   const session = useCashierStore((s) => s.session);
   const device = useDeviceStore((s) => s.device);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await getDatabase();
+        await SeedService.run();
+      } catch {
+        // silent fail
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, []);
 
   const isWide =
     navigationMode === "sidebar" ||
     (navigationMode === "auto" && width >= WIDE_BREAKPOINT);
+
+  if (!ready) {
+    return (
+      <View style={styles.container}>
+        <POSHeader />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#17386b" />
+        </View>
+      </View>
+    );
+  }
 
   if (device.registrationState === "unregistered") {
     return (

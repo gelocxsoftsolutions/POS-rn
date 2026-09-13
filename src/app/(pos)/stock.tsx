@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,12 +6,16 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InventoryService } from "@/lib/services/inventory.service";
+import { ProductService } from "@/lib/services/product.service";
+import type { InventoryDTO, ProductDTO } from "@/lib/types/inventory";
 
-interface StockItem {
+interface StockDisplayItem {
   id: string;
   name: string;
   sku: string;
@@ -21,35 +25,63 @@ interface StockItem {
   sold: number;
 }
 
-const DEMO_STOCK: StockItem[] = [
-  { id: "1", name: "Fresh Salmon Fillet", sku: "SAL-001", available: 50, minimum: 10, allocated: 5, sold: 120 },
-  { id: "2", name: "Tuna Belly (Toro)", sku: "TUN-001", available: 30, minimum: 8, allocated: 3, sold: 85 },
-  { id: "3", name: "Shrimp (Large)", sku: "SHR-001", available: 100, minimum: 15, allocated: 10, sold: 200 },
-  { id: "4", name: "Squid (Fresh)", sku: "SQU-001", available: 75, minimum: 12, allocated: 8, sold: 150 },
-  { id: "5", name: "Milkfish (Bangus)", sku: "MIL-001", available: 60, minimum: 10, allocated: 5, sold: 180 },
-  { id: "6", name: "Crab (Mud Crab)", sku: "CRA-001", available: 5, minimum: 8, allocated: 2, sold: 45 },
-  { id: "7", name: "Octopus (Small)", sku: "OCT-001", available: 40, minimum: 10, allocated: 4, sold: 60 },
-  { id: "8", name: "Fish Balls (Pack)", sku: "FBA-001", available: 200, minimum: 30, allocated: 20, sold: 350 },
-  { id: "9", name: "Prawns (Jumbo)", sku: "PRW-001", available: 0, minimum: 10, allocated: 0, sold: 30 },
-  { id: "10", name: "Squid Rings (Pack)", sku: "SRG-001", available: 80, minimum: 20, allocated: 10, sold: 120 },
-];
-
 export default function StockScreen() {
   const [search, setSearch] = useState("");
+  const [stockItems, setStockItems] = useState<StockDisplayItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = DEMO_STOCK.filter(
+  const loadData = useCallback(async () => {
+    try {
+      const [inventory, products] = await Promise.all([
+        InventoryService.listAll(),
+        ProductService.search({ page: 1, pageSize: 500 }),
+      ]);
+
+      const productMap = new Map<string, ProductDTO>();
+      for (const p of products.items) {
+        productMap.set(p.id, p);
+      }
+
+      const displayItems: StockDisplayItem[] = inventory.map((inv: InventoryDTO) => {
+        const product = productMap.get(inv.productId);
+        return {
+          id: inv.id,
+          name: product?.name ?? "Unknown Product",
+          sku: product?.sku ?? "",
+          available: inv.availableQty,
+          minimum: inv.minimumStock,
+          allocated: inv.allocatedQty,
+          sold: inv.soldQty,
+        };
+      });
+
+      setStockItems(displayItems);
+    } catch {
+      // keep empty
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await loadData();
+      setLoading(false);
+    })();
+  }, [loadData]);
+
+  const filtered = stockItems.filter(
     (s) =>
       s.name.toLowerCase().includes(search.toLowerCase()) ||
       s.sku.toLowerCase().includes(search.toLowerCase())
   );
 
-  const stockStatus = (item: StockItem) => {
+  const stockStatus = (item: StockDisplayItem) => {
     if (item.available === 0) return { label: "Out of Stock", color: "#dc3545" };
     if (item.available <= item.minimum) return { label: "Low Stock", color: "#ffc107" };
     return { label: "In Stock", color: "#28a745" };
   };
 
-  const renderStock = ({ item }: { item: StockItem }) => {
+  const renderStock = ({ item }: { item: StockDisplayItem }) => {
     const status = stockStatus(item);
     const isLow = item.available <= item.minimum && item.available > 0;
     const isOut = item.available === 0;
@@ -86,6 +118,14 @@ export default function StockScreen() {
     );
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#17386b" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.searchBar}>
@@ -106,18 +146,18 @@ export default function StockScreen() {
 
       <View style={styles.summaryBar}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryNumber}>{DEMO_STOCK.length}</Text>
+          <Text style={styles.summaryNumber}>{stockItems.length}</Text>
           <Text style={styles.summaryLabel}>Total Items</Text>
         </View>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryNumber, { color: "#dc3545" }]}>
-            {DEMO_STOCK.filter((s) => s.available === 0).length}
+            {stockItems.filter((s) => s.available === 0).length}
           </Text>
           <Text style={styles.summaryLabel}>Out of Stock</Text>
         </View>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryNumber, { color: "#ffc107" }]}>
-            {DEMO_STOCK.filter((s) => s.available > 0 && s.available <= s.minimum).length}
+            {stockItems.filter((s) => s.available > 0 && s.available <= s.minimum).length}
           </Text>
           <Text style={styles.summaryLabel}>Low Stock</Text>
         </View>
@@ -128,6 +168,12 @@ export default function StockScreen() {
         renderItem={renderStock}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="archive-outline" size={48} color="#d1d9e6" />
+            <Text style={styles.emptyText}>No stock items found</Text>
+          </View>
+        }
       />
     </View>
   );
@@ -137,6 +183,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#6b7b8d",
+    marginTop: 8,
   },
   searchBar: {
     flexDirection: "row",

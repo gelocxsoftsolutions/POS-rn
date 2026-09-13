@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,12 +6,16 @@ import {
   StyleSheet,
   Dimensions,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
+import { SaleService } from "@/lib/services/sale.service";
+import { InventoryService } from "@/lib/services/inventory.service";
+import { SettingsService } from "@/lib/services/settings.service";
 
 const { width } = Dimensions.get("window");
 
@@ -29,28 +33,44 @@ export default function Dashboard() {
     averageBasket: 0,
     lowStockCount: 0,
   });
+  const [storeName, setStoreName] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const device = useDeviceStore((s) => s.device);
   const session = useCashierStore((s) => s.session);
 
-  const loadData = async () => {
-    setStats({
-      todaysSales: 12450.75,
-      transactionCount: 47,
-      averageBasket: 264.91,
-      lowStockCount: 3,
-    });
-  };
+  const loadData = useCallback(async () => {
+    try {
+      const [summary, lowStock, settings] = await Promise.all([
+        SaleService.summary(),
+        InventoryService.getLowStock(),
+        SettingsService.get(),
+      ]);
+      setStats({
+        todaysSales: summary.totalSales,
+        transactionCount: summary.transactionCount,
+        averageBasket: summary.averageBasket,
+        lowStockCount: lowStock.length,
+      });
+      setStoreName(settings.storeName || device.branchName || "");
+    } catch {
+      // keep defaults
+    }
+  }, [device.branchName]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    (async () => {
+      setLoading(true);
+      await loadData();
+      setLoading(false);
+    })();
+  }, [loadData]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
-  };
+  }, [loadData]);
 
   const statCards = [
     {
@@ -83,6 +103,14 @@ export default function Dashboard() {
     },
   ];
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#17386b" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
@@ -111,7 +139,7 @@ export default function Dashboard() {
         <View style={styles.sessionInfo}>
           <View style={styles.sessionRow}>
             <Text style={styles.sessionLabel}>Store</Text>
-            <Text style={styles.sessionValue}>{device.branchName ?? "N/A"}</Text>
+            <Text style={styles.sessionValue}>{storeName || "N/A"}</Text>
           </View>
           <View style={styles.sessionRow}>
             <Text style={styles.sessionLabel}>Cashier</Text>
@@ -137,6 +165,11 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   greeting: {
     fontSize: 20,

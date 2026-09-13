@@ -2,19 +2,20 @@ import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
   StatusBar,
   KeyboardAvoidingView,
   Platform,
-  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
+import { useCashierStore } from "@/lib/stores/cashier-store";
+import { CashierService } from "@/lib/services/cashier.service";
 
 const { width } = Dimensions.get("window");
 const PIN_LENGTH = 6;
@@ -35,21 +36,22 @@ export default function PINPadLogin() {
       setError("");
       if (newPin.length === PIN_LENGTH) {
         setLoading(true);
-        setTimeout(() => {
-          if (newPin === "1234") {
-            signIn({
-              id: "cashier-001",
-              name: "Cashier",
-              pin: newPin,
-              role: "Cashier",
-            });
-            router.replace("/(pos)");
-          } else {
-            setError("Invalid PIN");
+        (async () => {
+          try {
+            const result = await CashierService.loginPin(newPin);
+            if (result.success && result.session) {
+              router.replace("/(pos)");
+            } else {
+              setError(result.error ?? "Invalid PIN");
+              setPin("");
+            }
+          } catch {
+            setError("Login failed. Please try again.");
             setPin("");
+          } finally {
+            setLoading(false);
           }
-          setLoading(false);
-        }, 300);
+        })();
       }
     },
     [pin, signIn, router]
@@ -129,7 +131,15 @@ export default function PINPadLogin() {
           {Array.from({ length: PIN_LENGTH }).map((_, i) => renderDot(i))}
         </View>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : <View style={{ height: 20 }} />}
+        {error ? (
+          <Text style={styles.errorText}>{error}</Text>
+        ) : (
+          <View style={{ height: 20 }} />
+        )}
+
+        {loading && (
+          <ActivityIndicator size="small" color="#17386b" style={{ marginBottom: 8 }} />
+        )}
 
         <View style={styles.pad}>
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}

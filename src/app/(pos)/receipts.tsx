@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,37 +6,41 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-interface ReceiptRecord {
-  id: string;
-  receiptNumber: string;
-  date: string;
-  total: number;
-  paymentMethod: string;
-  items: number;
-  status: string;
-}
-
-const DEMO_RECEIPTS: ReceiptRecord[] = [
-  { id: "1", receiptNumber: "RCP-00000047", date: "2026-09-13T10:30:00", total: 1344, paymentMethod: "CASH", items: 3, status: "COMPLETED" },
-  { id: "2", receiptNumber: "RCP-00000046", date: "2026-09-13T09:45:00", total: 680, paymentMethod: "CARD", items: 1, status: "COMPLETED" },
-  { id: "3", receiptNumber: "RCP-00000045", date: "2026-09-12T16:20:00", total: 2150, paymentMethod: "CASH", items: 5, status: "COMPLETED" },
-  { id: "4", receiptNumber: "RCP-00000044", date: "2026-09-12T14:10:00", total: 450, paymentMethod: "DIGITAL", items: 2, status: "COMPLETED" },
-  { id: "5", receiptNumber: "RCP-00000043", date: "2026-09-11T11:00:00", total: 890, paymentMethod: "CASH", items: 4, status: "COMPLETED" },
-];
+import { SaleService } from "@/lib/services/sale.service";
+import type { SaleDTO } from "@/lib/types/sales";
 
 export default function ReceiptsScreen() {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ReceiptRecord | null>(null);
+  const [selected, setSelected] = useState<SaleDTO | null>(null);
+  const [receipts, setReceipts] = useState<SaleDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = DEMO_RECEIPTS.filter(
+  const loadReceipts = useCallback(async () => {
+    try {
+      const result = await SaleService.list({ page: 1, pageSize: 50 });
+      setReceipts(result.items);
+    } catch {
+      // keep empty
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await loadReceipts();
+      setLoading(false);
+    })();
+  }, [loadReceipts]);
+
+  const filtered = receipts.filter(
     (r) =>
       r.receiptNumber.toLowerCase().includes(search.toLowerCase()) ||
-      r.paymentMethod.toLowerCase().includes(search.toLowerCase())
+      (r.paymentMethod ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
   const formatDate = (dateStr: string) => {
@@ -53,14 +57,14 @@ export default function ReceiptsScreen() {
     }
   };
 
-  const renderReceipt = ({ item }: { item: ReceiptRecord }) => (
+  const renderReceipt = ({ item }: { item: SaleDTO }) => (
     <TouchableOpacity onPress={() => setSelected(item)} activeOpacity={0.7}>
       <Card style={styles.receiptCard}>
         <View style={styles.receiptRow}>
           <View style={styles.receiptInfo}>
             <Text style={styles.receiptNumber}>{item.receiptNumber}</Text>
-            <Text style={styles.receiptDate}>{formatDate(item.date)}</Text>
-            <Text style={styles.receiptItems}>{item.items} items</Text>
+            <Text style={styles.receiptDate}>{formatDate(item.createdAt)}</Text>
+            <Text style={styles.receiptItems}>{item.itemCount} items</Text>
           </View>
           <View style={styles.receiptRight}>
             <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
@@ -70,6 +74,14 @@ export default function ReceiptsScreen() {
       </Card>
     </TouchableOpacity>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#17386b" />
+      </View>
+    );
+  }
 
   if (selected) {
     return (
@@ -83,15 +95,19 @@ export default function ReceiptsScreen() {
         </View>
         <Card style={styles.detailCard}>
           <Text style={styles.detailStore}>NCT Seafoods</Text>
-          <Text style={styles.detailDate}>{formatDate(selected.date)}</Text>
+          <Text style={styles.detailDate}>{formatDate(selected.createdAt)}</Text>
           <View style={styles.divider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Receipt #</Text>
             <Text style={styles.detailValue}>{selected.receiptNumber}</Text>
           </View>
           <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Cashier</Text>
+            <Text style={styles.detailValue}>{selected.cashierName}</Text>
+          </View>
+          <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Items</Text>
-            <Text style={styles.detailValue}>{selected.items}</Text>
+            <Text style={styles.detailValue}>{selected.itemCount}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Payment</Text>
@@ -101,6 +117,14 @@ export default function ReceiptsScreen() {
           <View style={styles.detailRow}>
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>₱{selected.total.toFixed(2)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Paid</Text>
+            <Text style={styles.detailValue}>₱{selected.paidAmount.toFixed(2)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Change</Text>
+            <Text style={styles.detailValue}>₱{selected.changeAmount.toFixed(2)}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Status</Text>
@@ -133,6 +157,12 @@ export default function ReceiptsScreen() {
         renderItem={renderReceipt}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="receipt-outline" size={48} color="#d1d9e6" />
+            <Text style={styles.emptyText}>No receipts found</Text>
+          </View>
+        }
       />
     </View>
   );
@@ -142,6 +172,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#6b7b8d",
+    marginTop: 8,
   },
   searchBar: {
     flexDirection: "row",

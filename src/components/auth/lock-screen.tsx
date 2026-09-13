@@ -6,9 +6,11 @@ import {
   StyleSheet,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useCashierStore } from "@/lib/stores/cashier-store";
+import { CashierService } from "@/lib/services/cashier.service";
 
 const { width } = Dimensions.get("window");
 const PIN_LENGTH = 6;
@@ -20,6 +22,7 @@ interface LockScreenProps {
 export function LockScreen({ onUnlock }: LockScreenProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const session = useCashierStore((s) => s.session);
   const unlock = useCashierStore((s) => s.unlock);
 
@@ -30,19 +33,41 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
       setPin(newPin);
       setError(false);
       if (newPin.length === PIN_LENGTH) {
-        if (newPin === "1234") {
-          unlock();
-          onUnlock?.();
-        } else {
-          setError(true);
-          setTimeout(() => {
-            setPin("");
-            setError(false);
-          }, 800);
-        }
+        setLoading(true);
+        (async () => {
+          try {
+            const result = await CashierService.loginPin(newPin);
+            if (result.success && result.session) {
+              if (session && result.session.cashierId === session.cashierId) {
+                await CashierService.unlock(session.sessionId);
+                onUnlock?.();
+              } else {
+                setError(true);
+                setTimeout(() => {
+                  setPin("");
+                  setError(false);
+                }, 800);
+              }
+            } else {
+              setError(true);
+              setTimeout(() => {
+                setPin("");
+                setError(false);
+              }, 800);
+            }
+          } catch {
+            setError(true);
+            setTimeout(() => {
+              setPin("");
+              setError(false);
+            }, 800);
+          } finally {
+            setLoading(false);
+          }
+        })();
       }
     },
-    [pin, unlock, onUnlock]
+    [pin, unlock, onUnlock, session]
   );
 
   const handleBackspace = useCallback(() => {
@@ -70,6 +95,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
       style={styles.key}
       onPress={() => handleDigit(digit)}
       activeOpacity={0.6}
+      disabled={loading}
     >
       <Text style={styles.keyText}>{digit}</Text>
     </TouchableOpacity>
@@ -95,11 +121,15 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
 
       {error && <Text style={styles.errorText}>Incorrect PIN. Try again.</Text>}
 
+      {loading && (
+        <ActivityIndicator size="small" color="#ffffff" style={{ marginBottom: 8 }} />
+      )}
+
       <View style={styles.pad}>
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
         <View style={styles.keySpacer} />
         {renderKey("0")}
-        <TouchableOpacity style={styles.key} onPress={handleBackspace} activeOpacity={0.6}>
+        <TouchableOpacity style={styles.key} onPress={handleBackspace} activeOpacity={0.6} disabled={loading}>
           <Ionicons name="backspace-outline" size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>

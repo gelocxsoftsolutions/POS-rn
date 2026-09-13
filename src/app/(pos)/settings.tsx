@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Switch,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +18,8 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useUiStore } from "@/lib/stores/ui-store";
+import { OmsSyncService } from "@/lib/services/oms-sync.service";
+import { SettingsService } from "@/lib/services/settings.service";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -30,6 +33,28 @@ export default function SettingsScreen() {
   const [apiKey, setApiKey] = useState("");
   const [omsConnected, setOmsConnected] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [storeName, setStoreName] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const settings = await SettingsService.get();
+      setStoreName(settings.storeName || "");
+      if (settings.address) {
+        // settings loaded
+      }
+    } catch {
+      // keep defaults
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await loadSettings();
+      setLoading(false);
+    })();
+  }, [loadSettings]);
 
   const handleSignOut = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -62,18 +87,37 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     if (!omsUrl.trim()) {
       Alert.alert("Error", "Please enter a server URL.");
       return;
     }
     setTesting(true);
-    setTimeout(() => {
+    try {
+      const result = await OmsSyncService.connect(omsUrl.trim(), apiKey.trim());
+      if (result.success) {
+        setOmsConnected(true);
+        if (storeName.trim()) {
+          await SettingsService.update({ storeName: storeName.trim() });
+        }
+        Alert.alert("Success", "Connected to OMS server successfully!");
+      } else {
+        Alert.alert("Error", result.error ?? "Connection failed.");
+      }
+    } catch {
+      Alert.alert("Error", "An unexpected error occurred.");
+    } finally {
       setTesting(false);
-      setOmsConnected(true);
-      Alert.alert("Success", "Connected to OMS server successfully!");
-    }, 1500);
+    }
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#17386b" />
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -83,7 +127,13 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>Store Details</Text>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Store Name</Text>
-          <Text style={styles.fieldValue}>{device.branchName ?? "N/A"}</Text>
+          <TextInput
+            style={styles.fieldInput}
+            value={storeName}
+            onChangeText={setStoreName}
+            placeholder="Enter store name"
+            placeholderTextColor="#b0b8c1"
+          />
         </View>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Device Code</Text>
@@ -211,6 +261,11 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   screenTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -243,6 +298,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#1a202c",
+  },
+  fieldInput: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1a202c",
+    textAlign: "right",
+    flex: 1,
+    marginLeft: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#f7f9fc",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   themeRow: {
     flexDirection: "row",
