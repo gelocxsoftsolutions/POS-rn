@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,41 +10,69 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Modal, BottomSheet } from "@/components/ui/modal";
+import { BottomSheet } from "@/components/ui/modal";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { ProductService } from "@/lib/services/product.service";
 import { SaleService } from "@/lib/services/sale.service";
-import type { PosCartItem, PaymentMethodType } from "@/lib/types/pos";
+import { ReceiptService } from "@/lib/services/receipt.service";
+import { SettingsService } from "@/lib/services/settings.service";
+import { InventoryService } from "@/lib/services/inventory.service";
+import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 
 const { width } = Dimensions.get("window");
 const GRID_COLUMNS = width >= 768 ? 3 : 2;
 
+const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
+  { value: "popular", label: "Popular" },
+  { value: "name", label: "Name A-Z" },
+  { value: "priceAsc", label: "Price Low-High" },
+  { value: "priceDesc", label: "Price High-Low" },
+  { value: "stockDesc", label: "Stock High-Low" },
+];
+
 export default function SalesScreen() {
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<ProductSort>("popular");
   const [checkoutVisible, setCheckoutVisible] = useState(false);
   const [receiptVisible, setReceiptVisible] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("CASH");
   const [customerName, setCustomerName] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [lastReceipt, setLastReceipt] = useState<any>(null);
   const [products, setProducts] = useState<PosCartItem[]>([]);
+  const [stockMap, setStockMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [settings, setSettings] = useState<StoreSettings | null>(null);
+
   const cart = useCartStore();
   const cashier = useAuthStore((s) => s.cashier);
   const device = useDeviceStore((s) => s.device);
 
+  const [permission, requestPermission] = useCameraPermissions();
+
   const loadProducts = useCallback(async () => {
     try {
       const result = await ProductService.search({ page: 1, pageSize: 100 });
+      const inventoryList = await InventoryService.listAll();
+      const stockMapLocal = new Map<string, number>();
+      inventoryList.forEach((inv) => {
+        stockMapLocal.set(inv.productId, inv.availableQty);
+      });
+      setStockMap(stockMapLocal);
+
       const items: PosCartItem[] = result.items.map((p: ProductDTO) => ({
         productId: p.id,
         name: p.name,
@@ -52,7 +80,7 @@ export default function SalesScreen() {
         barcode: p.sku,
         unitPrice: p.retailPrice ?? 0,
         quantity: 0,
-        maxQuantity: 999,
+        maxQuantity: stockMapLocal.get(p.id) ?? 999,
       }));
       setProducts(items);
     } catch {
@@ -63,7 +91,17 @@ export default function SalesScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await loadProducts();
+      const [settingsResult] = await Promise.all([SettingsService.get(), loadProducts()]);
+      setSettings({
+        storeName: settingsResult.storeName || "Store",
+        storeCode: settingsResult.storeCode || "",
+        currencyCode: settingsResult.currencyCode || "PHP",
+        taxLabel: settingsResult.taxLabel || "VAT",
+        supportPhone: settingsResult.supportPhone || "",
+        address: settingsResult.address || "",
+        receiptFooter: settingsResult.receiptFooter || "Thank you for your purchase!",
+        taxRate: settingsResult.taxRate || 0,
+      });
       setLoading(false);
     })();
   }, [loadProducts]);
@@ -75,6 +113,13 @@ export default function SalesScreen() {
     }
     const timeout = setTimeout(async () => {
       const result = await ProductService.search({ search, page: 1, pageSize: 100 });
+      const inventoryList = await InventoryService.listAll();
+      const stockMapLocal = new Map<string, number>();
+      inventoryList.forEach((inv) => {
+        stockMapLocal.set(inv.productId, inv.availableQty);
+      });
+      setStockMap(stockMapLocal);
+
       const items: PosCartItem[] = result.items.map((p: ProductDTO) => ({
         productId: p.id,
         name: p.name,
@@ -82,23 +127,84 @@ export default function SalesScreen() {
         barcode: p.sku,
         unitPrice: p.retailPrice ?? 0,
         quantity: 0,
-        maxQuantity: 999,
+        maxQuantity: stockMapLocal.get(p.id) ?? 999,
       }));
       setProducts(items);
     }, 300);
     return () => clearTimeout(timeout);
   }, [search, loadProducts]);
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.sku.toLowerCase().includes(search.toLowerCase())
+  const cartQtyByProductId = useMemo(
+    () =>
+      cart.items.reduce((map, item) => {
+        map.set(item.productId, item.quantity);
+        return map;
+      }, new Map<string, number>()),
+    [cart.items]
   );
+
+  const effectiveStock = useCallback(
+    (productId: string, stock: number) => {
+      return stock - (cartQtyByProductId.get(productId) ?? 0);
+    },
+    [cartQtyByProductId]
+  );
+
+  const sortedProducts = useMemo(() => {
+    const next = [...products];
+
+    if (sort === "name") next.sort((a, b) => a.name.localeCompare(b.name));
+    if (sort === "priceAsc") next.sort((a, b) => a.unitPrice - b.unitPrice);
+    if (sort === "priceDesc") next.sort((a, b) => b.unitPrice - a.unitPrice);
+    if (sort === "stockDesc")
+      next.sort((a, b) => (b.maxQuantity ?? 0) - (a.maxQuantity ?? 0));
+
+    return next.filter((p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.sku.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [products, search, sort]);
 
   const handleAddToCart = useCallback(
     (product: PosCartItem) => {
+      const inCart = cartQtyByProductId.get(product.productId) ?? 0;
+      const effective = (stockMap.get(product.productId) ?? product.maxQuantity) - inCart;
+
+      if (effective <= 0) {
+        Alert.alert("No Stock", `${product.name} has no remaining stock for this cart.`);
+        return;
+      }
+
       cart.addItem(product);
     },
-    [cart]
+    [cart, cartQtyByProductId, stockMap]
+  );
+
+  const handleBarcodeScan = useCallback(
+    async (barcode: string) => {
+      try {
+        const product = await ProductService.getByBarcode(barcode);
+        if (!product) {
+          Alert.alert("Not Found", "No product matched that barcode.");
+          return;
+        }
+
+        const item: PosCartItem = {
+          productId: product.id,
+          name: product.name,
+          sku: product.sku,
+          barcode: barcode,
+          unitPrice: product.retailPrice ?? 0,
+          quantity: 0,
+          maxQuantity: stockMap.get(product.id) ?? 999,
+        };
+
+        handleAddToCart(item);
+      } catch {
+        Alert.alert("Error", "Failed to look up product by barcode.");
+      }
+    },
+    [handleAddToCart, stockMap]
   );
 
   const handleCheckout = () => {
@@ -110,7 +216,7 @@ export default function SalesScreen() {
   };
 
   const handleConfirmSale = async () => {
-    const total = cart.total();
+    const total = cart.total() * 1.12;
     const paid = parseFloat(paidAmount) || total;
     if (paid < total) {
       Alert.alert("Insufficient Payment", "Paid amount is less than total.");
@@ -137,7 +243,7 @@ export default function SalesScreen() {
       });
 
       if (result.success && result.sale) {
-        setLastReceipt({
+        const receiptData = {
           receiptNumber: result.sale.receiptNumber,
           items: [...cart.items],
           subtotal: result.sale.subtotal,
@@ -149,9 +255,26 @@ export default function SalesScreen() {
           customerName,
           cashierName: cashier?.name ?? "Cashier",
           date: result.sale.createdAt,
-        });
+        };
+        setLastReceipt(receiptData);
         setCheckoutVisible(false);
         setReceiptVisible(true);
+
+        if (settings) {
+          try {
+            await ReceiptService.create(
+              result.sale.id,
+              settings.storeName,
+              settings.storeCode,
+              settings.address,
+              settings.supportPhone,
+              settings.receiptFooter
+            );
+          } catch {
+            // receipt creation failed but sale was successful
+          }
+        }
+
         cart.clear();
         setCustomerName("");
         setPaidAmount("");
@@ -166,13 +289,28 @@ export default function SalesScreen() {
     }
   };
 
+  const openScanner = async () => {
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        Alert.alert("Permission Required", "Camera permission is needed to scan barcodes.");
+        return;
+      }
+    }
+    setScannerVisible(true);
+  };
+
   const renderProduct = ({ item }: { item: PosCartItem }) => {
+    const stock = stockMap.get(item.productId) ?? item.maxQuantity;
+    const effective = effectiveStock(item.productId, stock);
     const inCart = cart.items.find((i) => i.productId === item.productId);
+
     return (
       <TouchableOpacity
-        style={styles.productCard}
+        style={[styles.productCard, effective <= 0 && styles.productCardDisabled]}
         onPress={() => handleAddToCart(item)}
         activeOpacity={0.7}
+        disabled={effective <= 0}
       >
         <View style={styles.productImage}>
           <Ionicons name="fish" size={32} color="#17386b" />
@@ -181,8 +319,8 @@ export default function SalesScreen() {
         <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
         <View style={styles.productFooter}>
           <Badge
-            label={item.maxQuantity > 0 ? "In Stock" : "Out"}
-            color={item.maxQuantity > 0 ? "#28a745" : "#dc3545"}
+            label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
+            color={effective > 0 ? "#28a745" : "#dc3545"}
             size="sm"
           />
           {inCart && (
@@ -209,6 +347,23 @@ export default function SalesScreen() {
             <Ionicons name="close-circle" size={18} color="#8e99a4" />
           </TouchableOpacity>
         )}
+        <TouchableOpacity style={styles.scanBtn} onPress={openScanner}>
+          <Ionicons name="scan" size={20} color="#ffffff" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.sortBar}>
+        {SORT_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.value}
+            style={[styles.sortBtn, sort === opt.value && styles.sortBtnActive]}
+            onPress={() => setSort(opt.value)}
+          >
+            <Text style={[styles.sortBtnText, sort === opt.value && styles.sortBtnTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {loading ? (
@@ -219,7 +374,7 @@ export default function SalesScreen() {
         <View style={styles.layout}>
           <View style={styles.productSection}>
             <FlatList
-              data={filteredProducts}
+              data={sortedProducts}
               renderItem={renderProduct}
               keyExtractor={(item) => item.productId}
               numColumns={GRID_COLUMNS}
@@ -276,6 +431,12 @@ export default function SalesScreen() {
                     <Text style={styles.cartItemTotal}>
                       ₱{(item.unitPrice * item.quantity).toFixed(2)}
                     </Text>
+                    <TouchableOpacity
+                      style={styles.removeBtn}
+                      onPress={() => cart.removeItem(item.productId)}
+                    >
+                      <Ionicons name="close" size={16} color="#dc3545" />
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
@@ -287,12 +448,12 @@ export default function SalesScreen() {
                 <Text style={styles.summaryValue}>₱{cart.total().toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tax (12%)</Text>
-                <Text style={styles.summaryValue}>₱{(cart.total() * 0.12).toFixed(2)}</Text>
+                <Text style={styles.summaryLabel}>Tax ({settings?.taxLabel || "VAT"} {((settings?.taxRate || 0.12) * 100).toFixed(0)}%)</Text>
+                <Text style={styles.summaryValue}>₱{(cart.total() * (settings?.taxRate || 0.12)).toFixed(2)}</Text>
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>₱{(cart.total() * 1.12).toFixed(2)}</Text>
+                <Text style={styles.totalValue}>₱{(cart.total() * (1 + (settings?.taxRate || 0.12))).toFixed(2)}</Text>
               </View>
             </View>
 
@@ -348,11 +509,11 @@ export default function SalesScreen() {
 
         <View style={styles.checkoutSummary}>
           <Text style={styles.checkoutTotal}>
-            Total: ₱{(cart.total() * 1.12).toFixed(2)}
+            Total: ₱{(cart.total() * (1 + (settings?.taxRate || 0.12))).toFixed(2)}
           </Text>
           {parseFloat(paidAmount) > 0 && (
             <Text style={styles.checkoutChange}>
-              Change: ₱{(parseFloat(paidAmount) - cart.total() * 1.12).toFixed(2)}
+              Change: ₱{(parseFloat(paidAmount) - cart.total() * (1 + (settings?.taxRate || 0.12))).toFixed(2)}
             </Text>
           )}
         </View>
@@ -365,44 +526,83 @@ export default function SalesScreen() {
         />
       </BottomSheet>
 
-      <Modal visible={receiptVisible} onClose={() => setReceiptVisible(false)}>
-        {lastReceipt && (
-          <View style={styles.receiptContent}>
-            <Text style={styles.receiptStore}>NCT Seafoods</Text>
-            <Text style={styles.receiptNumber}>{lastReceipt.receiptNumber}</Text>
-            <View style={styles.receiptDivider} />
-            {lastReceipt.items.map((item: PosCartItem, idx: number) => (
-              <View key={idx} style={styles.receiptItem}>
-                <Text style={styles.receiptItemName}>{item.name} ×{item.quantity}</Text>
-                <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
-              </View>
-            ))}
-            <View style={styles.receiptDivider} />
-            <View style={styles.receiptItem}>
-              <Text style={styles.receiptItemName}>Subtotal</Text>
-              <Text style={styles.receiptItemPrice}>₱{lastReceipt.subtotal.toFixed(2)}</Text>
+      <Modal visible={scannerVisible} animationType="slide" transparent>
+        <View style={styles.scannerOverlay}>
+          <View style={styles.scannerContainer}>
+            <View style={styles.scannerHeader}>
+              <Text style={styles.scannerTitle}>Scan Barcode</Text>
+              <TouchableOpacity onPress={() => setScannerVisible(false)}>
+                <Ionicons name="close" size={24} color="#ffffff" />
+              </TouchableOpacity>
             </View>
-            <View style={styles.receiptItem}>
-              <Text style={styles.receiptItemName}>Tax (12%)</Text>
-              <Text style={styles.receiptItemPrice}>₱{lastReceipt.tax.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.receiptItem, { marginTop: 8 }]}>
-              <Text style={styles.receiptTotal}>Total</Text>
-              <Text style={styles.receiptTotal}>₱{lastReceipt.total.toFixed(2)}</Text>
-            </View>
-            <View style={styles.receiptItem}>
-              <Text style={styles.receiptItemName}>Paid ({lastReceipt.paymentMethod})</Text>
-              <Text style={styles.receiptItemPrice}>₱{lastReceipt.paidAmount.toFixed(2)}</Text>
-            </View>
-            <View style={styles.receiptItem}>
-              <Text style={styles.receiptItemName}>Change</Text>
-              <Text style={styles.receiptItemPrice}>₱{lastReceipt.change.toFixed(2)}</Text>
-            </View>
-            <View style={styles.receiptDivider} />
-            <Text style={styles.receiptFooter}>Thank you for your purchase!</Text>
-            <Button title="Done" onPress={() => setReceiptVisible(false)} style={{ marginTop: 16 }} />
+            <CameraView
+              style={styles.cameraView}
+              barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "code128", "code39", "upc_a", "upc_e"] }}
+              onBarcodeScanned={(scanned) => {
+                if (scanned.data) {
+                  setScannerVisible(false);
+                  handleBarcodeScan(scanned.data);
+                }
+              }}
+            />
           </View>
-        )}
+        </View>
+      </Modal>
+
+      <Modal visible={receiptVisible} transparent animationType="fade">
+        <View style={styles.receiptOverlay}>
+          <View style={styles.receiptContainer}>
+            {lastReceipt && (
+              <ScrollView style={styles.receiptScroll} showsVerticalScrollIndicator={false}>
+                <View style={styles.receiptContent}>
+                  <Text style={styles.receiptStore}>{settings?.storeName || "Store"}</Text>
+                  {settings?.address ? <Text style={styles.receiptAddress}>{settings.address}</Text> : null}
+                  {settings?.supportPhone ? <Text style={styles.receiptPhone}>{settings.supportPhone}</Text> : null}
+                  <Text style={styles.receiptNumber}>{lastReceipt.receiptNumber}</Text>
+                  <Text style={styles.receiptDate}>{new Date(lastReceipt.date).toLocaleString()}</Text>
+                  {lastReceipt.customerName ? (
+                    <Text style={styles.receiptCustomer}>Customer: {lastReceipt.customerName}</Text>
+                  ) : null}
+                  <Text style={styles.receiptCashier}>Cashier: {lastReceipt.cashierName}</Text>
+                  <View style={styles.receiptDivider} />
+                  {lastReceipt.items.map((item: PosCartItem, idx: number) => (
+                    <View key={idx} style={styles.receiptItem}>
+                      <View style={styles.receiptItemLeft}>
+                        <Text style={styles.receiptItemName}>{item.name}</Text>
+                        <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
+                      </View>
+                      <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
+                    </View>
+                  ))}
+                  <View style={styles.receiptDivider} />
+                  <View style={styles.receiptItem}>
+                    <Text style={styles.receiptItemName}>Subtotal</Text>
+                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.subtotal.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.receiptItem}>
+                    <Text style={styles.receiptItemName}>{settings?.taxLabel || "Tax"}</Text>
+                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.tax.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.receiptItem, { marginTop: 8 }]}>
+                    <Text style={styles.receiptTotal}>Total</Text>
+                    <Text style={styles.receiptTotal}>₱{lastReceipt.total.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.receiptItem}>
+                    <Text style={styles.receiptItemName}>Paid ({lastReceipt.paymentMethod})</Text>
+                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.paidAmount.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.receiptItem}>
+                    <Text style={styles.receiptItemName}>Change</Text>
+                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.change.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.receiptDivider} />
+                  <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
+                  <Button title="Done" onPress={() => setReceiptVisible(false)} style={{ marginTop: 16 }} />
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -445,6 +645,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1a202c",
   },
+  scanBtn: {
+    backgroundColor: "#17386b",
+    borderRadius: 8,
+    padding: 8,
+    marginLeft: 8,
+  },
+  sortBar: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  sortBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  sortBtnActive: {
+    backgroundColor: "#17386b",
+    borderColor: "#17386b",
+  },
+  sortBtnText: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#6b7b8d",
+  },
+  sortBtnTextActive: {
+    color: "#ffffff",
+  },
   layout: {
     flex: 1,
     flexDirection: width >= 768 ? "row" : "column",
@@ -469,6 +701,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 2,
+  },
+  productCardDisabled: {
+    opacity: 0.5,
   },
   productImage: {
     height: 80,
@@ -554,7 +789,7 @@ const styles = StyleSheet.create({
   cartItemActions: {
     flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: 12,
+    marginHorizontal: 8,
   },
   qtyBtn: {
     width: 26,
@@ -574,6 +809,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#17386b",
+  },
+  removeBtn: {
+    marginLeft: 8,
+    padding: 4,
   },
   cartSummary: {
     borderTopWidth: 1,
@@ -678,7 +917,50 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 4,
   },
+  scannerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+  },
+  scannerContainer: {
+    flex: 1,
+  },
+  scannerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 48 : 16,
+    paddingBottom: 12,
+  },
+  scannerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  cameraView: {
+    flex: 1,
+  },
+  receiptOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  receiptContainer: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 400,
+    maxHeight: "80%",
+    overflow: "hidden",
+  },
+  receiptScroll: {
+    maxHeight: "100%",
+  },
   receiptContent: {
+    padding: 24,
     alignItems: "center",
   },
   receiptStore: {
@@ -686,10 +968,36 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#17386b",
   },
+  receiptAddress: {
+    fontSize: 11,
+    color: "#6b7b8d",
+    marginTop: 2,
+    textAlign: "center",
+  },
+  receiptPhone: {
+    fontSize: 11,
+    color: "#6b7b8d",
+    marginTop: 2,
+  },
   receiptNumber: {
     fontSize: 12,
     color: "#6b7b8d",
+    marginTop: 8,
+  },
+  receiptDate: {
+    fontSize: 11,
+    color: "#6b7b8d",
     marginTop: 4,
+  },
+  receiptCustomer: {
+    fontSize: 12,
+    color: "#4a5568",
+    marginTop: 4,
+  },
+  receiptCashier: {
+    fontSize: 12,
+    color: "#4a5568",
+    marginTop: 2,
   },
   receiptDivider: {
     width: "100%",
@@ -703,9 +1011,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 6,
   },
+  receiptItemLeft: {
+    flex: 1,
+  },
   receiptItemName: {
     fontSize: 13,
     color: "#4a5568",
+  },
+  receiptItemQty: {
+    fontSize: 11,
+    color: "#6b7b8d",
+    marginTop: 2,
   },
   receiptItemPrice: {
     fontSize: 13,
@@ -721,5 +1037,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6b7b8d",
     fontStyle: "italic",
+    textAlign: "center",
   },
 });

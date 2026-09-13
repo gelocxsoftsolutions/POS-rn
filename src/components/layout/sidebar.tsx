@@ -1,53 +1,73 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
 } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useUiStore } from "@/lib/stores/ui-store";
+import { useCashierStore } from "@/lib/stores/cashier-store";
+import { PermissionService } from "@/lib/services/permission.service";
 import { SessionIndicator } from "@/components/layout/session-indicator";
-
-const { width } = Dimensions.get("window");
-const SIDEBAR_WIDTH = 240;
 
 type NavItem = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
   href: string;
+  requiredPermission: string;
 };
 
 const navItems: NavItem[] = [
-  { label: "Home", icon: "home-outline", href: "/(pos)" },
-  { label: "Sales", icon: "cart-outline", href: "/(pos)/sales" },
-  { label: "Receipts", icon: "receipt-outline", href: "/(pos)/receipts" },
-  { label: "Products", icon: "cube-outline", href: "/(pos)/products" },
-  { label: "Stock", icon: "archive-outline", href: "/(pos)/stock" },
-  { label: "Transfers", icon: "swap-horizontal-outline", href: "/(pos)/transfers" },
-  { label: "Settings", icon: "settings-outline", href: "/(pos)/settings" },
+  { label: "Home", icon: "home-outline", activeIcon: "home", href: "/(pos)", requiredPermission: "DASHBOARD" },
+  { label: "Sales", icon: "cart-outline", activeIcon: "cart", href: "/(pos)/sales", requiredPermission: "POS_SALES" },
+  { label: "Receipts", icon: "receipt-outline", activeIcon: "receipt", href: "/(pos)/receipts", requiredPermission: "POS_RECEIPTS" },
+  { label: "Products", icon: "cube-outline", activeIcon: "cube", href: "/(pos)/products", requiredPermission: "POS_PRODUCTS" },
+  { label: "Stock", icon: "archive-outline", activeIcon: "archive", href: "/(pos)/stock", requiredPermission: "POS_INVENTORY" },
+  { label: "Transfers", icon: "swap-horizontal-outline", activeIcon: "swap-horizontal", href: "/(pos)/transfers", requiredPermission: "POS_TRANSFERS" },
+  { label: "Settings", icon: "settings-outline", activeIcon: "settings", href: "/(pos)/settings", requiredPermission: "POS_SETTINGS" },
 ];
 
 interface SidebarProps {
   currentPath: string;
+  transferCount?: number;
 }
 
-export function Sidebar({ currentPath }: SidebarProps) {
+export function Sidebar({ currentPath, transferCount = 0 }: SidebarProps) {
   const router = useRouter();
+  const themeMode = useUiStore((s) => s.themeMode);
+  const session = useCashierStore((s) => s.session);
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
+
+  const dark = themeMode === "dark";
+
+  useEffect(() => {
+    if (!session?.roleId) return;
+    PermissionService.getRolePermissions(session.roleId)
+      .then(setGrantedPermissions)
+      .catch(() => {});
+  }, [session?.roleId]);
+
+  const visibleItems = navItems.filter(
+    (item) =>
+      grantedPermissions.length === 0 ||
+      grantedPermissions.includes(item.requiredPermission)
+  );
 
   return (
-    <View style={styles.sidebar}>
+    <View style={[styles.sidebar, dark ? styles.sidebarDark : styles.sidebarLight]}>
       <View style={styles.logoSection}>
         <View style={styles.logoIcon}>
-          <Ionicons name="fish" size={24} color="#17386b" />
+          <Ionicons name="fish" size={22} color="#17386b" />
         </View>
         <Text style={styles.logoText}>NCT POS</Text>
       </View>
 
       <View style={styles.navItems}>
-        {navItems.map((item) => {
-          const isActive = currentPath === item.href || 
+        {visibleItems.map((item) => {
+          const isActive = currentPath === item.href ||
             (item.href === "/(pos)" && currentPath === "/(pos)/index");
           return (
             <TouchableOpacity
@@ -57,7 +77,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
               activeOpacity={0.7}
             >
               <Ionicons
-                name={item.icon as any}
+                name={isActive ? item.activeIcon : item.icon}
                 size={20}
                 color={isActive ? "#17386b" : "#8e99a4"}
               />
@@ -66,6 +86,13 @@ export function Sidebar({ currentPath }: SidebarProps) {
               >
                 {item.label}
               </Text>
+              {item.label === "Transfers" && transferCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {transferCount > 9 ? "9+" : transferCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -80,12 +107,18 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: SIDEBAR_WIDTH,
-    backgroundColor: "#ffffff",
-    borderRightWidth: 1,
-    borderRightColor: "#e8edf3",
+    width: 220,
     paddingTop: 20,
     paddingBottom: 16,
+    borderRightWidth: 1,
+  },
+  sidebarLight: {
+    backgroundColor: "#ffffff",
+    borderRightColor: "#e8edf3",
+  },
+  sidebarDark: {
+    backgroundColor: "#091227",
+    borderRightColor: "rgba(255,255,255,0.1)",
   },
   logoSection: {
     flexDirection: "row",
@@ -126,10 +159,25 @@ const styles = StyleSheet.create({
     color: "#8e99a4",
     marginLeft: 12,
     fontWeight: "500",
+    flex: 1,
   },
   navLabelActive: {
     color: "#17386b",
     fontWeight: "600",
+  },
+  badge: {
+    backgroundColor: "#ef4444",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+  badgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
   },
   footer: {
     paddingHorizontal: 16,

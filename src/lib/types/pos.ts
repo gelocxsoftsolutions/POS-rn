@@ -1,4 +1,4 @@
-export type ProductSort = "popular" | "name" | "priceAsc" | "stockDesc";
+export type ProductSort = "popular" | "name" | "priceAsc" | "priceDesc" | "stockDesc";
 export type PaymentMethodType = "CASH" | "CARD" | "DIGITAL";
 export type PosTransactionStatus = "COMPLETED" | "CANCELLED" | "REFUNDED";
 

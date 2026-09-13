@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -16,42 +16,59 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { DeviceService } from "@/lib/services/device.service";
+import { CashierService } from "@/lib/services/cashier.service";
+import { OmsSyncService } from "@/lib/services/oms-sync.service";
+import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
+import { useDeviceStore } from "@/lib/stores/device-store";
 import * as Constants from "expo-constants";
-import { Platform } from "react-native";
 
 const { width } = Dimensions.get("window");
 
+type Step = "choose" | "qr" | "manual" | "success";
+
 export default function RegisterDevice() {
-  const [mode, setMode] = useState<"choose" | "qr" | "manual">("choose");
+  const [step, setStep] = useState<Step>("choose");
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const router = useRouter();
+  const device = useDeviceStore((s) => s.device);
+  const setDevice = useDeviceStore((s) => s.setDevice);
 
-  const handleManualRegister = async () => {
-    if (!token.trim()) {
-      Alert.alert("Error", "Please enter an activation token.");
-      return;
-    }
+  const doRegister = useCallback(async (activationToken: string, url?: string) => {
     setLoading(true);
     try {
+      const keys = generateEd25519Keypair();
       const result = await DeviceService.register({
-        activationToken: token.trim(),
-        publicKey: "",
-        privateKey: "",
+        activationToken,
+        publicKey: keys.publicKey,
+        privateKey: keys.privateKey,
         machineIdentifier: Constants.default?.sessionId ?? "unknown",
         computerName: Constants.default?.deviceName ?? "POS Terminal",
         appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
-        osVersion: Platform.Version?.toString() ?? "unknown",
-        serverUrl: serverUrl.trim() || undefined,
+        osVersion: "Android",
+        serverUrl: url,
       });
 
-      if (result.success) {
-        Alert.alert("Success", "Device registered successfully!", [
-          { text: "OK", onPress: () => router.replace("/(auth)") },
-        ]);
+      if (result.success && result.device) {
+        if (result.device.branchId) {
+          const device = useDeviceStore.getState().device;
+          if (device.branchId) {
+            try {
+              const cashierResult = await OmsSyncService.syncBranchProducts(device.branchId);
+            } catch { /* non-blocking */ }
+          }
+        }
+
+        if (url) {
+          try {
+            await OmsSyncService.connect(url, "");
+          } catch { /* non-blocking */ }
+        }
+
+        setStep("success");
       } else {
         Alert.alert("Error", result.error ?? "Registration failed.");
       }
@@ -60,9 +77,17 @@ export default function RegisterDevice() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setDevice]);
 
-  const handleQRScan = async () => {
+  const handleManualRegister = useCallback(async () => {
+    if (!token.trim()) {
+      Alert.alert("Error", "Please enter an activation token.");
+      return;
+    }
+    await doRegister(token.trim(), serverUrl.trim() || undefined);
+  }, [token, serverUrl, doRegister]);
+
+  const handleQRScan = useCallback(async () => {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
@@ -70,16 +95,16 @@ export default function RegisterDevice() {
         return;
       }
     }
-    setMode("qr");
-  };
+    setStep("qr");
+  }, [permission, requestPermission]);
 
-  const handleBarcodeScanned = async ({ data }: { data: string }) => {
+  const handleBarcodeScanned = useCallback(async ({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
     try {
       const parsed = JSON.parse(data);
       const activationToken = parsed.activationToken ?? parsed.token;
-      const server = parsed.serverUrl ?? parsed.url;
+      const url = parsed.serverUrl ?? parsed.url;
 
       if (!activationToken) {
         Alert.alert("Invalid QR", "QR code does not contain an activation token.");
@@ -87,35 +112,64 @@ export default function RegisterDevice() {
         return;
       }
 
-      setLoading(true);
-      const result = await DeviceService.register({
-        activationToken,
-        publicKey: "",
-        privateKey: "",
-        machineIdentifier: Constants.default?.sessionId ?? "unknown",
-        computerName: Constants.default?.deviceName ?? "POS Terminal",
-        appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
-        osVersion: Platform.Version?.toString() ?? "unknown",
-        serverUrl: server,
-      });
-
-      if (result.success) {
-        Alert.alert("Success", "Device registered successfully!", [
-          { text: "OK", onPress: () => router.replace("/(auth)") },
-        ]);
-      } else {
-        Alert.alert("Error", result.error ?? "Registration failed.");
-        setScanned(false);
-      }
+      await doRegister(activationToken, url);
     } catch {
       Alert.alert("Invalid QR", "Could not parse QR code data.");
       setScanned(false);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [scanned, doRegister]);
 
-  if (mode === "choose") {
+  if (step === "success") {
+    return (
+      <View style={styles.successContainer}>
+        <View style={styles.successCard}>
+          <View style={styles.successIconCircle}>
+            <Ionicons name="checkmark-circle" size={64} color="#28a745" />
+          </View>
+          <Text style={styles.successTitle}>Device Registered</Text>
+          <Text style={styles.successSubtitle}>
+            This POS device is now registered and ready for use.
+          </Text>
+
+          <View style={styles.deviceDetails}>
+            {device.deviceCode && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Device Code</Text>
+                <Text style={styles.detailValue}>{device.deviceCode}</Text>
+              </View>
+            )}
+            {device.publicIdentifier && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Identifier</Text>
+                <Text style={styles.detailValueMono}>{device.publicIdentifier}</Text>
+              </View>
+            )}
+            {device.branchName && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Branch</Text>
+                <Text style={styles.detailValue}>{device.branchName}</Text>
+              </View>
+            )}
+            {device.deviceName && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Name</Text>
+                <Text style={styles.detailValue}>{device.deviceName}</Text>
+              </View>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={styles.continueBtn}
+            onPress={() => router.replace("/(auth)")}
+          >
+            <Text style={styles.continueBtnText}>Continue to Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (step === "choose") {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -144,7 +198,7 @@ export default function RegisterDevice() {
             <Ionicons name="chevron-forward" size={20} color="#c1c9d4" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.option} onPress={() => setMode("manual")} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.option} onPress={() => setStep("manual")} activeOpacity={0.7}>
             <View style={styles.optionIcon}>
               <Ionicons name="keypad" size={28} color="#17386b" />
             </View>
@@ -159,11 +213,11 @@ export default function RegisterDevice() {
     );
   }
 
-  if (mode === "qr") {
+  if (step === "qr") {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => { setMode("choose"); setScanned(false); }} style={styles.backButton}>
+          <TouchableOpacity onPress={() => { setStep("choose"); setScanned(false); }} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#17386b" />
           </TouchableOpacity>
         </View>
@@ -200,7 +254,7 @@ export default function RegisterDevice() {
           </Text>
           <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => { setMode("choose"); setScanned(false); }}
+            onPress={() => { setStep("choose"); setScanned(false); }}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
@@ -216,7 +270,7 @@ export default function RegisterDevice() {
     >
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setMode("choose")} style={styles.backButton}>
+          <TouchableOpacity onPress={() => setStep("choose")} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#17386b" />
           </TouchableOpacity>
         </View>
@@ -463,6 +517,86 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   registerBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  successContainer: {
+    flex: 1,
+    backgroundColor: "#f8fbff",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  successCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 32,
+    width: "100%",
+    maxWidth: 400,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 6,
+    alignItems: "center",
+  },
+  successIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#d4edda",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a202c",
+    marginBottom: 8,
+  },
+  successSubtitle: {
+    fontSize: 14,
+    color: "#6b7b8d",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  deviceDetails: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    padding: 16,
+    width: "100%",
+    marginBottom: 24,
+  },
+  detailRow: {
+    marginBottom: 12,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: "#6b7b8d",
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#1a202c",
+  },
+  detailValueMono: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#1a202c",
+    fontFamily: "monospace",
+  },
+  continueBtn: {
+    backgroundColor: "#17386b",
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    width: "100%",
+    alignItems: "center",
+  },
+  continueBtnText: {
     fontSize: 15,
     fontWeight: "600",
     color: "#ffffff",

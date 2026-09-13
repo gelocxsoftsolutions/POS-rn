@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -419,5 +419,14 @@ export const CREATE_TABLES = [
     checksum TEXT,
     createdAt TEXT,
     updatedAt TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS Log (
+    id TEXT PRIMARY KEY,
+    level TEXT NOT NULL,
+    type TEXT,
+    message TEXT NOT NULL,
+    details TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
   )`,
 ];
