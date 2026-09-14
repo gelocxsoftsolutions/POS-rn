@@ -525,7 +525,7 @@ export default function SettingsScreen() {
             style={styles.fieldInput}
             value={omsUrl}
             onChangeText={setOmsUrl}
-            placeholder="https://nctseafoods.store"
+            placeholder={process.env.EXPO_PUBLIC_OMS_URL ?? "https://staging.nctseafoods.store"}
             placeholderTextColor="#b0b8c1"
             keyboardType="url"
             autoCapitalize="none"

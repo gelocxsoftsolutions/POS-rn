@@ -13,31 +13,22 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 async function runMigrations(database: SQLite.SQLiteDatabase) {
-  const row = await database.getFirstAsync<{ v: number }>(
-    "SELECT v FROM sqlite_master WHERE type='table' AND name='_meta'"
+  await database.execAsync("PRAGMA foreign_keys = OFF;");
+
+  await database.execAsync(
+    "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, v INTEGER)"
   );
-  if (!row) {
-    await database.execAsync(
-      "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, v INTEGER)"
-    );
+
+  for (const sql of CREATE_TABLES) {
+    await database.execAsync(sql);
   }
 
-  const versionRow = await database.getFirstAsync<{ v: number }>(
-    "SELECT v FROM _meta WHERE key = 'schema_version'"
-  );
-  const currentVersion = versionRow?.v ?? 0;
+  await database.execAsync("PRAGMA foreign_keys = ON;");
 
-  if (currentVersion < SCHEMA_VERSION) {
-    await database.execAsync("PRAGMA foreign_keys = OFF;");
-    for (const sql of CREATE_TABLES) {
-      await database.execAsync(sql);
-    }
-    await database.execAsync("PRAGMA foreign_keys = ON;");
-    await database.runAsync(
-      "INSERT OR REPLACE INTO _meta (key, v) VALUES ('schema_version', ?)",
-      [SCHEMA_VERSION]
-    );
-  }
+  await database.runAsync(
+    "INSERT OR REPLACE INTO _meta (key, v) VALUES ('schema_version', ?)",
+    [SCHEMA_VERSION]
+  );
 }
 
 export function getDb(): SQLite.SQLiteDatabase {

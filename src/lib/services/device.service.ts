@@ -2,13 +2,14 @@ import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { useDeviceStore } from "@/lib/stores/device-store";
-import { query, execute } from "@/lib/db/connection";
+import { query, queryFirst, execute } from "@/lib/db/connection";
 import type { RegisterDeviceInput } from "@/lib/types/pos";
 
 export const DeviceService = {
   async register(input: RegisterDeviceInput) {
     try {
       if (input.serverUrl) {
+        console.log("[DeviceService] registering with server:", input.serverUrl);
         setApiConfig({ baseUrl: input.serverUrl });
 
         const res = await api.post<{
@@ -40,6 +41,8 @@ export const DeviceService = {
           appVersion: input.appVersion,
           osVersion: input.osVersion,
         });
+
+        console.log("[DeviceService] register response:", res.ok, res.status, JSON.stringify(res.data)?.slice(0, 500));
 
         if (res.ok && res.data) {
           const d = res.data;
@@ -75,6 +78,23 @@ export const DeviceService = {
           });
 
           if (d.initialCashiers && d.initialCashiers.length > 0) {
+            await execute("DELETE FROM Cashier");
+
+            const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
+            for (const roleId of roleIds) {
+              const existing = await queryFirst<{ id: string }>(
+                "SELECT id FROM Role WHERE id = ?",
+                [roleId]
+              );
+              if (!existing) {
+                const cashierWithRole = d.initialCashiers.find((c) => c.roleId === roleId);
+                await execute(
+                  "INSERT OR IGNORE INTO Role (id, name, description, isSystem, createdAt, updatedAt) VALUES (?, ?, ?, 0, datetime('now'), datetime('now'))",
+                  [roleId, cashierWithRole?.role ?? "Unknown", ""]
+                );
+              }
+            }
+
             for (const c of d.initialCashiers) {
               await CashierRepository.upsert({
                 id: c.id,
@@ -95,7 +115,7 @@ export const DeviceService = {
             accessToken: d.accessToken,
           };
         }
-        return { success: false, error: "Server registration failed" };
+        return { success: false, error: `Server registration failed (${res.status}): ${typeof res.error === 'string' ? res.error : JSON.stringify(res.error) ?? 'Unknown error'}` };
       }
 
       const device = await DeviceRepository.create({

@@ -1,5 +1,6 @@
 import { getDatabase, query, execute } from "./connection";
 import { v4 as uuid } from "uuid";
+import { sha256 } from "@/lib/crypto/ed25519";
 
 export async function seedIfNeeded(): Promise<void> {
   const db = await getDatabase();
@@ -20,7 +21,7 @@ export async function seedIfNeeded(): Promise<void> {
   await execute(
     `INSERT OR IGNORE INTO Cashier (id, employeeId, username, displayName, pinHash, roleId, active, pinLoginEnabled, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-    [adminCashierId, "EMP001", "admin", "Administrator", "1234", defaultRoleId, now]
+    [adminCashierId, "EMP001", "admin", "Administrator", sha256("1234"), defaultRoleId, now]
   );
 
   const categories = ["Seafood", "Meat", "Produce", "Dairy", "Beverages"];

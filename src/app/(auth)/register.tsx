@@ -40,6 +40,7 @@ export default function RegisterDevice() {
   const doRegister = useCallback(async (activationToken: string, url?: string) => {
     setLoading(true);
     try {
+      const serverUrl = url || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
       const keys = generateEd25519Keypair();
       const result = await DeviceService.register({
         activationToken,
@@ -49,7 +50,7 @@ export default function RegisterDevice() {
         computerName: Constants.default?.deviceName ?? "POS Terminal",
         appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
         osVersion: "Android",
-        serverUrl: url,
+        serverUrl,
       });
 
       if (result.success && result.device) {
@@ -62,11 +63,11 @@ export default function RegisterDevice() {
           }
         }
 
-        if (url) {
+        if (serverUrl) {
           const deviceState = useDeviceStore.getState().device;
           const apiKey = deviceState.deviceSecret || "";
           try {
-            await OmsSyncService.connect(url, apiKey);
+            await OmsSyncService.connect(serverUrl, apiKey);
           } catch { /* non-blocking */ }
         }
 
@@ -74,8 +75,9 @@ export default function RegisterDevice() {
       } else {
         Alert.alert("Error", result.error ?? "Registration failed.");
       }
-    } catch {
-      Alert.alert("Error", "An unexpected error occurred during registration.");
+    } catch (e: any) {
+      console.error("[Register] unexpected error:", e);
+      Alert.alert("Error", e?.message ?? "An unexpected error occurred during registration.");
     } finally {
       setLoading(false);
     }
@@ -104,9 +106,16 @@ export default function RegisterDevice() {
     if (scanned) return;
     setScanned(true);
     try {
-      const parsed = JSON.parse(data);
-      const activationToken = parsed.activationToken ?? parsed.token;
-      const url = parsed.serverUrl ?? parsed.url;
+      let activationToken: string | undefined;
+      let url: string | undefined;
+
+      try {
+        const parsed = JSON.parse(data);
+        activationToken = parsed.activationToken ?? parsed.token;
+        url = parsed.serverUrl ?? parsed.url;
+      } catch {
+        activationToken = data.trim();
+      }
 
       if (!activationToken) {
         Alert.alert("Invalid QR", "QR code does not contain an activation token.");
@@ -115,8 +124,9 @@ export default function RegisterDevice() {
       }
 
       await doRegister(activationToken, url);
-    } catch {
-      Alert.alert("Invalid QR", "Could not parse QR code data.");
+    } catch (e: any) {
+      console.error("[Register] QR scan error:", e);
+      Alert.alert("Invalid QR", e?.message ?? "Could not process QR code.");
       setScanned(false);
     }
   }, [scanned, doRegister]);
