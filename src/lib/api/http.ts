@@ -1,12 +1,16 @@
 const DEFAULT_TIMEOUT = 15000;
 
+const FALLBACK_OMS_URL = "https://staging.nctseafoods.store";
+
 interface ApiConfig {
   baseUrl: string;
   apiKey?: string;
   accessToken?: string;
 }
 
-let config: ApiConfig = { baseUrl: "" };
+let config: ApiConfig = {
+  baseUrl: process.env.EXPO_PUBLIC_OMS_URL ?? FALLBACK_OMS_URL,
+};
 
 export function setApiConfig(c: Partial<ApiConfig>) {
   config = { ...config, ...c };
@@ -35,7 +39,7 @@ async function request<T>(
   method: string,
   path: string,
   body?: any
-): Promise<{ ok: boolean; data?: T; status: number }> {
+): Promise<{ ok: boolean; data?: T; status: number; error?: any }> {
   if (!config.baseUrl) {
     return { ok: false, status: 0 };
   }
@@ -56,10 +60,16 @@ async function request<T>(
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) {
+      let errorData: any;
+      try { errorData = await res.json(); } catch { try { errorData = await res.text(); } catch {} }
+      console.warn("[API] error:", method, url, res.status, JSON.stringify(errorData)?.slice(0, 500));
+      return { ok: false, status: res.status, error: errorData };
+    }
     const data = await res.json();
     return { ok: true, data, status: res.status };
-  } catch {
+  } catch (e: any) {
+    console.warn("[API] request failed:", method, url, e?.message);
     return { ok: false, status: 0 };
   }
 }

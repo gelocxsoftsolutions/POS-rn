@@ -9,9 +9,8 @@ web-build/
 *.aab
 *.jks
 *.keystore
-*.env
-*.env.local
-.env.production
+.env
+.env.local
 android/
 ios/
 .DS_Store

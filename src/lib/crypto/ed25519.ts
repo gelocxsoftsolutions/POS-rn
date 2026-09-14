@@ -1,10 +1,11 @@
-import { ed25519 } from "@noble/curves/ed25519";
+import "react-native-get-random-values";
+import { ed25519 } from "@noble/curves/ed25519.js";
 
 export function generateEd25519Keypair(): {
   publicKey: string;
   privateKey: string;
 } {
-  const privateKey = ed25519.utils.randomPrivateKey();
+  const privateKey = ed25519.utils.randomSecretKey();
   const publicKey = ed25519.getPublicKey(privateKey);
   return {
     publicKey: bytesToHex(publicKey),
