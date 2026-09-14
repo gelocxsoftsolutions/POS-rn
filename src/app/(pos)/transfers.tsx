@@ -8,8 +8,10 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TransferService } from "@/lib/services/transfer.service";
@@ -54,6 +56,9 @@ export default function TransfersScreen() {
   const [selectedTransfer, setSelectedTransfer] = useState<InventoryTransferDTO | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
 
   const loadTransfers = useCallback(async () => {
@@ -160,6 +165,40 @@ export default function TransfersScreen() {
       },
     ]);
   }, [session, loadTransfers]);
+
+  const handleScanQr = useCallback(async (raw: string) => {
+    setScanning(true);
+    setShowScanner(false);
+    try {
+      const payload = TransferService.parseTransferQr(raw);
+      if (!payload) {
+        Alert.alert("Invalid QR", "This is not a valid transfer QR code.");
+        return;
+      }
+      const result = await TransferService.confirmReceipt(payload.transferId);
+      if (result) {
+        await loadTransfers();
+        Alert.alert("Transfer Received", `${result.transferNumber} marked as received.`);
+      } else {
+        Alert.alert("Error", "Failed to confirm receipt. Transfer may not exist or already received.");
+      }
+    } catch {
+      Alert.alert("Error", "Failed to process QR code.");
+    } finally {
+      setScanning(false);
+    }
+  }, [loadTransfers]);
+
+  const openScanner = useCallback(async () => {
+    if (!permission?.granted) {
+      const p = await requestPermission();
+      if (!p.granted) {
+        Alert.alert("Camera Required", "Camera permission is needed to scan QR codes.");
+        return;
+      }
+    }
+    setShowScanner(true);
+  }, [permission, requestPermission]);
 
   const renderTimeline = () => {
     if (!selectedTransfer) return null;
@@ -412,6 +451,24 @@ export default function TransfersScreen() {
           </View>
         }
       />
+
+      <TouchableOpacity style={styles.scanFab} onPress={openScanner} activeOpacity={0.8}>
+        <Ionicons name="qr-code-outline" size={24} color="#fff" />
+      </TouchableOpacity>
+
+      <Modal visible={showScanner} animationType="slide" onRequestClose={() => setShowScanner(false)}>
+        <View style={styles.scannerContainer}>
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            onBarcodeScanned={scanning ? undefined : ({ data }) => handleScanQr(data)}
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          />
+          <TouchableOpacity style={styles.scannerClose} onPress={() => setShowScanner(false)}>
+            <Ionicons name="close-circle" size={36} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.scannerHint}>Point camera at transfer QR code</Text>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -733,5 +790,42 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.5,
+  },
+  scanFab: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#17386b",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  scannerContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  scannerClose: {
+    position: "absolute",
+    top: 48,
+    right: 16,
+  },
+  scannerHint: {
+    position: "absolute",
+    bottom: 48,
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "500",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingVertical: 8,
   },
 });
