@@ -8,12 +8,27 @@ interface ApiConfig {
 
 let config: ApiConfig = { baseUrl: "" };
 
-export function setApiConfig(c: ApiConfig) {
-  config = c;
+export function setApiConfig(c: Partial<ApiConfig>) {
+  config = { ...config, ...c };
 }
 
 export function getApiConfig() {
-  return config;
+  return { ...config };
+}
+
+export async function initApiConfig() {
+  try {
+    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const raw = await AsyncStorage.getItem("nct-pos-oms");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const state = parsed?.state ?? parsed;
+      if (state.serverUrl) config.baseUrl = state.serverUrl;
+      if (state.apiKey) config.apiKey = state.apiKey;
+    }
+  } catch {
+    // silent
+  }
 }
 
 async function request<T>(
