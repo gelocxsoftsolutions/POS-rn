@@ -57,14 +57,16 @@ export default function RegisterDevice() {
           const device = useDeviceStore.getState().device;
           if (device.branchId) {
             try {
-              const cashierResult = await OmsSyncService.syncBranchProducts(device.branchId);
+              await OmsSyncService.syncBranchProducts(device.branchId);
             } catch { /* non-blocking */ }
           }
         }
 
         if (url) {
+          const deviceState = useDeviceStore.getState().device;
+          const apiKey = deviceState.deviceSecret || "";
           try {
-            await OmsSyncService.connect(url, "");
+            await OmsSyncService.connect(url, apiKey);
           } catch { /* non-blocking */ }
         }
 

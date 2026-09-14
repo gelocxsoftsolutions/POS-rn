@@ -1,7 +1,20 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { DeviceRegistrationState } from "@/lib/types/pos";
+
+interface DeviceRegistrationState {
+  deviceId: string | null;
+  deviceCode: string | null;
+  publicIdentifier: string | null;
+  branchId: number | null;
+  branchName: string | null;
+  branchAddress: string | null;
+  deviceName: string | null;
+  registeredAt: string | null;
+  registrationState: "unregistered" | "registered" | "provisioned";
+  deviceSecret: string | null;
+  privateKey: string | null;
+}
 
 interface DeviceState {
   device: DeviceRegistrationState;
@@ -22,6 +35,8 @@ const defaultDevice: DeviceRegistrationState = {
   deviceName: null,
   registeredAt: null,
   registrationState: "unregistered",
+  deviceSecret: null,
+  privateKey: null,
 };
 
 export const useDeviceStore = create<DeviceState>()(

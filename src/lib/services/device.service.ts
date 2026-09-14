@@ -1,4 +1,4 @@
-import { api } from "@/lib/api/http";
+import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -9,13 +9,29 @@ export const DeviceService = {
   async register(input: RegisterDeviceInput) {
     try {
       if (input.serverUrl) {
+        setApiConfig({ baseUrl: input.serverUrl });
+
         const res = await api.post<{
           deviceId: string;
           deviceCode: string;
+          publicIdentifier: string;
+          deviceSecret: string;
+          accessToken: string;
+          refreshToken: string;
+          refreshTokenExpiresAt: string;
           branchId: number;
           branchName: string;
           branchAddress: string;
-          publicIdentifier: string;
+          registeredAt: string;
+          deviceName: string;
+          initialCashiers: Array<{
+            id: string;
+            username: string;
+            displayName: string;
+            pin: string;
+            role: string;
+            roleId: string;
+          }>;
         }>("/api/device/register", {
           activationToken: input.activationToken,
           publicKey: input.publicKey,
@@ -26,13 +42,15 @@ export const DeviceService = {
         });
 
         if (res.ok && res.data) {
+          const d = res.data;
+
           const device = await DeviceRepository.create({
-            deviceCode: res.data.deviceCode,
-            deviceName: input.computerName,
-            publicIdentifier: res.data.publicIdentifier,
-            branchId: res.data.branchId,
-            branchName: res.data.branchName,
-            branchAddress: res.data.branchAddress,
+            deviceCode: d.deviceCode,
+            deviceName: d.deviceName || input.computerName,
+            publicIdentifier: d.publicIdentifier,
+            branchId: d.branchId,
+            branchName: d.branchName,
+            branchAddress: d.branchAddress,
             status: "REGISTERED",
           });
 
@@ -44,11 +62,38 @@ export const DeviceService = {
             branchName: device.branchName,
             branchAddress: device.branchAddress,
             deviceName: device.deviceName,
-            registeredAt: device.registeredAt,
+            registeredAt: d.registeredAt,
             registrationState: "registered",
+            deviceSecret: d.deviceSecret,
+            privateKey: input.privateKey,
           });
 
-          return { success: true, device };
+          setApiConfig({
+            baseUrl: input.serverUrl,
+            apiKey: d.deviceSecret,
+            accessToken: d.accessToken,
+          });
+
+          if (d.initialCashiers && d.initialCashiers.length > 0) {
+            for (const c of d.initialCashiers) {
+              await CashierRepository.upsert({
+                id: c.id,
+                username: c.username,
+                displayName: c.displayName,
+                pin: c.pin,
+                roleId: c.roleId,
+                roleName: c.role,
+                active: true,
+              });
+            }
+          }
+
+          return {
+            success: true,
+            device,
+            deviceSecret: d.deviceSecret,
+            accessToken: d.accessToken,
+          };
         }
         return { success: false, error: "Server registration failed" };
       }
@@ -68,6 +113,7 @@ export const DeviceService = {
         deviceName: device.deviceName,
         registeredAt: device.registeredAt,
         registrationState: "registered",
+        privateKey: input.privateKey,
       });
 
       return { success: true, device };

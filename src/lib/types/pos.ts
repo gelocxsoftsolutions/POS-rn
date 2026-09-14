@@ -110,6 +110,8 @@ export interface DeviceRegistrationState {
   deviceName: string | null;
   registeredAt: string | null;
   registrationState: "unregistered" | "registered" | "provisioned";
+  deviceSecret: string | null;
+  privateKey: string | null;
 }
 
 export interface RegisterDeviceInput {

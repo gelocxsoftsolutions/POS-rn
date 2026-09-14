@@ -121,4 +121,32 @@ export const CashierRepository = {
     );
     return result?.c ?? 0;
   },
+
+  async upsert(input: {
+    id: string;
+    username: string;
+    displayName: string;
+    pin: string;
+    roleId: string;
+    roleName: string;
+    active: boolean;
+  }): Promise<CashierRow> {
+    const existing = await this.findById(input.id);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      await execute(
+        `UPDATE Cashier SET username = ?, displayName = ?, roleId = ?, active = ?, updatedAt = ? WHERE id = ?`,
+        [input.username, input.displayName, input.roleId, input.active ? 1 : 0, now, input.id]
+      );
+      return this.findById(input.id) as Promise<CashierRow>;
+    }
+
+    await execute(
+      `INSERT INTO Cashier (id, username, displayName, pinHash, roleId, active, pinLoginEnabled, passwordLoginEnabled, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+      [input.id, input.username, input.displayName, input.pin, input.roleId, input.active ? 1 : 0, now, now]
+    );
+    return this.findById(input.id) as Promise<CashierRow>;
+  },
 };
