@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getDatabase } from "@/lib/db/connection";
 import { SeedService } from "@/lib/services/seed.service";
+import { initApiConfig } from "@/lib/api/http";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -18,6 +19,7 @@ export default function RootLayout() {
       try {
         await getDatabase();
         await SeedService.run();
+        await initApiConfig();
       } catch (e: any) {
         if (mounted) setError(e?.message ?? "Failed to initialize");
       } finally {
