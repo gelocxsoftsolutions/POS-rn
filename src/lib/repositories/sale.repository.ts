@@ -224,6 +224,24 @@ export const SaleRepository = {
     );
   },
 
+  async findUnsynced(limit: number = 50): Promise<SaleDTO[]> {
+    const sales = await query<SaleDTO>(
+      "SELECT * FROM Sale WHERE synced = 0 AND status = 'COMPLETED' ORDER BY createdAt ASC LIMIT ?",
+      [limit]
+    );
+    for (const sale of sales) {
+      sale.items = await query<SaleItemDTO>(
+        "SELECT * FROM SaleItem WHERE saleId = ?",
+        [sale.id]
+      );
+      sale.payments = await query<PaymentDTO>(
+        "SELECT * FROM Payment WHERE saleId = ?",
+        [sale.id]
+      );
+    }
+    return sales;
+  },
+
   async countToday(): Promise<number> {
     const today = new Date().toISOString().split("T")[0];
     const result = await queryFirst<{ c: number }>(

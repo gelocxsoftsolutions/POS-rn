@@ -1,6 +1,6 @@
 import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
 import { signTimestamp } from "@/lib/crypto/ed25519";
-import { DeviceRepository } from "@/lib/repositories/device.repository";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface AuthTokens {
   accessToken: string;
@@ -8,9 +8,38 @@ interface AuthTokens {
   expiresAt: string;
 }
 
+const TOKEN_STORAGE_KEY = "nct-pos-auth-tokens";
+
 let tokens: AuthTokens | null = null;
 
+async function persistTokens(t: AuthTokens | null): Promise<void> {
+  try {
+    if (t) {
+      await AsyncStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(t));
+    } else {
+      await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch { /* non-blocking */ }
+}
+
+async function loadPersistedTokens(): Promise<AuthTokens | null> {
+  try {
+    const raw = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return null;
+}
+
 export const AuthenticationService = {
+  async init(): Promise<void> {
+    if (!tokens) {
+      tokens = await loadPersistedTokens();
+      if (tokens?.accessToken) {
+        setApiConfig({ ...getApiConfig(), accessToken: tokens.accessToken });
+      }
+    }
+  },
+
   async login(privateKeyHex: string, deviceSecret: string): Promise<boolean> {
     try {
       const timestamp = new Date().toISOString();
@@ -32,6 +61,7 @@ export const AuthenticationService = {
       };
 
       setApiConfig({ ...getApiConfig(), accessToken: tokens.accessToken });
+      await persistTokens(tokens);
       return true;
     } catch {
       return false;
@@ -57,6 +87,7 @@ export const AuthenticationService = {
       };
 
       setApiConfig({ ...getApiConfig(), accessToken: tokens.accessToken });
+      await persistTokens(tokens);
       return true;
     } catch {
       return false;
@@ -71,6 +102,7 @@ export const AuthenticationService = {
     } finally {
       tokens = null;
       setApiConfig({ ...getApiConfig(), accessToken: undefined });
+      await persistTokens(null);
     }
   },
 

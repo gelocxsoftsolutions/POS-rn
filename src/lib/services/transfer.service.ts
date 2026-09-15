@@ -57,7 +57,18 @@ export const TransferService = {
         await TransferItemRepository.updateReceivedQty(item.id, item.allocatedQty);
       }
 
-      return await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
+      const result = await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
+
+      // Notify OMS in background (best-effort)
+      const transferNumber = transfer.transferNumber;
+      if (transferNumber) {
+        const omsTransferId = parseInt(transferNumber.replace(/\D/g, "").slice(-8), 10);
+        if (!isNaN(omsTransferId)) {
+          this.confirmReceipt(omsTransferId).catch(() => {});
+        }
+      }
+
+      return result;
     } catch {
       return null;
     }

@@ -1,6 +1,8 @@
 import { SaleRepository, CreateSaleInput } from "@/lib/repositories/sale.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
+import { SyncQueueService } from "@/lib/services/sync-queue.service";
+import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
@@ -114,9 +116,69 @@ export const SaleService = {
       );
 
       const sale = await SaleRepository.findById(saleId);
+
+      // Push to OMS asynchronously (fire-and-forget with SyncQueue fallback)
+      this._pushToOms(saleId, input, saleItems, total).catch(() => {});
+
       return { success: true, sale };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Sale creation failed" };
+    }
+  },
+
+  async _pushToOms(
+    saleId: string,
+    input: SaleInput,
+    saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
+    total: number
+  ): Promise<void> {
+    try {
+      const pushed = await OmsSyncService.pushSale({
+        receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+        cashierId: input.cashierId,
+        cashierName: input.cashierName,
+        total,
+        items: saleItems.map((item) => ({
+          productId: item.productId ?? "",
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineTotal: item.lineTotal,
+        })),
+        payments: [{ method: input.paymentMethod, amount: total }],
+      });
+
+      if (pushed) {
+        await SaleRepository.markSynced(saleId);
+      } else {
+        await SyncQueueService.enqueue("Sale", saleId, "CREATE", {
+          receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+          cashierId: input.cashierId,
+          cashierName: input.cashierName,
+          total,
+          items: saleItems.map((item) => ({
+            productId: item.productId ?? "",
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+          })),
+          payments: [{ method: input.paymentMethod, amount: total }],
+        });
+      }
+    } catch {
+      // Enqueue for retry
+      await SyncQueueService.enqueue("Sale", saleId, "CREATE", {
+        receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+        cashierId: input.cashierId,
+        cashierName: input.cashierName,
+        total,
+        items: saleItems.map((item) => ({
+          productId: item.productId ?? "",
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineTotal: item.lineTotal,
+        })),
+        payments: [{ method: input.paymentMethod, amount: total }],
+      });
     }
   },
 

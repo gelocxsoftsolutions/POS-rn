@@ -21,6 +21,8 @@ import { SessionIndicator } from "@/components/layout/session-indicator";
 import { LockScreen } from "@/components/auth/lock-screen";
 import { BottomSheet } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { useNetworkStore } from "@/lib/services/network.service";
+import { useSyncStore } from "@/lib/stores/sync-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
 
 const { width } = Dimensions.get("window");
@@ -169,6 +171,9 @@ function POSHeader({
   dark: boolean;
 }) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const isOnline = useNetworkStore((s) => s.isOnline);
+  const pendingCount = useSyncStore((s) => s.pendingCount);
+  const isSyncing = useSyncStore((s) => s.isSyncing);
 
   const handleBadgePress = () => {
     setTransferDialogOpen(true);
@@ -199,6 +204,17 @@ function POSHeader({
           NCT Seafoods POS System
         </Text>
         <View style={styles.headerRight}>
+          <View style={styles.syncIndicator}>
+            <View style={[styles.syncDot, { backgroundColor: isOnline ? "#28a745" : "#dc3545" }]} />
+            <Text style={[styles.syncText, dark ? styles.syncTextDark : styles.syncTextLight]}>
+              {isSyncing ? "Syncing..." : isOnline ? "Online" : "Offline"}
+            </Text>
+            {pendingCount > 0 && (
+              <View style={styles.pendingBadge}>
+                <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
+              </View>
+            )}
+          </View>
           <SessionIndicator />
         </View>
       </View>
@@ -299,6 +315,11 @@ export default function POSLayout() {
   const [bottomNavExpanded, setBottomNavExpanded] = useState(false);
 
   const dark = themeMode === "dark";
+
+  // Refresh pending sync count on mount
+  useEffect(() => {
+    useSyncStore.getState().refreshPendingCount();
+  }, []);
 
   const isWide =
     navigationMode === "sidebar" ||
@@ -574,6 +595,45 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 100,
     alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+
+  // Sync indicator
+  syncIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  syncText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  syncTextLight: {
+    color: "#4b5563",
+  },
+  syncTextDark: {
+    color: "#9ca3af",
+  },
+  pendingBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  pendingBadgeText: {
+    color: "#ffffff",
+    fontSize: 8,
+    fontWeight: "700",
   },
 
   // Transfer badge

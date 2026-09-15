@@ -8,6 +8,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getDatabase } from "@/lib/db/connection";
 import { SeedService } from "@/lib/services/seed.service";
 import { initApiConfig } from "@/lib/api/http";
+import { AuthenticationService } from "@/lib/services/authentication.service";
+import { startNetworkListener } from "@/lib/services/network.service";
+import { startBackgroundSync } from "@/lib/services/sync-worker";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -20,6 +23,9 @@ export default function RootLayout() {
         await getDatabase();
         await SeedService.run();
         await initApiConfig();
+        await AuthenticationService.init();
+        startNetworkListener();
+        startBackgroundSync();
       } catch (e: any) {
         if (mounted) setError(e?.message ?? "Failed to initialize");
       } finally {
