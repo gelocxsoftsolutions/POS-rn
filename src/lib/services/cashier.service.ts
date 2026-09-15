@@ -10,8 +10,14 @@ export const CashierService = {
   async loginPin(pin: string) {
     try {
       const pinHash = sha256(pin);
+      console.log("[CashierService] loginPin attempt, pinHash:", pinHash);
       const cashier = await CashierRepository.findByPinHash(pinHash);
-      if (!cashier) return { success: false, error: "Invalid PIN" };
+      console.log("[CashierService] findByPinHash result:", cashier ? `${cashier.displayName} (${cashier.id})` : "NOT FOUND");
+      if (!cashier) {
+        const all = await CashierRepository.findAll();
+        console.log("[CashierService] all active cashiers:", all.length, all.map(c => ({ id: c.id, name: c.displayName, pinHash: c.pinHash })));
+        return { success: false, error: "Invalid PIN" };
+      }
 
       const device = useDeviceStore.getState().device;
       const session = await SessionRepository.create({

@@ -29,6 +29,7 @@ export async function initApiConfig() {
       const state = parsed?.state ?? parsed;
       if (state.serverUrl) config.baseUrl = state.serverUrl;
       if (state.apiKey) config.apiKey = state.apiKey;
+      if (state.accessToken) config.accessToken = state.accessToken;
     }
   } catch {
     // silent
@@ -49,6 +50,8 @@ async function request<T>(
   };
   if (config.apiKey) headers["x-pos-key"] = config.apiKey;
   if (config.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
+
+  console.log("[API]", method, url, "apiKey:", config.apiKey ? "set" : "MISSING", "accessToken:", config.accessToken ? "set" : "MISSING");
 
   try {
     const controller = new AbortController();

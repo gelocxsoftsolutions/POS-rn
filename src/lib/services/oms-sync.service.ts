@@ -204,7 +204,9 @@ export const OmsSyncService = {
 
   async connect(url: string, apiKey: string): Promise<{ success: boolean; error?: string }> {
     try {
-      setApiConfig({ baseUrl: url, apiKey });
+      const current = getApiConfig();
+      console.log("[OmsSync] connect — current accessToken:", current.accessToken ? "set" : "MISSING");
+      setApiConfig({ baseUrl: url, apiKey, accessToken: current.accessToken });
 
       const res = await api.get("/api/health");
       if (!res.ok) {
@@ -213,8 +215,9 @@ export const OmsSyncService = {
 
       try {
         const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        const updatedConfig = getApiConfig();
         await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-          state: { serverUrl: url, apiKey },
+          state: { serverUrl: url, apiKey, accessToken: updatedConfig.accessToken },
           version: 0,
         }));
       } catch { /* non-blocking */ }

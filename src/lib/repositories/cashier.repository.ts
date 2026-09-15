@@ -146,7 +146,7 @@ export const CashierRepository = {
     await execute(
       `INSERT INTO Cashier (id, username, displayName, pinHash, roleId, active, pinLoginEnabled, passwordLoginEnabled, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
-      [input.id, input.username, input.displayName, sha256(input.pin), input.roleId, input.active ? 1 : 0, now, now]
+      [input.id, input.username, input.displayName, sha256(input.pin ?? ""), input.roleId, input.active ? 1 : 0, now, now]
     );
     return this.findById(input.id) as Promise<CashierRow>;
   },
