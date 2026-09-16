@@ -27,6 +27,7 @@ import { SaleService } from "@/lib/services/sale.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { InventoryService } from "@/lib/services/inventory.service";
+import { useUiStore } from "@/lib/stores/ui-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 
@@ -60,6 +61,7 @@ export default function SalesScreen() {
   const cart = useCartStore();
   const cashier = useAuthStore((s) => s.cashier);
   const device = useDeviceStore((s) => s.device);
+  const dark = useUiStore((s) => s.themeMode) === "dark";
 
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -307,7 +309,7 @@ export default function SalesScreen() {
 
     return (
       <TouchableOpacity
-        style={[styles.productCard, effective <= 0 && styles.productCardDisabled]}
+        style={[styles.productCard, effective <= 0 && styles.productCardDisabled, { backgroundColor: dark ? "#0f1729" : "#ffffff" }]}
         onPress={() => handleAddToCart(item)}
         activeOpacity={0.7}
         disabled={effective <= 0}
@@ -315,7 +317,7 @@ export default function SalesScreen() {
         <View style={styles.productImage}>
           <Ionicons name="fish" size={32} color="#17386b" />
         </View>
-        <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+        <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
         <View style={styles.productFooter}>
           <Badge
@@ -332,13 +334,13 @@ export default function SalesScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.searchBar}>
+    <View style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+      <View style={[styles.searchBar, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}>
         <Ionicons name="search" size={18} color="#8e99a4" />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
           placeholder="Search products..."
-          placeholderTextColor="#b0b8c1"
+          placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
           value={search}
           onChangeText={setSearch}
         />
@@ -356,10 +358,10 @@ export default function SalesScreen() {
         {SORT_OPTIONS.map((opt) => (
           <TouchableOpacity
             key={opt.value}
-            style={[styles.sortBtn, sort === opt.value && styles.sortBtnActive]}
+            style={[styles.sortBtn, sort === opt.value && styles.sortBtnActive, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}
             onPress={() => setSort(opt.value)}
           >
-            <Text style={[styles.sortBtnText, sort === opt.value && styles.sortBtnTextActive]}>
+            <Text style={[styles.sortBtnText, sort === opt.value && styles.sortBtnTextActive, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>
               {opt.label}
             </Text>
           </TouchableOpacity>
@@ -389,10 +391,10 @@ export default function SalesScreen() {
             />
           </View>
 
-          <Card style={styles.cartPanel}>
+          <Card style={[styles.cartPanel, { backgroundColor: dark ? "#0f1729" : "#ffffff" }]}>
             <View style={styles.cartHeader}>
               <Ionicons name="cart" size={20} color="#17386b" />
-              <Text style={styles.cartTitle}>Cart ({cart.items.length})</Text>
+              <Text style={[styles.cartTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Cart ({cart.items.length})</Text>
               {cart.items.length > 0 && (
                 <TouchableOpacity onPress={() => cart.clear()}>
                   <Text style={styles.clearText}>Clear</Text>
@@ -410,8 +412,8 @@ export default function SalesScreen() {
                 cart.items.map((item) => (
                   <View key={item.productId} style={styles.cartItem}>
                     <View style={styles.cartItemInfo}>
-                      <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.cartItemPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.cartItemName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
+                      <Text style={[styles.cartItemPrice, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>₱{item.unitPrice.toFixed(2)}</Text>
                     </View>
                     <View style={styles.cartItemActions}>
                       <TouchableOpacity
@@ -420,7 +422,7 @@ export default function SalesScreen() {
                       >
                         <Ionicons name="remove" size={14} color="#17386b" />
                       </TouchableOpacity>
-                      <Text style={styles.qtyText}>{item.quantity}</Text>
+                      <Text style={[styles.qtyText, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.quantity}</Text>
                       <TouchableOpacity
                         style={styles.qtyBtn}
                         onPress={() => cart.updateQuantity(item.productId, item.quantity + 1)}
@@ -444,15 +446,15 @@ export default function SalesScreen() {
 
             <View style={styles.cartSummary}>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>₱{cart.total().toFixed(2)}</Text>
+                <Text style={[styles.summaryLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Subtotal</Text>
+                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{cart.total().toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tax ({settings?.taxLabel || "VAT"} {((settings?.taxRate || 0.12) * 100).toFixed(0)}%)</Text>
-                <Text style={styles.summaryValue}>₱{(cart.total() * (settings?.taxRate || 0.12)).toFixed(2)}</Text>
+                <Text style={[styles.summaryLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Tax ({settings?.taxLabel || "VAT"} {((settings?.taxRate || 0.12) * 100).toFixed(0)}%)</Text>
+                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{(cart.total() * (settings?.taxRate || 0.12)).toFixed(2)}</Text>
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
-                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={[styles.totalLabel, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Total</Text>
                 <Text style={styles.totalValue}>₱{(cart.total() * (1 + (settings?.taxRate || 0.12))).toFixed(2)}</Text>
               </View>
             </View>
@@ -471,14 +473,14 @@ export default function SalesScreen() {
         <Text style={styles.checkoutTitle}>Checkout</Text>
 
         <TextInput
-          style={styles.checkoutInput}
+          style={[styles.checkoutInput, { backgroundColor: dark ? "#0f1729" : "#f7f9fc", borderColor: dark ? "#1e293b" : "#e2e8f0", color: dark ? "#e2e8f0" : "#1a202c" }]}
           placeholder="Customer name (optional)"
-          placeholderTextColor="#b0b8c1"
+          placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
           value={customerName}
           onChangeText={setCustomerName}
         />
 
-        <Text style={styles.checkoutLabel}>Payment Method</Text>
+        <Text style={[styles.checkoutLabel, { color: dark ? "#9ca3af" : "#4a5568" }]}>Payment Method</Text>
         <View style={styles.paymentMethods}>
           {(["CASH", "CARD", "DIGITAL"] as PaymentMethodType[]).map((method) => (
             <TouchableOpacity
@@ -499,16 +501,16 @@ export default function SalesScreen() {
         </View>
 
         <TextInput
-          style={styles.checkoutInput}
+          style={[styles.checkoutInput, { backgroundColor: dark ? "#0f1729" : "#f7f9fc", borderColor: dark ? "#1e293b" : "#e2e8f0", color: dark ? "#e2e8f0" : "#1a202c" }]}
           placeholder="Paid amount"
-          placeholderTextColor="#b0b8c1"
+          placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
           value={paidAmount}
           onChangeText={setPaidAmount}
           keyboardType="numeric"
         />
 
         <View style={styles.checkoutSummary}>
-          <Text style={styles.checkoutTotal}>
+            <Text style={[styles.checkoutTotal, { color: dark ? "#e2e8f0" : "#1a202c" }]}>
             Total: ₱{(cart.total() * (1 + (settings?.taxRate || 0.12))).toFixed(2)}
           </Text>
           {parseFloat(paidAmount) > 0 && (
@@ -551,7 +553,7 @@ export default function SalesScreen() {
 
       <Modal visible={receiptVisible} transparent animationType="fade">
         <View style={styles.receiptOverlay}>
-          <View style={styles.receiptContainer}>
+          <View style={[styles.receiptContainer, { backgroundColor: dark ? "#0f1729" : "#ffffff" }]}>
             {lastReceipt && (
               <ScrollView style={styles.receiptScroll} showsVerticalScrollIndicator={false}>
                 <View style={styles.receiptContent}>

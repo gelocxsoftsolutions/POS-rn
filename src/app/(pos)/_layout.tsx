@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Dimensions,
   ActivityIndicator,
   ScrollView,
+  Animated,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -312,7 +313,20 @@ export default function POSLayout() {
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
-  const [bottomNavExpanded, setBottomNavExpanded] = useState(false);
+  const [bottomNavExpanded, setBottomNavExpanded] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const sidebarAnim = useRef(new Animated.Value(1)).current;
+
+  const toggleSidebar = () => {
+    const toValue = sidebarOpen ? 0 : 1;
+    Animated.spring(sidebarAnim, {
+      toValue,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 11,
+    }).start();
+    setSidebarOpen(!sidebarOpen);
+  };
 
   const dark = themeMode === "dark";
 
@@ -469,59 +483,91 @@ export default function POSLayout() {
 
       <View style={styles.body}>
         {isWide && (
-          <View style={[styles.sidebar, dark ? styles.sidebarDark : styles.sidebarLight]}>
-            <View style={styles.sidebarLogoSection}>
-              <View style={styles.sidebarLogoIcon}>
-                <Ionicons name="fish" size={22} color="#17386b" />
+          <>
+            <Animated.View
+              style={[
+                styles.sidebar,
+                dark ? styles.sidebarDark : styles.sidebarLight,
+                {
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  zIndex: 50,
+                  transform: [{
+                    translateX: sidebarAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-220, 0],
+                    }),
+                  }],
+                },
+              ]}
+            >
+              <View style={styles.sidebarLogoSection}>
+                <View style={styles.sidebarLogoIcon}>
+                  <Ionicons name="fish" size={22} color="#17386b" />
+                </View>
+                <Text style={styles.sidebarLogoText}>NCT POS</Text>
               </View>
-              <Text style={styles.sidebarLogoText}>NCT POS</Text>
-            </View>
 
-            <View style={styles.sidebarNavItems}>
-              {visibleNavItems.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <TouchableOpacity
-                    key={item.name}
-                    style={[
-                      styles.sidebarNavItem,
-                      active && styles.sidebarNavItemActive,
-                    ]}
-                    onPress={() => router.push(item.href as any)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={active ? item.activeIcon : item.icon}
-                      size={20}
-                      color={active ? "#17386b" : "#8e99a4"}
-                    />
-                    <Text
+              <View style={styles.sidebarNavItems}>
+                {visibleNavItems.map((item) => {
+                  const active = pathname === item.href;
+                  return (
+                    <TouchableOpacity
+                      key={item.name}
                       style={[
-                        styles.sidebarNavLabel,
-                        active && styles.sidebarNavLabelActive,
+                        styles.sidebarNavItem,
+                        active && styles.sidebarNavItemActive,
                       ]}
+                      onPress={() => router.push(item.href as any)}
+                      activeOpacity={0.7}
                     >
-                      {item.label}
-                    </Text>
-                    {item.name === "transfers" && transferCount > 0 && (
-                      <View style={styles.sidebarBadge}>
-                        <Text style={styles.sidebarBadgeText}>
-                          {transferCount > 9 ? "9+" : transferCount}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                      <Ionicons
+                        name={active ? item.activeIcon : item.icon}
+                        size={20}
+                        color={active ? "#17386b" : "#8e99a4"}
+                      />
+                      <Text
+                        style={[
+                          styles.sidebarNavLabel,
+                          active && styles.sidebarNavLabelActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                      {item.name === "transfers" && transferCount > 0 && (
+                        <View style={styles.sidebarBadge}>
+                          <Text style={styles.sidebarBadgeText}>
+                            {transferCount > 9 ? "9+" : transferCount}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-            <View style={styles.sidebarFooter}>
-              <SessionIndicator />
-            </View>
-          </View>
+              <View style={styles.sidebarFooter}>
+                <SessionIndicator />
+              </View>
+            </Animated.View>
+
+            <TouchableOpacity
+              style={styles.sidebarToggle}
+              onPress={toggleSidebar}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={sidebarOpen ? "chevron-back" : "chevron-forward"}
+                size={16}
+                color="#17386b"
+              />
+            </TouchableOpacity>
+          </>
         )}
 
-        <View style={styles.main}>
+        <View style={[styles.main, isWide && { marginLeft: sidebarOpen ? 220 : 0 }]}>
           <Slot />
         </View>
       </View>
@@ -534,7 +580,6 @@ export default function POSLayout() {
           onToggleExpand={() => setBottomNavExpanded((p) => !p)}
           onNavigate={(href) => {
             router.push(href as any);
-            setBottomNavExpanded(false);
           }}
         />
       )}
@@ -794,6 +839,25 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#e8edf3",
+  },
+  sidebarToggle: {
+    position: "absolute",
+    top: 60,
+    left: 4,
+    zIndex: 51,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
   },
 
   // Bottom navigation

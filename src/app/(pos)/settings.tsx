@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ export default function SettingsScreen() {
   const clearSession = useCashierStore((s) => s.clearSession);
   const signOut = useAuthStore((s) => s.signOut);
   const { themeMode, setThemeMode, navigationMode, setNavigationMode } = useUiStore();
+  const dark = themeMode === "dark";
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -86,6 +88,9 @@ export default function SettingsScreen() {
   const [auditFilter, setAuditFilter] = useState<string>("ALL");
 
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [qrScanning, setQrScanning] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const loadSettings = useCallback(async () => {
     try {
@@ -224,9 +229,41 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleScanQr = () => {
-    Alert.alert("QR Scanner", "QR scanning requires a barcode scanner library. Install and configure to enable.");
-  };
+  const openQrScanner = useCallback(async () => {
+    if (!cameraPermission?.granted) {
+      const p = await requestCameraPermission();
+      if (!p.granted) {
+        Alert.alert("Camera Required", "Camera permission is needed to scan QR codes.");
+        return;
+      }
+    }
+    setShowQrScanner(true);
+  }, [cameraPermission, requestCameraPermission]);
+
+  const handleScanQr = useCallback((raw: string) => {
+    setQrScanning(true);
+    setShowQrScanner(false);
+    try {
+      const payload = JSON.parse(raw);
+      if (payload.server || payload.url) {
+        const server = payload.server || payload.url;
+        setOmsUrl(server);
+        if (payload.apiKey) setOmsApiKey(payload.apiKey);
+        Alert.alert("QR Scanned", `Server: ${server}\nTap Test & Connect to verify.`);
+      } else {
+        Alert.alert("Invalid QR", "This QR code does not contain server connection data.");
+      }
+    } catch {
+      if (raw.startsWith("http")) {
+        setOmsUrl(raw);
+        Alert.alert("URL Scanned", `Server: ${raw}\nTap Test & Connect to verify.`);
+      } else {
+        Alert.alert("Invalid QR", "Could not parse QR code data.");
+      }
+    } finally {
+      setQrScanning(false);
+    }
+  }, []);
 
   const handleSyncNow = async () => {
     if (!omsUrl.trim()) {
@@ -281,13 +318,14 @@ export default function SettingsScreen() {
   const handleResetDevice = () => {
     Alert.alert(
       "Reset Device",
-      "This will unregister the device and clear all local data. Continue?",
+      "This will unregister the device and clear all local data. The device will be revoked on the server. Continue?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Reset",
           style: "destructive",
           onPress: async () => {
+            await DeviceService.notifyServerRevoke();
             await DeviceService.clearRegistration();
             clearSession();
             signOut();
@@ -312,7 +350,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.content}>
       <Text style={styles.screenTitle}>Settings</Text>
 
       {/* Store Details Card */}
@@ -464,7 +502,7 @@ export default function SettingsScreen() {
       {/* Audit Logs Card */}
       <Card style={styles.section}>
         <Text style={styles.sectionTitle}>
-          <Ionicons name="clipboard-list-outline" size={18} color="#1a202c" /> Audit Logs
+          <Ionicons name="document-text-outline" size={18} color="#1a202c" /> Audit Logs
         </Text>
         <Text style={styles.sectionDesc}>Recent activity on this device.</Text>
 
@@ -555,7 +593,7 @@ export default function SettingsScreen() {
           />
           <Button
             title="Scan QR"
-            onPress={handleScanQr}
+            onPress={openQrScanner}
             variant="secondary"
             icon="qr-code-outline"
             style={styles.omsBtn}
@@ -603,7 +641,7 @@ export default function SettingsScreen() {
           {([
             { key: "auto" as const, label: "Auto", icon: "phone-portrait-outline" as const, desc: "Auto-detect best layout" },
             { key: "sidebar" as const, label: "Sidebar", icon: "menu-outline" as const, desc: "Floating sidebar" },
-            { key: "bottom" as const, label: "Bottom", icon: "bar-outline" as const, desc: "Floating bottom bar" },
+            { key: "bottom" as const, label: "Bottom", icon: "grid-outline" as const, desc: "Floating bottom bar" },
           ]).map((opt) => (
             <TouchableOpacity
               key={opt.key}
@@ -716,6 +754,26 @@ export default function SettingsScreen() {
             ))}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* QR Scanner Modal */}
+      <Modal visible={showQrScanner} animationType="slide" onRequestClose={() => setShowQrScanner(false)}>
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            onBarcodeScanned={qrScanning ? undefined : ({ data }: { data: string }) => handleScanQr(data)}
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          />
+          <TouchableOpacity
+            style={{ position: "absolute", top: 48, right: 16, zIndex: 10 }}
+            onPress={() => setShowQrScanner(false)}
+          >
+            <Ionicons name="close-circle" size={36} color="#fff" />
+          </TouchableOpacity>
+          <Text style={{ position: "absolute", bottom: 48, left: 0, right: 0, textAlign: "center", color: "#fff", fontSize: 16, fontWeight: "500", backgroundColor: "rgba(0,0,0,0.5)", paddingVertical: 8 }}>
+            Point camera at OMS connection QR code
+          </Text>
+        </View>
       </Modal>
     </ScrollView>
   );

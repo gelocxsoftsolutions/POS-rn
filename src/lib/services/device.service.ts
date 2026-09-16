@@ -17,6 +17,7 @@ export const DeviceService = {
           deviceCode: string;
           publicIdentifier: string;
           deviceSecret: string;
+          posApiKey: string;
           accessToken: string;
           refreshToken: string;
           refreshTokenExpiresAt: string;
@@ -68,19 +69,20 @@ export const DeviceService = {
             registeredAt: d.registeredAt,
             registrationState: "registered",
             deviceSecret: d.deviceSecret,
+            posApiKey: d.posApiKey,
             privateKey: input.privateKey,
           });
 
           setApiConfig({
             baseUrl: input.serverUrl,
-            apiKey: d.deviceSecret,
+            apiKey: d.posApiKey,
             accessToken: d.accessToken,
           });
 
           try {
             const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
             await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-              state: { serverUrl: input.serverUrl, apiKey: d.deviceSecret, accessToken: d.accessToken },
+              state: { serverUrl: input.serverUrl, apiKey: d.posApiKey, accessToken: d.accessToken },
               version: 0,
             }));
           } catch { /* non-blocking */ }
@@ -177,6 +179,14 @@ export const DeviceService = {
       useDeviceStore.getState().clearDevice();
     } catch {
       // silent fail
+    }
+  },
+
+  async notifyServerRevoke(): Promise<void> {
+    try {
+      await api.post("/api/device/self-delete");
+    } catch {
+      // Best-effort: even if server call fails, proceed with local cleanup
     }
   },
 

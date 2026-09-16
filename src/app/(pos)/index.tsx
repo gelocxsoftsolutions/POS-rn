@@ -16,6 +16,7 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { SaleService } from "@/lib/services/sale.service";
 import { InventoryService } from "@/lib/services/inventory.service";
 import { SettingsService } from "@/lib/services/settings.service";
+import { useUiStore } from "@/lib/stores/ui-store";
 
 const { width } = Dimensions.get("window");
 
@@ -38,6 +39,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const device = useDeviceStore((s) => s.device);
   const session = useCashierStore((s) => s.session);
+  const dark = useUiStore((s) => s.themeMode) === "dark";
 
   const loadData = useCallback(async () => {
     try {
@@ -113,45 +115,45 @@ export default function Dashboard() {
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <Text style={styles.greeting}>Dashboard</Text>
+      <Text style={[styles.greeting, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Dashboard</Text>
 
       <View style={styles.statsGrid}>
         {statCards.map((stat) => (
-          <Card key={stat.title} style={[styles.statCard, { width: (width - 64) / 2 }]}>
+          <Card key={stat.title} style={[styles.statCard, { width: (width - 64) / 2, backgroundColor: dark ? "#0f1729" : "#ffffff" }]}>
             <View style={[styles.statIcon, { backgroundColor: stat.bg }]}>
               <Ionicons name={stat.icon} size={22} color={stat.color} />
             </View>
-            <Text style={styles.statValue}>{stat.value}</Text>
-            <Text style={styles.statTitle}>{stat.title}</Text>
+            <Text style={[styles.statValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{stat.value}</Text>
+            <Text style={[styles.statTitle, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>{stat.title}</Text>
           </Card>
         ))}
       </View>
 
-      <Card style={styles.sessionCard}>
+      <Card style={[styles.sessionCard, { backgroundColor: dark ? "#0f1729" : "#ffffff" }]}>
         <View style={styles.sessionHeader}>
           <Ionicons name="storefront-outline" size={20} color="#17386b" />
-          <Text style={styles.sessionTitle}>Current Session</Text>
+          <Text style={[styles.sessionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Current Session</Text>
         </View>
         <View style={styles.sessionInfo}>
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionLabel}>Store</Text>
-            <Text style={styles.sessionValue}>{storeName || "N/A"}</Text>
+            <Text style={[styles.sessionLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Store</Text>
+            <Text style={[styles.sessionValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{storeName || "N/A"}</Text>
           </View>
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionLabel}>Cashier</Text>
-            <Text style={styles.sessionValue}>{session?.cashierName ?? "N/A"}</Text>
+            <Text style={[styles.sessionLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Cashier</Text>
+            <Text style={[styles.sessionValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{session?.cashierName ?? "N/A"}</Text>
           </View>
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionLabel}>Status</Text>
+            <Text style={[styles.sessionLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Status</Text>
             <Badge label="Active" color="#28a745" />
           </View>
           <View style={styles.sessionRow}>
-            <Text style={styles.sessionLabel}>Device</Text>
-            <Text style={styles.sessionValue}>{device.deviceCode ?? "N/A"}</Text>
+            <Text style={[styles.sessionLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Device</Text>
+            <Text style={[styles.sessionValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{device.deviceCode ?? "N/A"}</Text>
           </View>
         </View>
       </Card>

@@ -13,6 +13,7 @@ interface DeviceRegistrationState {
   registeredAt: string | null;
   registrationState: "unregistered" | "registered" | "provisioned";
   deviceSecret: string | null;
+  posApiKey: string | null;
   privateKey: string | null;
 }
 
@@ -36,6 +37,7 @@ const defaultDevice: DeviceRegistrationState = {
   registeredAt: null,
   registrationState: "unregistered",
   deviceSecret: null,
+  posApiKey: null,
   privateKey: null,
 };
 

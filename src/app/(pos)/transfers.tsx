@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TransferService } from "@/lib/services/transfer.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
+import { useUiStore } from "@/lib/stores/ui-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
 
 const STATUS_FILTERS = ["All", "DRAFT", "APPROVED", "IN_TRANSIT", "RECEIVED"];
@@ -60,6 +61,7 @@ export default function TransfersScreen() {
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
+  const dark = useUiStore((s) => s.themeMode) === "dark";
 
   const loadTransfers = useCallback(async () => {
     try {
@@ -203,8 +205,8 @@ export default function TransfersScreen() {
   const renderTimeline = () => {
     if (!selectedTransfer) return null;
     return (
-      <View style={styles.timelineContainer}>
-        <Text style={styles.sectionTitle}>Timeline</Text>
+      <View style={[styles.timelineContainer, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+        <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Timeline</Text>
         <View style={styles.timelineRow}>
           {TIMELINE_STEPS.map((step, idx) => {
             const status = getTimelineStatus(step.key, selectedTransfer.status);
@@ -225,7 +227,7 @@ export default function TransfersScreen() {
                       color={status === "pending" ? "#d1d9e6" : "#ffffff"}
                     />
                   </View>
-                  <Text style={[styles.timelineLabel, status === "pending" && styles.timelineLabelPending]}>
+                  <Text style={[styles.timelineLabel, status === "pending" && styles.timelineLabelPending, { color: dark && status !== "pending" ? "#e2e8f0" : undefined }]}>
                     {step.label}
                   </Text>
                 </View>
@@ -242,12 +244,12 @@ export default function TransfersScreen() {
           })}
         </View>
         <View style={styles.timelineDates}>
-          <Text style={styles.timelineDateText}>Created: {formatDateTime(selectedTransfer.createdAt)}</Text>
+          <Text style={[styles.timelineDateText, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Created: {formatDateTime(selectedTransfer.createdAt)}</Text>
           {selectedTransfer.approvedAt && (
-            <Text style={styles.timelineDateText}>Approved: {formatDateTime(selectedTransfer.approvedAt)}</Text>
+            <Text style={[styles.timelineDateText, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Approved: {formatDateTime(selectedTransfer.approvedAt)}</Text>
           )}
           {selectedTransfer.receivedAt && (
-            <Text style={styles.timelineDateText}>Received: {formatDateTime(selectedTransfer.receivedAt)}</Text>
+            <Text style={[styles.timelineDateText, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Received: {formatDateTime(selectedTransfer.receivedAt)}</Text>
           )}
         </View>
       </View>
@@ -257,25 +259,25 @@ export default function TransfersScreen() {
   const renderItemsTable = () => {
     if (!selectedTransfer) return null;
     return (
-      <Card style={styles.tableCard}>
-        <Text style={styles.sectionTitle}>Items</Text>
+      <Card style={[styles.tableCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+        <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Items</Text>
         <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderText, { flex: 2 }]}>Product</Text>
-          <Text style={[styles.tableHeaderText, { width: 60 }]}>Alloc.</Text>
-          <Text style={[styles.tableHeaderText, { width: 65 }]}>Received</Text>
-          <Text style={[styles.tableHeaderText, { width: 50 }]}>Unit</Text>
-          <Text style={[styles.tableHeaderText, { flex: 1 }]}>Remarks</Text>
+          <Text style={[styles.tableHeaderText, { flex: 2, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Product</Text>
+          <Text style={[styles.tableHeaderText, { width: 60, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Alloc.</Text>
+          <Text style={[styles.tableHeaderText, { width: 65, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Received</Text>
+          <Text style={[styles.tableHeaderText, { width: 50, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Unit</Text>
+          <Text style={[styles.tableHeaderText, { flex: 1, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Remarks</Text>
         </View>
         {selectedTransfer.items.map((item: InventoryTransferItemDTO) => (
           <View key={item.id} style={styles.tableRow}>
             <View style={{ flex: 2 }}>
-              <Text style={styles.tableCellPrimary} numberOfLines={1}>{item.productName ?? "Unknown"}</Text>
-              <Text style={styles.tableCellSecondary}>{item.productSku ?? "—"}</Text>
+              <Text style={[styles.tableCellPrimary, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.productName ?? "Unknown"}</Text>
+              <Text style={[styles.tableCellSecondary, { color: dark ? "#8e99a4" : "#8e99a4" }]}>{item.productSku ?? "—"}</Text>
             </View>
-            <Text style={[styles.tableCell, { width: 60 }]}>{item.allocatedQty}</Text>
-            <Text style={[styles.tableCell, { width: 65 }]}>{item.receivedQty}</Text>
-            <Text style={[styles.tableCellMuted, { width: 50 }]}>{item.unit ?? "—"}</Text>
-            <Text style={[styles.tableCellMuted, { flex: 1 }]} numberOfLines={1}>{item.remarks ?? "—"}</Text>
+            <Text style={[styles.tableCell, { width: 60, color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.allocatedQty}</Text>
+            <Text style={[styles.tableCell, { width: 65, color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.receivedQty}</Text>
+            <Text style={[styles.tableCellMuted, { width: 50, color: dark ? "#8e99a4" : "#6b7b8d" }]}>{item.unit ?? "—"}</Text>
+            <Text style={[styles.tableCellMuted, { flex: 1, color: dark ? "#8e99a4" : "#6b7b8d" }]} numberOfLines={1}>{item.remarks ?? "—"}</Text>
           </View>
         ))}
       </Card>
@@ -292,7 +294,7 @@ export default function TransfersScreen() {
       selectedTransfer.status !== "REJECTED";
 
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.detailContent}>
+      <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.detailContent}>
         <View style={styles.detailHeader}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -302,10 +304,10 @@ export default function TransfersScreen() {
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <View style={styles.detailHeaderRow}>
-              <Text style={styles.detailTitle}>{selectedTransfer.transferNumber}</Text>
+              <Text style={[styles.detailTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.transferNumber}</Text>
               <Badge label={statusLabel(selectedTransfer.status)} color={statusColor(selectedTransfer.status)} />
             </View>
-            <Text style={styles.detailSubtitle}>
+            <Text style={[styles.detailSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>
               {selectedTransfer.sourceWarehouse ?? "Unknown source"} → {selectedTransfer.destinationPos ?? "Unknown destination"}
             </Text>
           </View>
@@ -319,30 +321,30 @@ export default function TransfersScreen() {
             {renderItemsTable()}
 
             {selectedTransfer.notes && (
-              <Card style={styles.notesCard}>
-                <Text style={styles.sectionTitle}>Notes</Text>
-                <Text style={styles.notesText}>{selectedTransfer.notes}</Text>
+              <Card style={[styles.notesCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+                <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Notes</Text>
+                <Text style={[styles.notesText, { color: dark ? "#c1c9d4" : "#4a5568" }]}>{selectedTransfer.notes}</Text>
               </Card>
             )}
 
-            <Card style={styles.infoCard}>
-              <Text style={styles.sectionTitle}>Transfer Info</Text>
+            <Card style={[styles.infoCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+              <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Transfer Info</Text>
               {selectedTransfer.createdByName && (
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Created by</Text>
-                  <Text style={styles.infoValue}>{selectedTransfer.createdByName}</Text>
+                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Created by</Text>
+                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.createdByName}</Text>
                 </View>
               )}
               {selectedTransfer.approvedByName && (
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Approved by</Text>
-                  <Text style={styles.infoValue}>{selectedTransfer.approvedByName}</Text>
+                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Approved by</Text>
+                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.approvedByName}</Text>
                 </View>
               )}
               {selectedTransfer.receivedByName && (
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Received by</Text>
-                  <Text style={styles.infoValue}>{selectedTransfer.receivedByName}</Text>
+                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Received by</Text>
+                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.receivedByName}</Text>
                 </View>
               )}
             </Card>
@@ -392,7 +394,7 @@ export default function TransfersScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -402,10 +404,10 @@ export default function TransfersScreen() {
         {STATUS_FILTERS.map((sf) => (
           <TouchableOpacity
             key={sf}
-            style={[styles.filterChip, filter === sf && styles.filterChipActive]}
+            style={[styles.filterChip, filter === sf && styles.filterChipActive, { backgroundColor: dark ? "#101928" : "#f0f4ff", borderColor: dark ? "#1e2a3a" : "#e2e8f0" }]}
             onPress={() => setFilter(sf)}
           >
-            <Text style={[styles.filterText, filter === sf && styles.filterTextActive]}>
+            <Text style={[styles.filterText, filter === sf && styles.filterTextActive, { color: dark ? "#c1c9d4" : "#6b7b8d" }]}>
               {sf === "All" ? "All" : statusLabel(sf)}
             </Text>
           </TouchableOpacity>
@@ -416,23 +418,23 @@ export default function TransfersScreen() {
         data={filtered}
         renderItem={({ item }) => (
           <TouchableOpacity onPress={() => handleTransferPress(item)} activeOpacity={0.7}>
-            <Card style={styles.transferCard}>
+            <Card style={[styles.transferCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
               <View style={styles.transferHeader}>
                 <View style={styles.transferInfo}>
-                  <Text style={styles.transferNumber}>{item.transferNumber}</Text>
-                  <Text style={styles.transferDate}>{item.createdAt.split("T")[0]}</Text>
+                  <Text style={[styles.transferNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.transferNumber}</Text>
+                  <Text style={[styles.transferDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{item.createdAt.split("T")[0]}</Text>
                 </View>
                 <Badge label={statusLabel(item.status)} color={statusColor(item.status)} />
               </View>
               <View style={styles.transferRoute}>
                 <View style={styles.routeItem}>
                   <Ionicons name="location-outline" size={14} color="#6b7b8d" />
-                  <Text style={styles.routeText} numberOfLines={1}>{item.sourceWarehouse ?? "N/A"}</Text>
+                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.sourceWarehouse ?? "N/A"}</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={14} color="#8e99a4" />
                 <View style={styles.routeItem}>
                   <Ionicons name="location" size={14} color="#17386b" />
-                  <Text style={styles.routeText} numberOfLines={1}>{item.destinationPos ?? "N/A"}</Text>
+                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.destinationPos ?? "N/A"}</Text>
                 </View>
               </View>
               <View style={styles.transferFooter}>

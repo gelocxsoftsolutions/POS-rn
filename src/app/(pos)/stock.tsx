@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { InventoryService } from "@/lib/services/inventory.service";
 import { ProductService } from "@/lib/services/product.service";
+import { useUiStore } from "@/lib/stores/ui-store";
 import type { InventoryDTO, ProductDTO } from "@/lib/types/inventory";
 
 interface StockDisplayItem {
@@ -29,6 +30,7 @@ export default function StockScreen() {
   const [search, setSearch] = useState("");
   const [stockItems, setStockItems] = useState<StockDisplayItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const dark = useUiStore((s) => s.themeMode) === "dark";
 
   const loadData = useCallback(async () => {
     try {
@@ -86,32 +88,32 @@ export default function StockScreen() {
     const isLow = item.available <= item.minimum && item.available > 0;
     const isOut = item.available === 0;
     return (
-      <Card style={[styles.stockCard, (isLow || isOut) && styles.stockCardAlert]}>
+      <Card style={[styles.stockCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }, (isLow || isOut) && styles.stockCardAlert]}>
         <View style={styles.stockHeader}>
           <View style={styles.stockInfo}>
-            <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.stockSku}>{item.sku}</Text>
+            <Text style={[styles.stockName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
+            <Text style={[styles.stockSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
           </View>
           <Badge label={status.label} color={status.color} />
         </View>
         <View style={styles.stockDetails}>
           <View style={styles.stockDetailItem}>
-            <Text style={styles.stockDetailLabel}>Available</Text>
-            <Text style={[styles.stockDetailValue, (isLow || isOut) && { color: status.color }]}>
+            <Text style={[styles.stockDetailLabel, { color: dark ? "#8e99a4" : "#8e99a4" }]}>Available</Text>
+            <Text style={[styles.stockDetailValue, { color: dark ? "#e2e8f0" : "#1a202c" }, (isLow || isOut) && { color: status.color }]}>
               {item.available}
             </Text>
           </View>
           <View style={styles.stockDetailItem}>
-            <Text style={styles.stockDetailLabel}>Min Stock</Text>
-            <Text style={styles.stockDetailValue}>{item.minimum}</Text>
+            <Text style={[styles.stockDetailLabel, { color: dark ? "#8e99a4" : "#8e99a4" }]}>Min Stock</Text>
+            <Text style={[styles.stockDetailValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.minimum}</Text>
           </View>
           <View style={styles.stockDetailItem}>
-            <Text style={styles.stockDetailLabel}>Allocated</Text>
-            <Text style={styles.stockDetailValue}>{item.allocated}</Text>
+            <Text style={[styles.stockDetailLabel, { color: dark ? "#8e99a4" : "#8e99a4" }]}>Allocated</Text>
+            <Text style={[styles.stockDetailValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.allocated}</Text>
           </View>
           <View style={styles.stockDetailItem}>
-            <Text style={styles.stockDetailLabel}>Sold</Text>
-            <Text style={styles.stockDetailValue}>{item.sold}</Text>
+            <Text style={[styles.stockDetailLabel, { color: dark ? "#8e99a4" : "#8e99a4" }]}>Sold</Text>
+            <Text style={[styles.stockDetailValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.sold}</Text>
           </View>
         </View>
       </Card>
@@ -127,39 +129,39 @@ export default function StockScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={18} color="#8e99a4" />
+    <View style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+      <View style={[styles.searchBar, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }]}>
+        <Ionicons name="search" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
           placeholder="Search inventory..."
-          placeholderTextColor="#b0b8c1"
+          placeholderTextColor={dark ? "#4a6785" : "#b0b8c1"}
           value={search}
           onChangeText={setSearch}
         />
         {search.length > 0 && (
           <TouchableOpacity onPress={() => setSearch("")}>
-            <Ionicons name="close-circle" size={18} color="#8e99a4" />
+            <Ionicons name="close-circle" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
           </TouchableOpacity>
         )}
       </View>
 
-      <View style={styles.summaryBar}>
+      <View style={[styles.summaryBar, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryNumber}>{stockItems.length}</Text>
-          <Text style={styles.summaryLabel}>Total Items</Text>
+          <Text style={[styles.summaryNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{stockItems.length}</Text>
+          <Text style={[styles.summaryLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Total Items</Text>
         </View>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryNumber, { color: "#dc3545" }]}>
             {stockItems.filter((s) => s.available === 0).length}
           </Text>
-          <Text style={styles.summaryLabel}>Out of Stock</Text>
+          <Text style={[styles.summaryLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Out of Stock</Text>
         </View>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryNumber, { color: "#ffc107" }]}>
             {stockItems.filter((s) => s.available > 0 && s.available <= s.minimum).length}
           </Text>
-          <Text style={styles.summaryLabel}>Low Stock</Text>
+          <Text style={[styles.summaryLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Low Stock</Text>
         </View>
       </View>
 
