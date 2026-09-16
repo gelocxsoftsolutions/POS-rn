@@ -19,6 +19,7 @@ import { DeviceService } from "@/lib/services/device.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
+import { AuthenticationService } from "@/lib/services/authentication.service";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -65,6 +66,16 @@ export default function RegisterDevice() {
       });
 
       if (result.success && result.device) {
+        const deviceState = useDeviceStore.getState().device;
+        const deviceSecret = deviceState.deviceSecret || "";
+        const privateKey = deviceState.privateKey || "";
+
+        if (privateKey && deviceSecret) {
+          try {
+            await AuthenticationService.login(privateKey, deviceSecret);
+          } catch { /* non-blocking — registration token may still work */ }
+        }
+
         if (result.device.branchId) {
           const device = useDeviceStore.getState().device;
           if (device.branchId) {
@@ -75,10 +86,8 @@ export default function RegisterDevice() {
         }
 
         if (serverUrl) {
-          const deviceState = useDeviceStore.getState().device;
-          const apiKey = deviceState.deviceSecret || "";
           try {
-            await OmsSyncService.connect(serverUrl, apiKey);
+            await OmsSyncService.connect(serverUrl, deviceSecret);
           } catch { /* non-blocking */ }
         }
 
