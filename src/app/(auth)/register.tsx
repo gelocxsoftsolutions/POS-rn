@@ -69,11 +69,14 @@ export default function RegisterDevice() {
         const deviceState = useDeviceStore.getState().device;
         const deviceSecret = deviceState.deviceSecret || "";
         const privateKey = deviceState.privateKey || "";
+        const deviceId = deviceState.deviceId || "";
 
-        if (privateKey && deviceSecret) {
+        if (privateKey && deviceSecret && deviceId) {
           try {
-            await AuthenticationService.login(privateKey, deviceSecret);
-          } catch { /* non-blocking — registration token may still work */ }
+            console.log("[Register] attempting auth login with deviceId:", deviceId);
+            const authResult = await AuthenticationService.login(privateKey, deviceId, deviceSecret);
+            console.log("[Register] auth login result:", authResult);
+          } catch (e: any) { console.warn("[Register] auth login error:", e?.message); }
         }
 
         if (result.device.branchId) {

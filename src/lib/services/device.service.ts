@@ -59,13 +59,13 @@ export const DeviceService = {
           });
 
           useDeviceStore.getState().setDevice({
-            deviceId: device.id,
-            deviceCode: device.deviceCode,
-            publicIdentifier: device.publicIdentifier,
-            branchId: device.branchId,
-            branchName: device.branchName,
-            branchAddress: device.branchAddress,
-            deviceName: device.deviceName,
+            deviceId: d.deviceId,
+            deviceCode: d.deviceCode,
+            publicIdentifier: d.publicIdentifier,
+            branchId: d.branchId,
+            branchName: d.branchName,
+            branchAddress: d.branchAddress,
+            deviceName: d.deviceName || input.computerName,
             registeredAt: d.registeredAt,
             registrationState: "registered",
             deviceSecret: d.deviceSecret,
