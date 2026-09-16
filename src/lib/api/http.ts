@@ -31,6 +31,41 @@ export async function initApiConfig() {
       if (state.apiKey) config.apiKey = state.apiKey;
       if (state.accessToken) config.accessToken = state.accessToken;
     }
+
+    if (!config.apiKey && config.baseUrl) {
+      try {
+        const devRaw = await AsyncStorage.getItem("nct-pos-device");
+        if (devRaw) {
+          const devParsed = JSON.parse(devRaw);
+          const devState = devParsed?.state?.device ?? devParsed?.device ?? devParsed;
+          const pubId = devState?.publicIdentifier;
+          const devCode = devState?.deviceCode;
+          if (pubId && devCode) {
+            console.log("[API] apiKey MISSING — attempting recovery via /api/device/recover-key");
+            const res = await fetch(`${config.baseUrl}/api/device/recover-key`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ publicIdentifier: pubId, deviceCode: devCode }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.posApiKey) {
+                config.apiKey = data.posApiKey;
+                await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
+                  state: { serverUrl: config.baseUrl, apiKey: data.posApiKey, accessToken: config.accessToken },
+                  version: 0,
+                }));
+                console.log("[API] posApiKey recovered successfully");
+              }
+            } else {
+              console.warn("[API] recovery failed:", res.status);
+            }
+          }
+        }
+      } catch {
+        // recovery is best-effort
+      }
+    }
   } catch {
     // silent
   }

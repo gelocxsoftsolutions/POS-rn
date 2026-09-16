@@ -182,6 +182,54 @@ export const DeviceService = {
     }
   },
 
+  async recoverPosApiKey(): Promise<{ success: boolean; posApiKey?: string; error?: string }> {
+    try {
+      const device = useDeviceStore.getState().device;
+      if (!device.publicIdentifier || !device.deviceCode) {
+        return { success: false, error: "No device identity to recover" };
+      }
+
+      const config = getApiConfig();
+      if (!config.baseUrl) {
+        return { success: false, error: "No server URL configured" };
+      }
+
+      const res = await api.post<{ posApiKey: string; deviceId: string }>(
+        "/api/device/recover-key",
+        {
+          publicIdentifier: device.publicIdentifier,
+          deviceCode: device.deviceCode,
+        },
+      );
+
+      if (res.ok && res.data?.posApiKey) {
+        setApiConfig({ apiKey: res.data.posApiKey });
+
+        useDeviceStore.getState().setDevice({
+          posApiKey: res.data.posApiKey,
+        });
+
+        try {
+          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+          const raw = await AsyncStorage.getItem("nct-pos-oms");
+          const parsed = raw ? JSON.parse(raw) : {};
+          const state = parsed?.state ?? parsed;
+          await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
+            state: { ...state, apiKey: res.data.posApiKey },
+            version: 0,
+          }));
+        } catch { /* non-blocking */ }
+
+        console.log("[DeviceService] recovered posApiKey for", device.publicIdentifier);
+        return { success: true, posApiKey: res.data.posApiKey };
+      }
+
+      return { success: false, error: res.error ?? "Recovery failed" };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Recovery failed" };
+    }
+  },
+
   async notifyServerRevoke(): Promise<void> {
     try {
       await api.post("/api/device/self-delete");
