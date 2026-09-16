@@ -1,11 +1,29 @@
-import "react-native-get-random-values";
+if (!globalThis.crypto) {
+  (globalThis as any).crypto = {
+    getRandomValues(buf: Uint8Array) {
+      for (let i = 0; i < buf.length; i++) {
+        buf[i] = Math.floor(Math.random() * 256);
+      }
+      return buf;
+    },
+  };
+}
+
 import { ed25519 } from "@noble/curves/ed25519.js";
+
+function getRandomBytes(length: number): Uint8Array {
+  const buf = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    buf[i] = Math.floor(Math.random() * 256);
+  }
+  return buf;
+}
 
 export function generateEd25519Keypair(): {
   publicKey: string;
   privateKey: string;
 } {
-  const privateKey = ed25519.utils.randomSecretKey();
+  const privateKey = getRandomBytes(32);
   const publicKey = ed25519.getPublicKey(privateKey);
   return {
     publicKey: bytesToHex(publicKey),
@@ -27,6 +45,7 @@ export function signTimestamp(
 }
 
 export function sha256(data: string): string {
+  if (!data) return "";
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);

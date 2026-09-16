@@ -17,14 +17,23 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { DeviceService } from "@/lib/services/device.service";
 import { CashierService } from "@/lib/services/cashier.service";
+import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
+import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import * as Constants from "expo-constants";
 
 const { width } = Dimensions.get("window");
 
-type Step = "choose" | "qr" | "manual" | "success";
+type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
+
+interface CashierPin {
+  id: string;
+  username: string;
+  displayName: string;
+  pin: string;
+}
 
 export default function RegisterDevice() {
   const [step, setStep] = useState<Step>("choose");
@@ -33,6 +42,8 @@ export default function RegisterDevice() {
   const [loading, setLoading] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const [cashierPins, setCashierPins] = useState<CashierPin[]>([]);
+  const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
   const setDevice = useDeviceStore((s) => s.setDevice);
@@ -71,7 +82,18 @@ export default function RegisterDevice() {
           } catch { /* non-blocking */ }
         }
 
-        setStep("success");
+        const cashiers = await CashierRepository.findAll();
+        if (cashiers.length > 0) {
+          setCashierPins(cashiers.map((c) => ({
+            id: c.id,
+            username: c.username ?? "",
+            displayName: c.displayName,
+            pin: "",
+          })));
+          setStep("set-pins");
+        } else {
+          setStep("success");
+        }
       } else {
         Alert.alert("Error", result.error ?? "Registration failed.");
       }
@@ -178,6 +200,103 @@ export default function RegisterDevice() {
           </TouchableOpacity>
         </View>
       </View>
+    );
+  }
+
+  if (step === "set-pins") {
+    const handlePinChange = (id: string, pin: string) => {
+      setCashierPins((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, pin } : c))
+      );
+      setPinErrors((prev) => ({ ...prev, [id]: "" }));
+    };
+
+    const handleSavePins = async () => {
+      const errors: Record<string, string> = {};
+      let hasError = false;
+      for (const c of cashierPins) {
+        if (c.pin.length < 4) {
+          errors[c.id] = "PIN must be at least 4 digits";
+          hasError = true;
+        }
+      }
+      if (hasError) {
+        setPinErrors(errors);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        for (const c of cashierPins) {
+          await CashierRepository.update(c.id, {
+            pinHash: sha256(c.pin),
+          });
+        }
+        setStep("success");
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to save PINs.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    return (
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.formTitle}>Set Cashier PINs</Text>
+            <Text style={styles.formSubtitle}>
+              Assign a 6-digit PIN for each cashier to sign in
+            </Text>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.formContent}>
+            {cashierPins.map((c) => (
+              <View key={c.id} style={styles.inputGroup}>
+                <Text style={styles.label}>{c.displayName}</Text>
+                <TextInput
+                  style={[styles.input, pinErrors[c.id] ? { borderColor: "#dc3545" } : null]}
+                  placeholder="Enter 6-digit PIN"
+                  placeholderTextColor="#b0b8c1"
+                  value={c.pin}
+                  onChangeText={(pin) => handlePinChange(c.id, pin)}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  secureTextEntry
+                />
+                {pinErrors[c.id] ? (
+                  <Text style={{ color: "#dc3545", fontSize: 12, marginTop: 4 }}>
+                    {pinErrors[c.id]}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+
+            <TouchableOpacity
+              style={[styles.registerBtn, loading && styles.registerBtnDisabled]}
+              onPress={handleSavePins}
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              {loading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.registerBtnText}>Save PINs</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modeToggle}
+              onPress={() => setStep("success")}
+            >
+              <Text style={styles.modeToggleText}>Skip for now</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     );
   }
 

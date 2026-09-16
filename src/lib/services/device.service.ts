@@ -77,7 +77,17 @@ export const DeviceService = {
             accessToken: d.accessToken,
           });
 
+          try {
+            const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+            await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
+              state: { serverUrl: input.serverUrl, apiKey: d.deviceSecret, accessToken: d.accessToken },
+              version: 0,
+            }));
+          } catch { /* non-blocking */ }
+
           if (d.initialCashiers && d.initialCashiers.length > 0) {
+            console.log("[DeviceService] initialCashiers full:", JSON.stringify(d.initialCashiers));
+            await execute("DELETE FROM CashierSession");
             await execute("DELETE FROM Cashier");
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
