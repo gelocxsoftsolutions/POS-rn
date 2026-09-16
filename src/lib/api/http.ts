@@ -27,10 +27,30 @@ export async function initApiConfig() {
     if (raw) {
       const parsed = JSON.parse(raw);
       const state = parsed?.state ?? parsed;
+      console.log("[API] initApiConfig raw keys:", Object.keys(parsed), "state:", state);
       if (state.serverUrl) config.baseUrl = state.serverUrl;
       if (state.apiKey) config.apiKey = state.apiKey;
       if (state.accessToken) config.accessToken = state.accessToken;
+    } else {
+      console.log("[API] initApiConfig — no nct-pos-oms in AsyncStorage");
     }
+
+    if (!config.apiKey) {
+      try {
+        const AsyncStorage2 = (await import("@react-native-async-storage/async-storage")).default;
+        const deviceRaw = await AsyncStorage2.getItem("nct-pos-device");
+        if (deviceRaw) {
+          const deviceParsed = JSON.parse(deviceRaw);
+          const deviceState = deviceParsed?.state?.device ?? deviceParsed?.device ?? deviceParsed;
+          if (deviceState?.deviceSecret) {
+            config.apiKey = deviceState.deviceSecret;
+            console.log("[API] initApiConfig — loaded apiKey from device store:", config.apiKey ? "set" : "MISSING");
+          }
+        }
+      } catch { /* silent */ }
+    }
+
+    console.log("[API] initApiConfig final — apiKey:", config.apiKey ? "set" : "MISSING", "accessToken:", config.accessToken ? "set" : "MISSING");
   } catch {
     // silent
   }

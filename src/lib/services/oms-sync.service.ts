@@ -217,10 +217,12 @@ export const OmsSyncService = {
       try {
         const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
         const updatedConfig = getApiConfig();
-        await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-          state: { serverUrl: url, apiKey: updatedConfig.apiKey, accessToken: updatedConfig.accessToken },
-          version: 0,
-        }));
+        if (updatedConfig.apiKey) {
+          await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
+            state: { serverUrl: url, apiKey: updatedConfig.apiKey, accessToken: updatedConfig.accessToken },
+            version: 0,
+          }));
+        }
       } catch { /* non-blocking */ }
 
       const device = await DeviceRepository.find();
