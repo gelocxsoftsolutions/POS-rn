@@ -44,11 +44,11 @@ export const AuthenticationService = {
     try {
       const timestamp = new Date().toISOString();
       const nonce = Math.random().toString(36).substring(2, 10);
-      const signedTimestamp = signTimestamp(privateKeyHex, timestamp, nonce, deviceSecret);
+      const signature = signTimestamp(privateKeyHex, timestamp, nonce, deviceSecret);
 
       const res = await api.post<{ accessToken: string; refreshToken: string; expiresIn: number }>(
         "/api/device/auth/login",
-        { deviceId, deviceSecret, signedTimestamp }
+        { deviceId, deviceSecret, timestamp, nonce, signature }
       );
 
       if (!res.ok || !res.data) return false;
