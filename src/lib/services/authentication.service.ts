@@ -48,7 +48,7 @@ export const AuthenticationService = {
 
       const res = await api.post<{ accessToken: string; refreshToken: string; expiresIn: number }>(
         "/api/device/auth/login",
-        { deviceId, deviceSecret, timestamp, nonce, signature }
+        { deviceId, deviceSecret, timestamp, nonce, signature, signedTimestamp: signature }
       );
 
       if (!res.ok || !res.data) return false;
