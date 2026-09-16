@@ -40,15 +40,18 @@ export const AuthenticationService = {
     }
   },
 
-  async login(privateKeyHex: string, deviceSecret: string): Promise<boolean> {
+  async login(privateKeyHex: string, deviceSecret: string, deviceId: string): Promise<boolean> {
     try {
       const timestamp = new Date().toISOString();
       const nonce = Math.random().toString(36).substring(2, 10);
+      const signedTimestamp = `${timestamp}${nonce}${deviceSecret}`;
       const signature = signTimestamp(privateKeyHex, timestamp, nonce, deviceSecret);
+
+      console.log("[AuthService] login attempt:", { deviceId, timestamp, nonce, signedTimestampLen: signedTimestamp.length });
 
       const res = await api.post<{ accessToken: string; refreshToken: string; expiresIn: number }>(
         "/api/device/auth/login",
-        { timestamp, nonce, signature }
+        { deviceId, deviceSecret, signedTimestamp, signature, nonce, timestamp }
       );
 
       if (!res.ok || !res.data) return false;
