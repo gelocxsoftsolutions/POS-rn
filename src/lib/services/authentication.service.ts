@@ -40,7 +40,7 @@ export const AuthenticationService = {
     }
   },
 
-  async login(privateKeyHex: string, deviceSecret: string): Promise<boolean> {
+  async login(privateKeyHex: string, deviceId: string, deviceSecret: string): Promise<boolean> {
     try {
       const timestamp = new Date().toISOString();
       const nonce = Math.random().toString(36).substring(2, 10);
@@ -48,7 +48,7 @@ export const AuthenticationService = {
 
       const res = await api.post<{ accessToken: string; refreshToken: string; expiresIn: number }>(
         "/api/device/auth/login",
-        { timestamp, nonce, signature }
+        { deviceId, deviceSecret, timestamp, nonce, signature, signedTimestamp: signature }
       );
 
       if (!res.ok || !res.data) return false;

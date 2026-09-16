@@ -19,6 +19,7 @@ import { DeviceService } from "@/lib/services/device.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
+import { AuthenticationService } from "@/lib/services/authentication.service";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -65,6 +66,19 @@ export default function RegisterDevice() {
       });
 
       if (result.success && result.device) {
+        const deviceState = useDeviceStore.getState().device;
+        const deviceSecret = deviceState.deviceSecret || "";
+        const privateKey = deviceState.privateKey || "";
+        const deviceId = deviceState.deviceId || "";
+
+        if (privateKey && deviceSecret && deviceId) {
+          try {
+            console.log("[Register] attempting auth login with deviceId:", deviceId);
+            const authResult = await AuthenticationService.login(privateKey, deviceId, deviceSecret);
+            console.log("[Register] auth login result:", authResult);
+          } catch (e: any) { console.warn("[Register] auth login error:", e?.message); }
+        }
+
         if (result.device.branchId) {
           const device = useDeviceStore.getState().device;
           if (device.branchId) {
@@ -75,10 +89,8 @@ export default function RegisterDevice() {
         }
 
         if (serverUrl) {
-          const deviceState = useDeviceStore.getState().device;
-          const apiKey = deviceState.deviceSecret || "";
           try {
-            await OmsSyncService.connect(serverUrl, apiKey);
+            await OmsSyncService.connect(serverUrl, deviceSecret);
           } catch { /* non-blocking */ }
         }
 
