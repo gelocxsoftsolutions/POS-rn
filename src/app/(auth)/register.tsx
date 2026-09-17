@@ -76,7 +76,7 @@ export default function RegisterDevice() {
 
         if (serverUrl) {
           const deviceState = useDeviceStore.getState().device;
-          const apiKey = deviceState.deviceSecret || "";
+          const apiKey = deviceState.posApiKey || "";
           try {
             await OmsSyncService.connect(serverUrl, apiKey);
           } catch { /* non-blocking */ }
