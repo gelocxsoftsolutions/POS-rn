@@ -27,7 +27,6 @@ import { AuditService } from "@/lib/services/audit.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { query } from "@/lib/db/connection";
-import { setApiConfig } from "@/lib/api/http";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
 
