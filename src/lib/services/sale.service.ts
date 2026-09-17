@@ -3,10 +3,39 @@ import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
-import { execute } from "@/lib/db/connection";
+import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
 import type { SaleDTO } from "@/lib/types/sales";
+
+async function resolveSalePayload(
+  input: SaleInput,
+  saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
+  total: number,
+  saleId: string
+) {
+  const mappedItems: Array<{ variationId: number; qty: number }> = [];
+  for (const item of saleItems) {
+    if (!item.productId) continue;
+    // Product.sku holds OMS variation.id as string (set in upsertProductFromVariation)
+    const row = await queryFirst<{ sku: string | null }>("SELECT sku FROM Product WHERE id = ?", [item.productId]);
+    const sku = row?.sku?.trim();
+    const vid = sku ? Number(sku) : NaN;
+    if (!Number.isFinite(vid) || vid <= 0) continue;
+    mappedItems.push({ variationId: Math.trunc(vid), qty: item.quantity });
+  }
+  return {
+    // Keep legacy fields for OMS compat, but canonical is variationId/qty
+    receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+    cashierId: input.cashierId,
+    cashierName: input.cashierName,
+    cashierUserId: input.cashierId,
+    paymentMethod: input.paymentMethod,
+    total,
+    items: mappedItems,
+    payments: [{ method: input.paymentMethod, amount: total }],
+  };
+}
 
 export const SaleService = {
   async create(input: SaleInput) {
@@ -132,53 +161,21 @@ export const SaleService = {
     saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
     total: number
   ): Promise<void> {
+    const payload = await resolveSalePayload(input, saleItems, total, saleId);
+    if (payload.items.length === 0) {
+      // Nothing mappable to OMS (e.g. unknown SKUs) -> keep locally and queue for later retry
+      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+      return;
+    }
     try {
-      const pushed = await OmsSyncService.pushSale({
-        receiptNumber: `RCP-${saleId.substring(0, 8)}`,
-        cashierId: input.cashierId,
-        cashierName: input.cashierName,
-        total,
-        items: saleItems.map((item) => ({
-          productId: item.productId ?? "",
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lineTotal: item.lineTotal,
-        })),
-        payments: [{ method: input.paymentMethod, amount: total }],
-      });
-
+      const pushed = await OmsSyncService.pushSale(payload as any);
       if (pushed) {
         await SaleRepository.markSynced(saleId);
       } else {
-        await SyncQueueService.enqueue("Sale", saleId, "CREATE", {
-          receiptNumber: `RCP-${saleId.substring(0, 8)}`,
-          cashierId: input.cashierId,
-          cashierName: input.cashierName,
-          total,
-          items: saleItems.map((item) => ({
-            productId: item.productId ?? "",
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            lineTotal: item.lineTotal,
-          })),
-          payments: [{ method: input.paymentMethod, amount: total }],
-        });
+        await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
       }
     } catch {
-      // Enqueue for retry
-      await SyncQueueService.enqueue("Sale", saleId, "CREATE", {
-        receiptNumber: `RCP-${saleId.substring(0, 8)}`,
-        cashierId: input.cashierId,
-        cashierName: input.cashierName,
-        total,
-        items: saleItems.map((item) => ({
-          productId: item.productId ?? "",
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lineTotal: item.lineTotal,
-        })),
-        payments: [{ method: input.paymentMethod, amount: total }],
-      });
+      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
     }
   },
 

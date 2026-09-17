@@ -10,10 +10,11 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { api, getApiConfig, setApiConfig } from "@/lib/api/http";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -106,20 +107,39 @@ export default function SettingsScreen() {
     }
   }, []);
 
+  const verifyLiveConnection = useCallback(async (url: string, key: string) => {
+    if (!url) { setLiveStatus("idle"); return; }
+    const cfg = getApiConfig();
+    setApiConfig({ baseUrl: url, apiKey: key || cfg.apiKey, accessToken: cfg.accessToken });
+    try {
+      const res = await api.get("/api/pos/health");
+      setLiveStatus(res.ok ? "connected" : "offline");
+    } catch {
+      setLiveStatus("offline");
+    }
+  }, []);
+
   const loadOmsSettings = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
         const state = data?.state ?? data;
-        setOmsUrl(state.serverUrl || state.url || "");
-        setOmsApiKey(state.apiKey || "");
-        setLastSync(state.lastSync || data.lastSync || null);
+        const url = state.serverUrl || state.url || "";
+        const key = state.apiKey || "";
+        setOmsUrl(url);
+        setOmsApiKey(key);
+        const ls = state.lastSync || data.lastSync || null;
+        setLastSync(ls);
+        // Derive real status from stored config instead of staying idle
+        await verifyLiveConnection(url, key);
+      } else {
+        setLiveStatus("idle");
       }
     } catch {
-      // ignore
+      setLiveStatus("idle");
     }
-  }, []);
+  }, [verifyLiveConnection]);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -159,6 +179,13 @@ export default function SettingsScreen() {
       setLoading(false);
     })();
   }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs]);
+
+  useFocusEffect(useCallback(() => {
+    // Re-verify when returning from another tab (fixes Idle-on-return)
+    loadOmsSettings();
+    loadUsers();
+    loadAuditLogs();
+  }, [loadOmsSettings, loadUsers, loadAuditLogs]));
 
   const handleSaveSettings = async () => {
     const nextTaxRatePercent = Number(taxRatePercent);
@@ -216,9 +243,19 @@ export default function SettingsScreen() {
       const result = await OmsSyncService.connect(url, key);
       if (result.success) {
         setLiveStatus("connected");
-        setLastSync(new Date().toISOString());
+        const now = new Date().toISOString();
+        setLastSync(now);
         await saveOmsSettings(url, key);
-        Alert.alert("Success", "Connected to OMS successfully!");
+        // Persist lastSync and ensure future mounts show connected
+        try {
+          const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
+          const prev = raw ? JSON.parse(raw) : {};
+          const prevState = prev?.state ?? prev;
+          await AsyncStorage.setItem(OMS_STORAGE_KEY, JSON.stringify({ state: { ...prevState, serverUrl: url, apiKey: key, lastSync: now }, version: 0 }));
+        } catch {}
+        const s = (result as any).synced;
+        const detail = s ? `Inventory: ${s.inventory}, Products: ${s.products}, Transfers: ${s.transfers}` : "";
+        Alert.alert("Success", `Connected to OMS successfully!${detail ? "\n" + detail : ""}`);
       } else {
         setLiveStatus("offline");
         Alert.alert("Error", result.error ?? "Connection failed.");
@@ -276,23 +313,35 @@ export default function SettingsScreen() {
     try {
       const result = await OmsSyncService.connect(omsUrl.trim(), omsApiKey.trim());
       if (result.success) {
-        setLastSync(new Date().toISOString());
+        const s = (result as any).synced;
+        const now = new Date().toISOString();
+        setLiveStatus("connected");
+        setLastSync(now);
         try {
           const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
           const prev = raw ? JSON.parse(raw) : {};
           const prevState = prev?.state ?? prev;
           await AsyncStorage.setItem(
             OMS_STORAGE_KEY,
-            JSON.stringify({ state: { ...prevState, lastSync: new Date().toISOString() }, version: 0 })
+            JSON.stringify({ state: { ...prevState, lastSync: now }, version: 0 })
           );
-        } catch {
-          // ignore
-        }
-        Alert.alert("Success", "Sync completed.");
+        } catch {}
+        // Also flush queued sales
+        let queueInfo = "";
+        try {
+          const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
+          const r = await SyncQueueService.processPending();
+          if (r.processed > 0 || r.failed > 0) queueInfo = `\nQueue: ${r.processed} synced, ${r.failed} failed`;
+        } catch {}
+        const detail = s ? `Inventory: ${s.inventory}, Products: ${s.products}, Transfers: ${s.transfers}` : "";
+        Alert.alert("Success", `Sync completed.${detail ? "\n" + detail : ""}${queueInfo}`);
+        await Promise.all([loadUsers(), loadAuditLogs()]);
       } else {
+        setLiveStatus("offline");
         Alert.alert("Error", result.error ?? "Sync failed.");
       }
     } catch (e: any) {
+      setLiveStatus("offline");
       Alert.alert("Error", e.message ?? "Sync failed.");
     } finally {
       setSyncPending(false);

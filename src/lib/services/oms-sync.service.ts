@@ -173,8 +173,12 @@ export const OmsSyncService = {
         synced++;
       }
 
+      // Eagerly purge legacy mocks even if inventory sync is empty (device may have no branch)
+      try { await deleteLegacyMockProducts(); } catch {}
+
       return { synced };
     } catch {
+      try { await deleteLegacyMockProducts(); } catch {}
       return { synced: 0 };
     }
   },
@@ -199,26 +203,33 @@ export const OmsSyncService = {
         synced++;
       }
 
-      if (synced > 0) {
-        await deleteLegacyMockProducts();
-      }
+      await deleteLegacyMockProducts();
 
       return { synced };
     } catch {
+      try { await deleteLegacyMockProducts(); } catch {}
       return { synced: 0 };
     }
   },
 
   async pushSale(sale: {
-    receiptNumber: string;
+    receiptNumber?: string;
     cashierId?: string;
     cashierName?: string;
-    total: number;
-    items: Array<{ productId: string; quantity: number; unitPrice: number; lineTotal: number }>;
-    payments: Array<{ method: string; amount: number }>;
+    cashierUserId?: string;
+    paymentMethod?: string;
+    total?: number;
+    items: Array<{ variationId: number; qty: number }>;
+    payments?: Array<{ method: string; amount: number }>;
   }): Promise<boolean> {
     try {
-      const res = await api.post("/api/pos/sales", sale);
+      // Normalize to OMS canonical schema: items[{variationId, qty}], paymentMethod, cashierUserId
+      const body: any = {
+        items: sale.items,
+        paymentMethod: sale.paymentMethod ?? sale.payments?.[0]?.method,
+        cashierUserId: sale.cashierUserId ?? sale.cashierId,
+      };
+      const res = await api.post("/api/pos/sales", body);
       return res.ok;
     } catch {
       return false;
@@ -268,16 +279,20 @@ export const OmsSyncService = {
     }
   },
 
-  async connect(url: string, apiKey: string): Promise<{ success: boolean; error?: string }> {
+  async connect(url: string, apiKey: string): Promise<{ success: boolean; error?: string; synced?: { inventory: number; products: number; transfers: number } }> {
     try {
       const current = getApiConfig();
       const effectiveApiKey = apiKey || current.apiKey;
       console.log("[OmsSync] connect — apiKey:", effectiveApiKey ? "set" : "MISSING", "accessToken:", current.accessToken ? "set" : "MISSING");
       setApiConfig({ baseUrl: url, apiKey: effectiveApiKey, accessToken: current.accessToken });
 
-      const res = await api.get("/api/health");
-      if (!res.ok) {
-        return { success: false, error: "Server unreachable" };
+      // Use authenticated POS health — /api/health is always 200 and gives false positives
+      const health = await api.get<{ ok?: boolean; message?: string }>("/api/pos/health");
+      if (!health.ok) {
+        const msg = (health.error as any)?.error ?? (health.error as any)?.message ?? `OMS auth failed (HTTP ${health.status})`;
+        if (health.status === 401) return { success: false, error: "Invalid API key" };
+        if (health.status === 0) return { success: false, error: "Server unreachable" };
+        return { success: false, error: msg };
       }
 
       try {
@@ -291,16 +306,20 @@ export const OmsSyncService = {
         }
       } catch { /* non-blocking */ }
 
+      let inv = 0, prod = 0, tr = 0;
       const device = await DeviceRepository.find();
       if (device?.id) {
-        await this.syncInventory(device.id);
+        inv = (await this.syncInventory(device.id)).synced;
         if (device.branchId) {
-          await this.syncBranchProducts(device.branchId);
+          prod = (await this.syncBranchProducts(device.branchId)).synced;
         }
-        await this.syncPendingTransfers(device.id);
+        tr = (await this.syncPendingTransfers(device.id)).synced;
+      } else {
+        // No device yet — still purge mocks
+        try { await deleteLegacyMockProducts(); } catch {}
       }
 
-      return { success: true };
+      return { success: true, synced: { inventory: inv, products: prod, transfers: tr } };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Connection failed" };
     }
