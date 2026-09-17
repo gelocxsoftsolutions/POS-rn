@@ -2,37 +2,173 @@ import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { ProductRepository } from "@/lib/repositories/product.repository";
 import { TransferRepository } from "@/lib/repositories/transfer.repository";
-import { execute, query } from "@/lib/db/connection";
+import { execute, query, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
-import { CategoryRepository } from "@/lib/repositories/category.repository";
-import { BrandRepository } from "@/lib/repositories/brand.repository";
-import { UnitRepository } from "@/lib/repositories/unit.repository";
-import { TaxGroupRepository } from "@/lib/repositories/tax-group.repository";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
+
+interface VariationDto {
+  id: string;
+  productId?: string | number;
+  productName?: string;
+  variationName?: string;
+  barcode?: string | null;
+  unit?: string | null;
+  weight?: number;
+  price?: number;
+  posPrice?: number;
+  imageUrl?: string | null;
+  category?: { name: string; color?: string | null } | null;
+}
+
+const LEGACY_MOCK_SKUS = [
+  "SHR-001", "TUN-001", "SAL-001", "SQU-001", "CRA-001",
+  "CHI-001", "POR-001", "MLK-001", "APL-001", "WTR-001",
+];
+
+async function findCategoryId(name: string): Promise<string | undefined> {
+  const existing = await queryFirst<{ id: string }>(
+    "SELECT id FROM Category WHERE name = ?", [name]
+  );
+  if (existing?.id) return existing.id;
+  const created = await execute(
+    "INSERT INTO Category (id, name, sortOrder, active, createdAt, updatedAt) VALUES (?, ?, 0, 1, datetime('now'), datetime('now'))",
+    [uuid(), name]
+  );
+  if (!created || !created.lastInsertRowId) {
+    return (await queryFirst<{ id: string }>("SELECT id FROM Category WHERE name = ?", [name]))?.id;
+  }
+  return created.lastInsertRowId.toString();
+}
+
+async function findUnitId(name: string): Promise<string | undefined> {
+  const existing = await queryFirst<{ id: string }>(
+    "SELECT id FROM Unit WHERE name = ?", [name]
+  );
+  if (existing?.id) return existing.id;
+  const created = await execute(
+    "INSERT INTO Unit (id, name, active, createdAt, updatedAt) VALUES (?, ?, 1, datetime('now'), datetime('now'))",
+    [uuid(), name]
+  );
+  if (!created || !created.lastInsertRowId) {
+    return (await queryFirst<{ id: string }>("SELECT id FROM Unit WHERE name = ?", [name]))?.id;
+  }
+  return created.lastInsertRowId.toString();
+}
+
+interface SyncProduct {
+  id?: string;
+  sku: string;
+}
+
+async function upsertProductFromVariation(
+  variation: VariationDto,
+  fallbackPosPrice?: number
+): Promise<SyncProduct | null> {
+  const sku = String(variation.id ?? variation.productId ?? "").trim();
+  if (!sku) return null;
+
+  const name = variation.productName || variation.variationName || "Item";
+
+  const categoryId = variation.category?.name
+    ? await findCategoryId(variation.category.name)
+    : undefined;
+  const unitId = variation.unit ? await findUnitId(variation.unit) : undefined;
+
+  const existing = await queryFirst<{ id: string }>(
+    "SELECT id FROM Product WHERE sku = ?", [sku]
+  );
+
+  let productId: string;
+  if (existing?.id) {
+    productId = existing.id;
+    await ProductRepository.update(productId, {
+      name,
+      categoryId,
+      unitId,
+      description: variation.variationName || undefined,
+    });
+  } else {
+    const createResult = await execute(
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, taxGroupId, status, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'ACTIVE', datetime('now'), datetime('now'))`,
+      [
+        uuid(),
+        sku,
+        variation.productId !== undefined ? String(variation.productId) : sku,
+        name,
+        variation.variationName || null,
+        categoryId ?? null,
+        unitId ?? null,
+      ]
+    );
+    productId = createResult.lastInsertRowId?.toString()
+      ?? (await queryFirst<{ id: string }>("SELECT id FROM Product WHERE sku = ?", [sku]))?.id
+      ?? "";
+  }
+
+  if (!productId) return null;
+
+  const price = Number(fallbackPosPrice ?? variation.posPrice ?? variation.price ?? 0);
+  if (price > 0) {
+    await execute(
+      `INSERT OR REPLACE INTO ProductPrice (id, productId, priceList, price, currency, active, createdAt, updatedAt)
+       VALUES (?, ?, 'retail', ?, 'PHP', 1, ?, ?)`,
+      [uuid(), productId, price, new Date().toISOString(), new Date().toISOString()]
+    );
+  }
+
+  if (variation.barcode) {
+    await BarcodeRepository.upsert({ productId, barcode: variation.barcode });
+  }
+
+  return { id: productId, sku };
+}
+
+async function deleteLegacyMockProducts(): Promise<void> {
+  const placeholders = LEGACY_MOCK_SKUS.map(() => "?").join(",");
+  const skus = LEGACY_MOCK_SKUS;
+  await execute(
+    `DELETE FROM PosInventory WHERE productId IN (SELECT id FROM Product WHERE sku IN (${placeholders}))`,
+    skus
+  );
+  await execute(
+    `DELETE FROM Barcode WHERE productId IN (SELECT id FROM Product WHERE sku IN (${placeholders}))`,
+    skus
+  );
+  await execute(
+    `DELETE FROM Product WHERE sku IN (${placeholders})`,
+    skus
+  );
+  const orphanCategories = await query<{ id: string }>(
+    "SELECT id FROM Category WHERE name IN ('Seafood','Meat','Produce','Dairy','Beverages') AND id NOT IN (SELECT DISTINCT categoryId FROM Product WHERE categoryId IS NOT NULL)"
+  );
+  for (const c of orphanCategories) {
+    await execute("DELETE FROM Category WHERE id = ?", [c.id]);
+  }
+}
 
 export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
     try {
-      const res = await api.get<Array<{
-        productId: string;
-        availableQty: number;
-        allocatedQty: number;
-        reservedQty: number;
-        minimumStock: number;
-        maximumStock: number;
-      }>>(`/api/pos/inventory?deviceId=${deviceId}`);
+      const res = await api.get<{ data: Array<{
+        groupKey: string;
+        qty: number;
+        deviceId: string;
+        variation: VariationDto;
+      }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
 
-      if (!res.ok || !res.data) return { synced: 0 };
+      const rows = res.data?.data;
+      if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
 
       let synced = 0;
-      for (const item of res.data) {
-        await InventoryRepository.upsert(item.productId, {
-          availableQty: item.availableQty,
-          allocatedQty: item.allocatedQty,
-          reservedQty: item.reservedQty,
-          minimumStock: item.minimumStock,
-          maximumStock: item.maximumStock,
+      for (const item of rows) {
+        if (!item.variation) continue;
+        const product = await upsertProductFromVariation(item.variation);
+        if (!product?.id) continue;
+
+        await InventoryRepository.upsert(product.id, {
+          availableQty: Number(item.qty ?? 0),
         });
         synced++;
       }
@@ -45,100 +181,26 @@ export const OmsSyncService = {
 
   async syncBranchProducts(branchId: number): Promise<{ synced: number }> {
     try {
-      const res = await api.get<Array<{
-        sku: string;
-        productCode?: string;
-        name: string;
-        description?: string;
-        categoryName?: string;
-        brandName?: string;
-        unitName?: string;
-        taxGroupName?: string;
-        taxRate?: number;
-        retailPrice?: number;
-        barcode?: string;
-        minimumStock?: number;
-        maximumStock?: number;
-      }>>(`/api/pos/products?branchId=${branchId}`);
+      const res = await api.get<{ data: Array<{
+        id: string;
+        variationId: string;
+        posPrice?: number;
+        variation: VariationDto;
+      }> }>(`/api/pos/products?branchId=${branchId}`);
 
-      if (!res.ok || !res.data) return { synced: 0 };
+      const rows = res.data?.data;
+      if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
 
       let synced = 0;
-      for (const p of res.data) {
-        let categoryId: string | undefined;
-        if (p.categoryName) {
-          const cats = await query<{ id: string }>(
-            "SELECT id FROM Category WHERE name = ?", [p.categoryName]
-          );
-          if (cats.length > 0) categoryId = cats[0].id;
-        }
-
-        let brandId: string | undefined;
-        if (p.brandName) {
-          const brands = await query<{ id: string }>(
-            "SELECT id FROM Brand WHERE name = ?", [p.brandName]
-          );
-          if (brands.length > 0) brandId = brands[0].id;
-        }
-
-        let unitId: string | undefined;
-        if (p.unitName) {
-          const units = await query<{ id: string }>(
-            "SELECT id FROM Unit WHERE name = ?", [p.unitName]
-          );
-          if (units.length > 0) unitId = units[0].id;
-        }
-
-        let taxGroupId: string | undefined;
-        if (p.taxGroupName) {
-          const tgs = await query<{ id: string }>(
-            "SELECT id FROM TaxGroup WHERE name = ?", [p.taxGroupName]
-          );
-          if (tgs.length > 0) taxGroupId = tgs[0].id;
-        }
-
-        const existing = await query<{ id: string }>(
-          "SELECT id FROM Product WHERE sku = ?", [p.sku]
-        );
-
-        if (existing.length > 0) {
-          await ProductRepository.update(existing[0].id, {
-            name: p.name,
-            description: p.description,
-            categoryId,
-            brandId,
-            unitId,
-            taxGroupId,
-          });
-        } else {
-          const created = await ProductRepository.create({
-            sku: p.sku,
-            productCode: p.productCode,
-            name: p.name,
-            description: p.description,
-            categoryId,
-            brandId,
-            unitId,
-            taxGroupId,
-          });
-
-          if (p.retailPrice !== undefined) {
-            await execute(
-              `INSERT OR REPLACE INTO ProductPrice (id, productId, priceList, price, currency, active, createdAt, updatedAt)
-               VALUES (?, ?, 'retail', ?, 'PHP', 1, ?, ?)`,
-              [uuid(), created.id, p.retailPrice, new Date().toISOString(), new Date().toISOString()]
-            );
-          }
-
-          if (p.barcode) {
-            await BarcodeRepository.upsert({
-              productId: created.id,
-              barcode: p.barcode,
-            });
-          }
-        }
-
+      for (const item of rows) {
+        if (!item.variation) continue;
+        const product = await upsertProductFromVariation(item.variation, item.posPrice);
+        if (!product?.id) continue;
         synced++;
+      }
+
+      if (synced > 0) {
+        await deleteLegacyMockProducts();
       }
 
       return { synced };
@@ -165,35 +227,39 @@ export const OmsSyncService = {
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {
     try {
-      const res = await api.get<Array<{
-        transferNumber: string;
-        sourceWarehouse?: string;
-        destinationPos?: string;
-        status: string;
-        items: Array<{
-          productId: string;
-          allocatedQty: number;
-          unit?: string;
-        }>;
-      }>>(`/api/pos/transfers/pending?deviceId=${deviceId}`);
+      const res = await api.get<{ data: Array<{
+        id: string;
+        direction: string;
+        variationId?: string;
+        qty: number;
+        deviceName?: string | null;
+        createdAt?: string;
+      }> }>(`/api/pos/transfers/pending?deviceId=${deviceId}`);
 
-      if (!res.ok || !res.data) return { synced: 0 };
+      const logs = res.data?.data;
+      if (!res.ok || !Array.isArray(logs)) return { synced: 0 };
 
       let synced = 0;
-      for (const t of res.data) {
-        const existing = await query<{ id: string }>(
-          "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [t.transferNumber]
-        );
+      for (const log of logs) {
+        if (!log.variationId) continue;
 
-        if (existing.length === 0) {
-          await TransferRepository.create({
-            transferNumber: t.transferNumber,
-            sourceWarehouse: t.sourceWarehouse,
-            destinationPos: t.destinationPos,
-            items: t.items,
-          });
-          synced++;
-        }
+        const product = await queryFirst<{ id: string }>(
+          "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
+        );
+        if (!product) continue;
+
+        const existing = await queryFirst<{ id: string }>(
+          "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [log.id]
+        );
+        if (existing) continue;
+
+        await TransferRepository.create({
+          transferNumber: log.id,
+          sourceWarehouse: log.deviceName ?? undefined,
+          notes: log.direction === "OUT" ? "Stock transfer out" : "Stock transfer in",
+          items: [{ productId: product.id, allocatedQty: Number(log.qty ?? 0) }],
+        });
+        synced++;
       }
 
       return { synced };

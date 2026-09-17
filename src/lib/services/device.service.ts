@@ -75,14 +75,14 @@ export const DeviceService = {
 
           setApiConfig({
             baseUrl: input.serverUrl,
-            apiKey: d.deviceSecret,
+            apiKey: d.posApiKey,
             accessToken: d.accessToken,
           });
 
           try {
             const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
             await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-              state: { serverUrl: input.serverUrl, apiKey: d.deviceSecret, accessToken: d.accessToken },
+              state: { serverUrl: input.serverUrl, apiKey: d.posApiKey, accessToken: d.accessToken },
               version: 0,
             }));
           } catch { /* non-blocking */ }
