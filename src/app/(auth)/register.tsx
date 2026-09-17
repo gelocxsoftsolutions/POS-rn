@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -48,8 +48,11 @@ export default function RegisterDevice() {
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
   const setDevice = useDeviceStore((s) => s.setDevice);
+  const registering = useRef(false);
 
   const doRegister = useCallback(async (activationToken: string, url?: string) => {
+    if (registering.current) return;
+    registering.current = true;
     setLoading(true);
     try {
       const serverUrl = url || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
@@ -108,12 +111,15 @@ export default function RegisterDevice() {
           setStep("success");
         }
       } else {
+        setScanned(false);
         Alert.alert("Error", result.error ?? "Registration failed.");
       }
     } catch (e: any) {
+      setScanned(false);
       console.error("[Register] unexpected error:", e);
       Alert.alert("Error", e?.message ?? "An unexpected error occurred during registration.");
     } finally {
+      registering.current = false;
       setLoading(false);
     }
   }, [setDevice]);
