@@ -27,9 +27,12 @@ export async function initApiConfig() {
     if (raw) {
       const parsed = JSON.parse(raw);
       const state = parsed?.state ?? parsed;
+      console.log("[API] initApiConfig raw keys:", Object.keys(parsed), "state:", state);
       if (state.serverUrl) config.baseUrl = state.serverUrl;
       if (state.apiKey) config.apiKey = state.apiKey;
       if (state.accessToken) config.accessToken = state.accessToken;
+    } else {
+      console.log("[API] initApiConfig — no nct-pos-oms in AsyncStorage");
     }
 
     if (!config.apiKey && config.baseUrl) {
@@ -66,6 +69,8 @@ export async function initApiConfig() {
         // recovery is best-effort
       }
     }
+
+    console.log("[API] initApiConfig final — apiKey:", config.apiKey ? "set" : "MISSING", "accessToken:", config.accessToken ? "set" : "MISSING");
   } catch {
     // silent
   }
@@ -86,7 +91,7 @@ async function request<T>(
   if (config.apiKey) headers["x-pos-key"] = config.apiKey;
   if (config.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
 
-  console.log("[API]", method, url, "apiKey:", config.apiKey ? "set" : "MISSING", "accessToken:", config.accessToken ? "set" : "MISSING");
+  console.log("[API]", method, url, "apiKey:", config.apiKey ? `${config.apiKey.slice(0,8)}...` : "MISSING", "accessToken:", config.accessToken ? `${config.accessToken.slice(0,8)}...` : "MISSING");
 
   try {
     const controller = new AbortController();

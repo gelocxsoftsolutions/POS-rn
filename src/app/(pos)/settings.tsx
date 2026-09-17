@@ -111,9 +111,10 @@ export default function SettingsScreen() {
       const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        setOmsUrl(data.url || "");
-        setOmsApiKey(data.apiKey || "");
-        setLastSync(data.lastSync || null);
+        const state = data?.state ?? data;
+        setOmsUrl(state.serverUrl || state.url || "");
+        setOmsApiKey(state.apiKey || "");
+        setLastSync(state.lastSync || data.lastSync || null);
       }
     } catch {
       // ignore
@@ -192,9 +193,10 @@ export default function SettingsScreen() {
     try {
       const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
       const prev = raw ? JSON.parse(raw) : {};
+      const prevState = prev?.state ?? prev;
       await AsyncStorage.setItem(
         OMS_STORAGE_KEY,
-        JSON.stringify({ ...prev, url, apiKey: key })
+        JSON.stringify({ state: { ...prevState, serverUrl: url, apiKey: key }, version: 0 })
       );
     } catch {
       // ignore
@@ -278,9 +280,10 @@ export default function SettingsScreen() {
         try {
           const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
           const prev = raw ? JSON.parse(raw) : {};
+          const prevState = prev?.state ?? prev;
           await AsyncStorage.setItem(
             OMS_STORAGE_KEY,
-            JSON.stringify({ ...prev, lastSync: new Date().toISOString() })
+            JSON.stringify({ state: { ...prevState, lastSync: new Date().toISOString() }, version: 0 })
           );
         } catch {
           // ignore

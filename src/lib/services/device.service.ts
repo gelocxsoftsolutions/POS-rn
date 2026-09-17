@@ -59,13 +59,13 @@ export const DeviceService = {
           });
 
           useDeviceStore.getState().setDevice({
-            deviceId: device.id,
-            deviceCode: device.deviceCode,
-            publicIdentifier: device.publicIdentifier,
-            branchId: device.branchId,
-            branchName: device.branchName,
-            branchAddress: device.branchAddress,
-            deviceName: device.deviceName,
+            deviceId: d.deviceId,
+            deviceCode: d.deviceCode,
+            publicIdentifier: d.publicIdentifier,
+            branchId: d.branchId,
+            branchName: d.branchName,
+            branchAddress: d.branchAddress,
+            deviceName: d.deviceName || input.computerName,
             registeredAt: d.registeredAt,
             registrationState: "registered",
             deviceSecret: d.deviceSecret,
@@ -75,14 +75,14 @@ export const DeviceService = {
 
           setApiConfig({
             baseUrl: input.serverUrl,
-            apiKey: d.posApiKey,
+            apiKey: d.deviceSecret,
             accessToken: d.accessToken,
           });
 
           try {
             const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
             await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-              state: { serverUrl: input.serverUrl, apiKey: d.posApiKey, accessToken: d.accessToken },
+              state: { serverUrl: input.serverUrl, apiKey: d.deviceSecret, accessToken: d.accessToken },
               version: 0,
             }));
           } catch { /* non-blocking */ }
