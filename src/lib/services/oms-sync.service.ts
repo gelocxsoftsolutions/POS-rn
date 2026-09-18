@@ -357,7 +357,17 @@ export const OmsSyncService = {
       } catch { /* non-blocking */ }
 
       let inv = 0, prod = 0, tr = 0;
-      const device = await DeviceRepository.find();
+      let device = await DeviceRepository.find();
+      // Remediation: local Device.id was previously random UUID, must match OMS deviceId (store deviceId)
+      try {
+        const { useDeviceStore } = await import("@/lib/stores/device-store");
+        const storeDeviceId = useDeviceStore.getState().device?.deviceId;
+        if (storeDeviceId && device?.id && device.id !== storeDeviceId) {
+          console.log("[OmsSync] fixing device id mismatch", device.id, "->", storeDeviceId);
+          await execute("UPDATE Device SET id = ? WHERE id = ?", [storeDeviceId, device.id]);
+          device.id = storeDeviceId;
+        }
+      } catch {}
       if (device?.id) {
         inv = (await this.syncInventory(device.id)).synced;
         if (device.branchId) {

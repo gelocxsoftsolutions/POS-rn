@@ -69,6 +69,7 @@ export const DeviceService = {
           } catch {}
 
           const device = await DeviceRepository.create({
+            id: d.deviceId,
             deviceCode: d.deviceCode,
             deviceName: d.deviceName || input.computerName,
             publicIdentifier: d.publicIdentifier,

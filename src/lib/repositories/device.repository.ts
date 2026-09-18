@@ -18,6 +18,7 @@ export interface DeviceRow {
 }
 
 export interface CreateDeviceInput {
+  id?: string;
   deviceCode?: string;
   deviceName?: string;
   publicIdentifier?: string;
@@ -47,7 +48,7 @@ export const DeviceRepository = {
   },
 
   async create(input: CreateDeviceInput): Promise<DeviceRow> {
-    const id = uuid();
+    const id = input.id ?? uuid();
     const now = new Date().toISOString();
     await execute(
       `INSERT INTO Device (id, deviceCode, deviceName, publicIdentifier, branchId, branchName, branchAddress, status, provisionVersion, configVersion, registeredAt, createdAt, updatedAt)
