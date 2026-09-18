@@ -277,6 +277,8 @@ export const OmsSyncService = {
         qty: number;
         deviceName?: string | null;
         createdAt?: string;
+        variation?: VariationDto | null;
+        groupKey?: string | null;
       }> }>(`/api/pos/transfers/pending?deviceId=${deviceId}`);
 
       const logs = res.data?.data;
@@ -286,20 +288,36 @@ export const OmsSyncService = {
       for (const log of logs) {
         if (!log.variationId) continue;
 
-        const product = await queryFirst<{ id: string }>(
+        // Ensure product exists — upsert from OMS variation if provided
+        let product = await queryFirst<{ id: string }>(
           "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
         );
+        if (!product && (log as any).variation) {
+          const v = (log as any).variation as VariationDto;
+          const up = await upsertProductFromVariation(v);
+          if (up?.id) product = { id: up.id };
+        }
         if (!product) continue;
 
+        // Ensure inventory reflects transferred qty (POS stock is synced via syncInventory, but also ensure local)
+        try {
+          const existingInv = await InventoryRepository.findByProduct(product.id);
+          if (!existingInv) {
+            await InventoryRepository.upsert(product.id, { availableQty: Number(log.qty ?? 0) });
+          } else if (log.direction === "INVENTORY_TO_POS") {
+            await InventoryRepository.updateQuantities(product.id, { availableQty: Number(log.qty ?? 0) });
+          }
+        } catch {}
+
         const existing = await queryFirst<{ id: string }>(
-          "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [log.id]
+          "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [String(log.id)]
         );
         if (existing) continue;
 
         await TransferRepository.create({
-          transferNumber: log.id,
+          transferNumber: String(log.id),
           sourceWarehouse: log.deviceName ?? undefined,
-          notes: log.direction === "OUT" ? "Stock transfer out" : "Stock transfer in",
+          notes: log.direction === "INVENTORY_TO_POS" ? "Stock transfer in" : log.direction === "POS_TO_INVENTORY" ? "Stock transfer out" : log.direction,
           items: [{ productId: product.id, allocatedQty: Number(log.qty ?? 0) }],
         });
         synced++;
