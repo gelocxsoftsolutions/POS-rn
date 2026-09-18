@@ -130,7 +130,6 @@ export default function SettingsScreen() {
         setOmsApiKey(key);
         const ls = state.lastSync || data.lastSync || null;
         setLastSync(ls);
-        // Derive real status from stored config instead of staying idle
         await verifyLiveConnection(url, key);
       } else {
         setLiveStatus("idle");
@@ -180,7 +179,6 @@ export default function SettingsScreen() {
   }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs]);
 
   useFocusEffect(useCallback(() => {
-    // Re-verify when returning from another tab (fixes Idle-on-return)
     loadOmsSettings();
     loadUsers();
     loadAuditLogs();
@@ -245,7 +243,6 @@ export default function SettingsScreen() {
         const now = new Date().toISOString();
         setLastSync(now);
         await saveOmsSettings(url, key);
-        // Persist lastSync and ensure future mounts show connected
         try {
           const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
           const prev = raw ? JSON.parse(raw) : {};
@@ -325,7 +322,6 @@ export default function SettingsScreen() {
             JSON.stringify({ state: { ...prevState, lastSync: now }, version: 0 })
           );
         } catch {}
-        // Also flush queued sales
         let queueInfo = "";
         try {
           const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
@@ -392,111 +388,126 @@ export default function SettingsScreen() {
       ? auditLogs
       : auditLogs.filter((l) => l.eventType === auditFilter);
 
+  // Dark-aware helpers
+  const cardBg = dark ? "#0f1729" : "#ffffff";
+  const cardBorder = dark ? "#1e293b" : "#e8edf3";
+  const sectionTitleColor = dark ? "#e2e8f0" : "#1a202c";
+  const sectionDescColor = dark ? "#94a3b8" : "#6b7b8d";
+  const fieldLabelColor = dark ? "#94a3b8" : "#6b7b8d";
+  const fieldValueColor = dark ? "#e2e8f0" : "#1a202c";
+  const borderColor = dark ? "#1e293b" : "#f0f4ff";
+  const inputBg = dark ? "#1e293b" : "#f7f9fc";
+  const inputBorder = dark ? "#334155" : "#e2e8f0";
+  const inputColor = dark ? "#e2e8f0" : "#1a202c";
+  const pickerBg = dark ? "#1e293b" : "#f7f9fc";
+  const pickerBorder = dark ? "#334155" : "#e2e8f0";
+  const pickerTextColor = dark ? "#e2e8f0" : "#1a202c";
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#17386b" />
+      <View style={[styles.loadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+        <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
       </View>
     );
   }
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.content}>
-      <Text style={styles.screenTitle}>Settings</Text>
+      <Text style={[styles.screenTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Settings</Text>
 
       {/* Store Details Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Store Details</Text>
-        <Text style={styles.sectionDesc}>Manage your store information and preferences.</Text>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Store Details</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Manage your store information and preferences.</Text>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Store Name</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Store Name</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={storeName}
             onChangeText={setStoreName}
             placeholder="Enter store name"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
           />
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Device Name</Text>
-          <Text style={styles.fieldValue}>{device.deviceName ?? "N/A"}</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Device Name</Text>
+          <Text style={[styles.fieldValue, { color: fieldValueColor }]}>{device.deviceName ?? "N/A"}</Text>
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Device Code</Text>
-          <Text style={[styles.fieldValue, styles.mono]}>{device.deviceCode ?? "N/A"}</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Device Code</Text>
+          <Text style={[styles.fieldValue, styles.mono, { color: fieldValueColor }]}>{device.deviceCode ?? "N/A"}</Text>
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Registration Date</Text>
-          <Text style={styles.fieldValue}>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Registration Date</Text>
+          <Text style={[styles.fieldValue, { color: fieldValueColor }]}>
             {device.registeredAt ? new Date(device.registeredAt).toLocaleDateString() : "N/A"}
           </Text>
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Address</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Address</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={address}
             onChangeText={setAddress}
             placeholder="Enter address"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
             multiline
           />
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Currency</Text>
+        <View style={[styles.field, { borderBottomWidth: 0 }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Currency</Text>
           <TouchableOpacity
-            style={styles.pickerButton}
+            style={[styles.pickerButton, { backgroundColor: pickerBg, borderColor: pickerBorder }]}
             onPress={() => setShowCurrencyPicker(true)}
           >
-            <Text style={styles.pickerButtonText}>{currencyCode}</Text>
-            <Ionicons name="chevron-down" size={16} color="#6b7b8d" />
+            <Text style={[styles.pickerButtonText, { color: pickerTextColor }]}>{currencyCode}</Text>
+            <Ionicons name="chevron-down" size={16} color={dark ? "#94a3b8" : "#6b7b8d"} />
           </TouchableOpacity>
         </View>
       </Card>
 
       {/* Tax Profile Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Tax Profile</Text>
-        <Text style={styles.sectionDesc}>Configure tax settings and receipt footer.</Text>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Tax Profile</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure tax settings and receipt footer.</Text>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Tax Label</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Tax Label</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={taxLabel}
             onChangeText={setTaxLabel}
             placeholder="e.g. VAT"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
           />
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Tax Rate (%)</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Tax Rate (%)</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={taxRatePercent}
             onChangeText={setTaxRatePercent}
             placeholder="0"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
             keyboardType="decimal-pad"
           />
         </View>
 
-        <View style={styles.fieldColumn}>
-          <Text style={styles.fieldLabel}>Receipt Footer</Text>
+        <View style={[styles.fieldColumn, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Receipt Footer</Text>
           <TextInput
-            style={[styles.fieldInput, styles.textArea]}
+            style={[styles.fieldInput, styles.textArea, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={receiptFooter}
             onChangeText={setReceiptFooter}
             placeholder="Thank you for your purchase!"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
             multiline
             numberOfLines={3}
           />
@@ -513,32 +524,32 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Users Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          <Ionicons name="people-outline" size={18} color="#1a202c" /> Users
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+          <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users
         </Text>
-        <Text style={styles.sectionDesc}>Active cashiers synced to this device.</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Active cashiers synced to this device.</Text>
 
         {cashiers.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>
+          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+            <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
               No users synced yet. Connect to OMS and sync to load users.
             </Text>
           </View>
         ) : (
           cashiers.map((user) => (
-            <View key={user.id} style={styles.userRow}>
-              <View style={styles.userAvatar}>
-                <Text style={styles.userAvatarText}>
+            <View key={user.id} style={[styles.userRow, { borderBottomColor: borderColor }]}>
+              <View style={[styles.userAvatar, { backgroundColor: dark ? "#1e3a5f" : "#dfeaff" }]}>
+                <Text style={[styles.userAvatarText, { color: dark ? "#93c5fd" : "#17386b" }]}>
                   {user.displayName?.substring(0, 2)?.toUpperCase() ?? "U"}
                 </Text>
               </View>
               <View style={styles.userInfo}>
-                <Text style={styles.userName}>{user.displayName}</Text>
-                <Text style={styles.userUsername}>@{user.username}</Text>
+                <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
+                <Text style={[styles.userUsername, { color: fieldLabelColor }]}>@{user.username}</Text>
               </View>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{user.roleName || "Cashier"}</Text>
+              <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
+                <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
               </View>
               {session?.cashierName === user.displayName && (
                 <View style={styles.youBadge}>
@@ -551,20 +562,20 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Audit Logs Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          <Ionicons name="document-text-outline" size={18} color="#1a202c" /> Audit Logs
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+          <Ionicons name="document-text-outline" size={18} color={sectionTitleColor} /> Audit Logs
         </Text>
-        <Text style={styles.sectionDesc}>Recent activity on this device.</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Recent activity on this device.</Text>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
           {AUDIT_FILTERS.map((f) => (
             <TouchableOpacity
               key={f}
-              style={[styles.filterChip, auditFilter === f && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }, auditFilter === f && styles.filterChipActive]}
               onPress={() => setAuditFilter(f)}
             >
-              <Text style={[styles.filterChipText, auditFilter === f && styles.filterChipTextActive]}>
+              <Text style={[styles.filterChipText, { color: dark ? "#94a3b8" : "#6b7b8d" }, auditFilter === f && styles.filterChipTextActive]}>
                 {f === "ALL" ? "ALL" : f.replace("_", " ")}
               </Text>
             </TouchableOpacity>
@@ -572,26 +583,26 @@ export default function SettingsScreen() {
         </ScrollView>
 
         {filteredAuditLogs.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>No audit logs recorded yet.</Text>
+          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+            <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>No audit logs recorded yet.</Text>
           </View>
         ) : (
           <View style={styles.auditList}>
             {filteredAuditLogs.map((log) => {
-              const colors = EVENT_COLORS[log.eventType] ?? { bg: "#f3f4f6", text: "#6b7280" };
+              const colors = EVENT_COLORS[log.eventType] ?? { bg: dark ? "#1e293b" : "#f3f4f6", text: dark ? "#94a3b8" : "#6b7280" };
               return (
-                <View key={log.id} style={styles.auditRow}>
+                <View key={log.id} style={[styles.auditRow, { borderBottomColor: borderColor }]}>
                   <View style={[styles.eventBadge, { backgroundColor: colors.bg }]}>
                     <Text style={[styles.eventBadgeText, { color: colors.text }]}>
                       {log.eventType}
                     </Text>
                   </View>
                   <View style={styles.auditInfo}>
-                    <Text style={styles.auditDesc} numberOfLines={1}>
+                    <Text style={[styles.auditDesc, { color: dark ? "#cbd5e1" : "#4a5568" }]} numberOfLines={1}>
                       {log.description || log.cashierName}
                     </Text>
                   </View>
-                  <Text style={styles.auditDate}>
+                  <Text style={[styles.auditDate, { color: dark ? "#64748b" : "#94a3b8" }]}>
                     {log.createdAt ? new Date(log.createdAt).toLocaleString() : ""}
                   </Text>
                 </View>
@@ -602,33 +613,33 @@ export default function SettingsScreen() {
       </Card>
 
       {/* OMS Connection Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>OMS Connection</Text>
-        <Text style={styles.sectionDesc}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>OMS Connection</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>
           Connect this device to the NCT OMS server.
         </Text>
 
-        <View style={styles.fieldColumn}>
-          <Text style={styles.fieldLabel}>Server URL</Text>
+        <View style={[styles.fieldColumn, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Server URL</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={omsUrl}
             onChangeText={setOmsUrl}
             placeholder={process.env.EXPO_PUBLIC_OMS_URL ?? "https://staging.nctseafoods.store"}
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
             keyboardType="url"
             autoCapitalize="none"
           />
         </View>
 
-        <View style={styles.fieldColumn}>
-          <Text style={styles.fieldLabel}>API Key</Text>
+        <View style={[styles.fieldColumn, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>API Key</Text>
           <TextInput
-            style={styles.fieldInput}
+            style={[styles.fieldInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
             value={omsApiKey}
             onChangeText={setOmsApiKey}
             placeholder="Enter API key"
-            placeholderTextColor="#b0b8c1"
+            placeholderTextColor={dark ? "#475569" : "#b0b8c1"}
             secureTextEntry
           />
         </View>
@@ -659,7 +670,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <View style={styles.statusBar}>
+        <View style={[styles.statusBar, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
           <View
             style={[
               styles.statusDot,
@@ -669,14 +680,14 @@ export default function SettingsScreen() {
               liveStatus === "idle" && styles.statusIdle,
             ]}
           />
-          <Text style={styles.statusText}>
+          <Text style={[styles.statusText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
             {liveStatus === "connected" && "Connected to OMS"}
             {liveStatus === "connecting" && "Connecting to OMS..."}
             {liveStatus === "offline" && "Offline"}
             {liveStatus === "idle" && "Idle"}
           </Text>
           {lastSync && liveStatus === "connected" && (
-            <Text style={styles.syncTime}>
+            <Text style={[styles.syncTime, { color: dark ? "#64748b" : "#94a3b8" }]}>
               Last sync: {new Date(lastSync).toLocaleTimeString()}
             </Text>
           )}
@@ -684,9 +695,9 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Navigation Style Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Navigation Style</Text>
-        <Text style={styles.sectionDesc}>Choose how you navigate the app.</Text>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Navigation Style</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose how you navigate the app.</Text>
 
         <View style={styles.navGrid}>
           {([
@@ -696,16 +707,20 @@ export default function SettingsScreen() {
           ]).map((opt) => (
             <TouchableOpacity
               key={opt.key}
-              style={[styles.navCard, navigationMode === opt.key && styles.navCardActive]}
+              style={[
+                styles.navCard,
+                { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+                navigationMode === opt.key && styles.navCardActive,
+              ]}
               onPress={() => setNavigationMode(opt.key)}
             >
               <View style={[styles.navIconWrap, navigationMode === opt.key && styles.navIconWrapActive]}>
-                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? "#fff" : "#17386b"} />
+                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? "#fff" : dark ? "#94a3b8" : "#17386b"} />
               </View>
-              <Text style={[styles.navLabel, navigationMode === opt.key && styles.navLabelActive]}>
+              <Text style={[styles.navLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, navigationMode === opt.key && styles.navLabelActive]}>
                 {opt.label}
               </Text>
-              <Text style={[styles.navDesc, navigationMode === opt.key && styles.navDescActive]}>
+              <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, navigationMode === opt.key && styles.navDescActive]}>
                 {opt.desc}
               </Text>
             </TouchableOpacity>
@@ -714,37 +729,45 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Theme Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Theme</Text>
-        <Text style={styles.sectionDesc}>Select your preferred appearance.</Text>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Theme</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select your preferred appearance.</Text>
 
         <View style={styles.themeGrid}>
           <TouchableOpacity
-            style={[styles.themeCard, themeMode === "light" && styles.themeCardActive]}
+            style={[
+              styles.themeCard,
+              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              themeMode === "light" && styles.themeCardActive,
+            ]}
             onPress={() => setThemeMode("light")}
           >
             <View style={[styles.themeIconWrap, themeMode === "light" && styles.themeIconWrapActive]}>
               <Ionicons name="sunny-outline" size={22} color={themeMode === "light" ? "#fff" : "#f59e0b"} />
             </View>
-            <Text style={[styles.themeLabel, themeMode === "light" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "light" && styles.themeLabelActive]}>
               Light
             </Text>
-            <Text style={[styles.themeDesc, themeMode === "light" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "light" && styles.themeDescActive]}>
               Bright mode for daytime
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.themeCard, themeMode === "dark" && styles.themeCardActive]}
+            style={[
+              styles.themeCard,
+              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              themeMode === "dark" && styles.themeCardActive,
+            ]}
             onPress={() => setThemeMode("dark")}
           >
             <View style={[styles.themeIconWrap, themeMode === "dark" && styles.themeIconWrapActive]}>
               <Ionicons name="moon-outline" size={22} color={themeMode === "dark" ? "#fff" : "#6366f1"} />
             </View>
-            <Text style={[styles.themeLabel, themeMode === "dark" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "dark" && styles.themeLabelActive]}>
               Dark
             </Text>
-            <Text style={[styles.themeDesc, themeMode === "dark" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "dark" && styles.themeDescActive]}>
               Low-light friendly
             </Text>
           </TouchableOpacity>
@@ -752,13 +775,13 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Device Card */}
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Device</Text>
-        <Text style={styles.sectionDesc}>Session and device management.</Text>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Device</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Session and device management.</Text>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Registration State</Text>
-          <Text style={styles.fieldValue}>{device.registrationState}</Text>
+        <View style={[styles.field, { borderBottomColor: borderColor }]}>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Registration State</Text>
+          <Text style={[styles.fieldValue, { color: fieldValueColor }]}>{device.registrationState}</Text>
         </View>
 
         <Button
@@ -784,22 +807,22 @@ export default function SettingsScreen() {
           activeOpacity={1}
           onPress={() => setShowCurrencyPicker(false)}
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Currency</Text>
+          <View style={[styles.modalContent, { backgroundColor: dark ? "#1e293b" : "#fff" }]}>
+            <Text style={[styles.modalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Select Currency</Text>
             {CURRENCY_OPTIONS.map((c) => (
               <TouchableOpacity
                 key={c}
-                style={[styles.modalOption, currencyCode === c && styles.modalOptionActive]}
+                style={[styles.modalOption, currencyCode === c && styles.modalOptionActive, currencyCode === c && dark && { backgroundColor: "#334155" }]}
                 onPress={() => {
                   setCurrencyCode(c);
                   setShowCurrencyPicker(false);
                 }}
               >
-                <Text style={[styles.modalOptionText, currencyCode === c && styles.modalOptionTextActive]}>
+                <Text style={[styles.modalOptionText, { color: dark ? "#cbd5e1" : "#4a5568" }, currencyCode === c && styles.modalOptionTextActive, currencyCode === c && dark && { color: "#60a5fa" }]}>
                   {c}
                 </Text>
                 {currencyCode === c && (
-                  <Ionicons name="checkmark" size={18} color="#17386b" />
+                  <Ionicons name="checkmark" size={18} color={dark ? "#60a5fa" : "#17386b"} />
                 )}
               </TouchableOpacity>
             ))}

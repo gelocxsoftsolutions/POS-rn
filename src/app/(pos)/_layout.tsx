@@ -19,7 +19,6 @@ import { PermissionService } from "@/lib/services/permission.service";
 import { TransferService } from "@/lib/services/transfer.service";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { SessionIndicator } from "@/components/layout/session-indicator";
-import { LockScreen } from "@/components/auth/lock-screen";
 import { BottomSheet } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { useNetworkStore } from "@/lib/services/network.service";
@@ -165,11 +164,17 @@ function POSHeader({
   transfers,
   onTransferPress,
   dark,
+  isWide,
+  sidebarOpen,
+  onToggleSidebar,
 }: {
   transferCount: number;
   transfers: InventoryTransferDTO[];
   onTransferPress: () => void;
   dark: boolean;
+  isWide: boolean;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
 }) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const isOnline = useNetworkStore((s) => s.isOnline);
@@ -190,6 +195,23 @@ function POSHeader({
         ]}
       >
         <View style={styles.headerLeft}>
+          {isWide && (
+            <TouchableOpacity
+              onPress={onToggleSidebar}
+              style={[
+                styles.burgerBtn,
+                dark ? styles.burgerBtnDark : styles.burgerBtnLight,
+              ]}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={sidebarOpen ? "close" : "menu"}
+                size={22}
+                color={dark ? "#e2e8f0" : "#17386b"}
+              />
+            </TouchableOpacity>
+          )}
           <TransferBadge
             count={transferCount}
             onPress={handleBadgePress}
@@ -216,7 +238,7 @@ function POSHeader({
               </View>
             )}
           </View>
-          <SessionIndicator />
+          <SessionIndicator dark={dark} />
         </View>
       </View>
       <TransferDialog
@@ -231,65 +253,42 @@ function POSHeader({
 function BottomNavigation({
   visibleNavItems,
   pathname,
-  expanded,
-  onToggleExpand,
   onNavigate,
+  dark,
 }: {
   visibleNavItems: typeof navItems;
   pathname: string;
-  expanded: boolean;
-  onToggleExpand: () => void;
   onNavigate: (href: string) => void;
+  dark: boolean;
 }) {
   return (
-    <View style={styles.bottomNavContainer}>
-      {expanded && (
-        <View style={styles.bottomNavExpanded}>
-          <View style={styles.bottomNavBar}>
-            {visibleNavItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <TouchableOpacity
-                  key={item.name}
-                  style={[styles.bottomNavItem, active && styles.bottomNavItemActive]}
-                  onPress={() => onNavigate(item.href)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={active ? item.activeIcon : item.icon}
-                    size={20}
-                    color={active ? "#17386b" : "#ffffff"}
-                  />
-                  <Text
-                    style={[
-                      styles.bottomNavLabel,
-                      active && styles.bottomNavLabelActive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+    <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight]}>
+      {visibleNavItems.map((item) => {
+        const active = pathname === item.href;
+        return (
           <TouchableOpacity
-            style={styles.bottomNavCollapseBtn}
-            onPress={onToggleExpand}
+            key={item.name}
+            style={[styles.bottomNavItem, active && (dark ? styles.bottomNavItemActiveDark : styles.bottomNavItemActiveLight)]}
+            onPress={() => onNavigate(item.href)}
             activeOpacity={0.7}
           >
-            <Ionicons name="chevron-down" size={20} color="#17386b" />
+            <Ionicons
+              name={active ? item.activeIcon : item.icon}
+              size={20}
+              color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#ffffff"}
+            />
+            <Text
+              style={[
+                styles.bottomNavLabel,
+                dark ? styles.bottomNavLabelDark : styles.bottomNavLabelLight,
+                active && (dark ? styles.bottomNavLabelActiveDark : styles.bottomNavLabelActiveLight),
+              ]}
+            >
+              {item.label}
+            </Text>
           </TouchableOpacity>
-        </View>
-      )}
-      {!expanded && (
-        <TouchableOpacity
-          style={styles.bottomNavExpandBtn}
-          onPress={onToggleExpand}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chevron-up" size={22} color="#ffffff" />
-        </TouchableOpacity>
-      )}
+        );
+      })}
     </View>
   );
 }
@@ -300,7 +299,6 @@ export default function POSLayout() {
 
   const cashier = useAuthStore((s) => s.cashier);
   const authHydrated = useAuthStore((s) => s.hydrated);
-  const signOut = useAuthStore((s) => s.signOut);
   const navigationMode = useUiStore((s) => s.navigationMode);
   const themeMode = useUiStore((s) => s.themeMode);
   const uiHydrated = useUiStore((s) => s.hydrated);
@@ -313,7 +311,6 @@ export default function POSLayout() {
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
-  const [bottomNavExpanded, setBottomNavExpanded] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarAnim = useRef(new Animated.Value(1)).current;
 
@@ -453,6 +450,9 @@ export default function POSLayout() {
           transfers={[]}
           onTransferPress={() => {}}
           dark={dark}
+          isWide={false}
+          sidebarOpen={true}
+          onToggleSidebar={() => {}}
         />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#17386b" />
@@ -468,32 +468,37 @@ export default function POSLayout() {
         dark ? styles.bgDark : styles.bgLight,
       ]}
     >
-      {session?.locked && (
-        <View style={styles.lockOverlay}>
-          <LockScreen />
-        </View>
-      )}
-
       <POSHeader
         transferCount={transferCount}
         transfers={transfers}
         onTransferPress={() => {}}
         dark={dark}
+        isWide={isWide}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={toggleSidebar}
       />
 
       <View style={styles.body}>
+        {/* Main content always full width — sidebar overlays on top, does not push content */}
+        <View style={styles.main}>
+          <Slot />
+        </View>
+
         {isWide && (
           <>
+            {/* Backdrop to dismiss sidebar when tapping outside */}
+            {sidebarOpen && (
+              <TouchableOpacity
+                style={styles.sidebarBackdrop}
+                activeOpacity={1}
+                onPress={toggleSidebar}
+              />
+            )}
             <Animated.View
               style={[
                 styles.sidebar,
                 dark ? styles.sidebarDark : styles.sidebarLight,
                 {
-                  position: "absolute",
-                  top: 0,
-                  bottom: 0,
-                  left: 0,
-                  zIndex: 50,
                   transform: [{
                     translateX: sidebarAnim.interpolate({
                       inputRange: [0, 1],
@@ -502,12 +507,13 @@ export default function POSLayout() {
                   }],
                 },
               ]}
+              pointerEvents={sidebarOpen ? "auto" : "none"}
             >
               <View style={styles.sidebarLogoSection}>
-                <View style={styles.sidebarLogoIcon}>
-                  <Ionicons name="fish" size={22} color="#17386b" />
+                <View style={[styles.sidebarLogoIcon, dark ? styles.sidebarLogoIconDark : styles.sidebarLogoIconLight]}>
+                  <Ionicons name="fish" size={22} color={dark ? "#60a5fa" : "#17386b"} />
                 </View>
-                <Text style={styles.sidebarLogoText}>NCT POS</Text>
+                <Text style={[styles.sidebarLogoText, dark ? styles.sidebarLogoTextDark : styles.sidebarLogoTextLight]}>NCT POS</Text>
               </View>
 
               <View style={styles.sidebarNavItems}>
@@ -518,7 +524,7 @@ export default function POSLayout() {
                       key={item.name}
                       style={[
                         styles.sidebarNavItem,
-                        active && styles.sidebarNavItemActive,
+                        active && (dark ? styles.sidebarNavItemActiveDark : styles.sidebarNavItemActiveLight),
                       ]}
                       onPress={() => router.push(item.href as any)}
                       activeOpacity={0.7}
@@ -526,12 +532,13 @@ export default function POSLayout() {
                       <Ionicons
                         name={active ? item.activeIcon : item.icon}
                         size={20}
-                        color={active ? "#17386b" : "#8e99a4"}
+                        color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#8e99a4"}
                       />
                       <Text
                         style={[
                           styles.sidebarNavLabel,
-                          active && styles.sidebarNavLabelActive,
+                          dark ? styles.sidebarNavLabelDark : styles.sidebarNavLabelLight,
+                          active && (dark ? styles.sidebarNavLabelActiveDark : styles.sidebarNavLabelActiveLight),
                         ]}
                       >
                         {item.label}
@@ -548,39 +555,22 @@ export default function POSLayout() {
                 })}
               </View>
 
-              <View style={styles.sidebarFooter}>
-                <SessionIndicator />
+              <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight]}>
+                <SessionIndicator dark={dark} />
               </View>
             </Animated.View>
-
-            <TouchableOpacity
-              style={styles.sidebarToggle}
-              onPress={toggleSidebar}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={sidebarOpen ? "chevron-back" : "chevron-forward"}
-                size={16}
-                color="#17386b"
-              />
-            </TouchableOpacity>
           </>
         )}
-
-        <View style={[styles.main, isWide && { marginLeft: sidebarOpen ? 220 : 0 }]}>
-          <Slot />
-        </View>
       </View>
 
       {!isWide && (
         <BottomNavigation
           visibleNavItems={visibleNavItems}
           pathname={pathname}
-          expanded={bottomNavExpanded}
-          onToggleExpand={() => setBottomNavExpanded((p) => !p)}
           onNavigate={(href) => {
             router.push(href as any);
           }}
+          dark={dark}
         />
       )}
     </View>
@@ -590,10 +580,6 @@ export default function POSLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 100,
   },
   bgLight: {
     backgroundColor: "#f8fbff",
@@ -622,14 +608,33 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.1)",
   },
   headerLeft: {
-    width: 100,
-    alignItems: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minWidth: 100,
+  },
+  burgerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  burgerBtnLight: {
+    backgroundColor: "#f0f4ff",
+    borderColor: "#e0e7ff",
+  },
+  burgerBtnDark: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.12)",
   },
   headerTitle: {
     fontSize: 14,
     fontWeight: "700",
     textAlign: "center",
     letterSpacing: 0.5,
+    flexShrink: 1,
   },
   headerTitleLight: {
     color: "#4169E1",
@@ -638,11 +643,11 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   headerRight: {
-    width: 100,
     alignItems: "flex-end",
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 8,
+    minWidth: 100,
   },
 
   // Sync indicator
@@ -760,12 +765,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Sidebar
+  // Sidebar — overlays on top of main, does not push content
+  sidebarBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    zIndex: 49,
+  },
   sidebar: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 50,
     width: 220,
     paddingTop: 20,
     paddingBottom: 16,
     borderRightWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 12,
   },
   sidebarLight: {
     backgroundColor: "#ffffff",
@@ -785,15 +805,25 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: "#f0f4ff",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
   },
+  sidebarLogoIconLight: {
+    backgroundColor: "#f0f4ff",
+  },
+  sidebarLogoIconDark: {
+    backgroundColor: "#1e293b",
+  },
   sidebarLogoText: {
     fontSize: 16,
     fontWeight: "700",
+  },
+  sidebarLogoTextLight: {
     color: "#17386b",
+  },
+  sidebarLogoTextDark: {
+    color: "#e2e8f0",
   },
   sidebarNavItems: {
     flex: 1,
@@ -806,18 +836,30 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     borderRadius: 8,
   },
-  sidebarNavItemActive: {
+  sidebarNavItemActiveLight: {
     backgroundColor: "#f0f4ff",
+  },
+  sidebarNavItemActiveDark: {
+    backgroundColor: "#1e293b",
   },
   sidebarNavLabel: {
     fontSize: 14,
-    color: "#8e99a4",
     marginLeft: 12,
     fontWeight: "500",
     flex: 1,
   },
-  sidebarNavLabelActive: {
+  sidebarNavLabelLight: {
+    color: "#8e99a4",
+  },
+  sidebarNavLabelDark: {
+    color: "#94a3b8",
+  },
+  sidebarNavLabelActiveLight: {
     color: "#17386b",
+    fontWeight: "600",
+  },
+  sidebarNavLabelActiveDark: {
+    color: "#60a5fa",
     fontWeight: "600",
   },
   sidebarBadge: {
@@ -838,108 +880,64 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
+  },
+  sidebarFooterLight: {
     borderTopColor: "#e8edf3",
   },
-  sidebarToggle: {
-    position: "absolute",
-    top: 60,
-    left: 4,
-    zIndex: 51,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
+  sidebarFooterDark: {
+    borderTopColor: "rgba(255,255,255,0.08)",
   },
 
-  // Bottom navigation
-  bottomNavContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 40,
-    paddingBottom: 8,
-  },
-  bottomNavExpanded: {
-    alignItems: "center",
-    width: "100%",
-  },
-  bottomNavBar: {
+  // Bottom navigation — fixed at exact bottom, full-width flat bar, not floating
+  bottomNav: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-around",
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+  },
+  bottomNavLight: {
     backgroundColor: "#17386b",
-    marginHorizontal: 10,
-    borderRadius: 28,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: "#1f497f",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    borderTopColor: "#1a3a6b",
+  },
+  bottomNavDark: {
+    backgroundColor: "#0f1729",
+    borderTopColor: "rgba(255,255,255,0.08)",
   },
   bottomNavItem: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 16,
-    minWidth: 56,
+    borderRadius: 12,
+    minWidth: 52,
+    flex: 1,
   },
-  bottomNavItemActive: {
+  bottomNavItemActiveLight: {
     backgroundColor: "#ffffff",
+  },
+  bottomNavItemActiveDark: {
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   bottomNavLabel: {
     fontSize: 10,
     fontWeight: "500",
-    color: "#ffffff",
     marginTop: 2,
   },
-  bottomNavLabelActive: {
+  bottomNavLabelLight: {
+    color: "#ffffff",
+  },
+  bottomNavLabelDark: {
+    color: "#94a3b8",
+  },
+  bottomNavLabelActiveLight: {
     color: "#17386b",
     fontWeight: "600",
   },
-  bottomNavCollapseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-    marginTop: -18,
-    marginBottom: 4,
-  },
-  bottomNavExpandBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#17386b",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-    shadowColor: "#1f497f",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+  bottomNavLabelActiveDark: {
+    color: "#60a5fa",
+    fontWeight: "600",
   },
 });
