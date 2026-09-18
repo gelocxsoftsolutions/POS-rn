@@ -296,6 +296,7 @@ export default function ProductsScreen() {
         </View>
       ) : viewMode === "grid" ? (
         <FlatList
+          key="grid"
           data={products}
           renderItem={renderGridItem}
           keyExtractor={(item) => item.id}
@@ -311,9 +312,11 @@ export default function ProductsScreen() {
         />
       ) : (
         <FlatList
+          key="list"
           data={products}
           renderItem={renderListItem}
           keyExtractor={(item) => item.id}
+          numColumns={1}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

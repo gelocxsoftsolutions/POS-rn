@@ -75,6 +75,8 @@ export default function TransfersScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
   const dark = useUiStore((s) => s.themeMode) === "dark";
+  const device = useDeviceStore((s) => s.device);
+  const currentDeviceName = (device.deviceName || device.branchName || "This device").trim();
 
   // QR checklist receive state
   const [showReceiveChecklist, setShowReceiveChecklist] = useState(false);
@@ -83,6 +85,7 @@ export default function TransfersScreen() {
   const [receiveDraft, setReceiveDraft] = useState<ReceiveDraftItem[]>([]);
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [showConfirmScanner, setShowConfirmScanner] = useState(false);
+  const [confirmScanning, setConfirmScanning] = useState(false);
 
   const loadTransfers = useCallback(async () => {
     try {
@@ -245,7 +248,6 @@ export default function TransfersScreen() {
       Alert.alert("Notes required", `Please add a reason for ${missingNotes[0].productName} (expected ${missingNotes[0].expected}, received ${missingNotes[0].actual}).`);
       return;
     }
-    // Require QR scan from OMS to finalize — open scanner
     if (!permission?.granted) {
       const p = await requestPermission();
       if (!p.granted) {
@@ -253,10 +255,14 @@ export default function TransfersScreen() {
         return;
       }
     }
+    // Ensure checklist stays mounted but confirm scanner overlays on top — reset its guard
+    setConfirmScanning(false);
     setShowConfirmScanner(true);
   }, [receiveTransferId, receiveDraft, permission, requestPermission]);
 
   const handleConfirmQrScan = useCallback(async (raw: string) => {
+    if (confirmScanning) return;
+    setConfirmScanning(true);
     setShowConfirmScanner(false);
     try {
       const payload = TransferService.parseTransferQr(raw);
@@ -271,8 +277,10 @@ export default function TransfersScreen() {
       await doFinalReceive();
     } catch {
       Alert.alert("Error", "Failed to verify QR code.");
+    } finally {
+      setConfirmScanning(false);
     }
-  }, [receiveTransferNumber, doFinalReceive]);
+  }, [receiveTransferNumber, doFinalReceive, confirmScanning]);
 
   const handleScanQr = useCallback(async (raw: string) => {
     setScanning(true);
@@ -455,7 +463,7 @@ export default function TransfersScreen() {
                 <Badge label={statusLabel(selectedTransfer.status)} color={statusColor(selectedTransfer.status)} />
               </View>
               <Text style={[styles.detailSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>
-                {selectedTransfer.sourceWarehouse ?? "Unknown source"} → {selectedTransfer.destinationPos ?? "Unknown destination"}
+                {selectedTransfer.sourceWarehouse ?? "OMS Warehouse"} → {selectedTransfer.destinationPos ?? currentDeviceName}
               </Text>
             </View>
           </View>
@@ -592,10 +600,10 @@ export default function TransfersScreen() {
           </View>
         </Modal>
 
-        <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => setShowConfirmScanner(false)}>
+        <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => { setConfirmScanning(false); setShowConfirmScanner(false); }}>
           <View style={styles.scannerContainer}>
-            <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={scanning ? undefined : ({ data }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
-            <TouchableOpacity style={styles.scannerClose} onPress={() => setShowConfirmScanner(false)}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+            <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
+            <TouchableOpacity style={styles.scannerClose} onPress={() => { setConfirmScanning(false); setShowConfirmScanner(false); }}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
             <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
           </View>
         </Modal>
@@ -619,17 +627,30 @@ export default function TransfersScreen() {
         style={styles.filterRow}
         contentContainerStyle={styles.filterContent}
       >
-        {STATUS_FILTERS.map((sf) => (
-          <TouchableOpacity
-            key={sf}
-            style={[styles.filterChip, filter === sf && styles.filterChipActive, { backgroundColor: dark ? "#101928" : "#f0f4ff", borderColor: dark ? "#1e2a3a" : "#e2e8f0" }]}
-            onPress={() => setFilter(sf)}
-          >
-            <Text style={[styles.filterText, filter === sf && styles.filterTextActive, { color: dark ? "#c1c9d4" : "#6b7b8d" }]}>
-              {sf === "All" ? "All" : statusLabel(sf)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {STATUS_FILTERS.map((sf) => {
+          const active = filter === sf;
+          return (
+            <TouchableOpacity
+              key={sf}
+              style={[
+                styles.filterChip,
+                active
+                  ? styles.filterChipActive
+                  : { backgroundColor: dark ? "#101928" : "#f0f4ff", borderColor: dark ? "#1e2a3a" : "#e2e8f0" },
+              ]}
+              onPress={() => setFilter(sf)}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  active ? styles.filterTextActive : { color: dark ? "#c1c9d4" : "#6b7b8d" },
+                ]}
+              >
+                {sf === "All" ? "All" : statusLabel(sf)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       <FlatList
@@ -647,12 +668,12 @@ export default function TransfersScreen() {
               <View style={styles.transferRoute}>
                 <View style={styles.routeItem}>
                   <Ionicons name="location-outline" size={14} color="#6b7b8d" />
-                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.sourceWarehouse ?? "N/A"}</Text>
+                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.sourceWarehouse ?? "OMS Warehouse"}</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={14} color="#8e99a4" />
                 <View style={styles.routeItem}>
                   <Ionicons name="location" size={14} color="#17386b" />
-                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.destinationPos ?? "N/A"}</Text>
+                  <Text style={[styles.routeText, { color: dark ? "#c1c9d4" : "#4a5568" }]} numberOfLines={1}>{item.destinationPos ?? currentDeviceName}</Text>
                 </View>
               </View>
               <View style={styles.transferFooter}>
@@ -792,10 +813,10 @@ export default function TransfersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => setShowConfirmScanner(false)}>
+      <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => { setConfirmScanning(false); setShowConfirmScanner(false); }}>
         <View style={styles.scannerContainer}>
-          <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={scanning ? undefined : ({ data }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
-          <TouchableOpacity style={styles.scannerClose} onPress={() => setShowConfirmScanner(false)}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+          <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
+          <TouchableOpacity style={styles.scannerClose} onPress={() => { setConfirmScanning(false); setShowConfirmScanner(false); }}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
           <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
         </View>
       </Modal>

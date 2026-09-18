@@ -141,13 +141,16 @@ export default function SettingsScreen() {
 
   const loadUsers = useCallback(async () => {
     try {
+      // Prefer Role.name, fallback to raw roleId / CashierRole via join coalesce; ensure Role table may have been seeded as Admin
       const rows = await query<CashierRow>(
-        `SELECT c.id, c.displayName, c.username, r.name as roleName
+        `SELECT c.id, c.displayName, c.username, COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
          FROM Cashier c
          LEFT JOIN Role r ON c.roleId = r.id
-         WHERE c.active = 1`
+         WHERE c.active = 1
+         ORDER BY c.displayName ASC`
       );
-      setCashiers(rows);
+      // Normalize empty roleName
+      setCashiers(rows.map((r) => ({ ...r, roleName: (r.roleName || "Cashier").trim() || "Cashier" })));
     } catch {
       setCashiers([]);
     }
