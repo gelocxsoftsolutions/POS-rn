@@ -4,12 +4,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   StatusBar,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   TextInput,
+  ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +20,6 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 
-const { width } = Dimensions.get("window");
 const PIN_LENGTH = 6;
 
 type LoginMode = "pin" | "password";
@@ -34,6 +34,17 @@ export default function SignInScreen() {
   const router = useRouter();
   const signIn = useAuthStore((s) => s.signIn);
   const device = useDeviceStore((s) => s.device);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isLandscape = winW > winH;
+  const isTablet = Math.min(winW, winH) >= 600;
+
+  // responsive keypad sizing — recomputes on rotate/resize
+  const GAP = isTablet ? 14 : 12;
+  const PAD_MAX = isTablet ? 380 : 320;
+  const PAD_H_PAD = isLandscape ? 32 : 48;
+  const padWidth = Math.min(winW - PAD_H_PAD * 2, PAD_MAX);
+  const keySize = Math.max(56, Math.min(isTablet ? 84 : 72, Math.floor((padWidth - GAP * 2) / 3)));
+  const keyRadius = keySize / 2;
 
   const handleDigit = useCallback(
     (digit: string) => {
@@ -114,29 +125,33 @@ export default function SignInScreen() {
   const renderKey = (digit: string) => (
     <TouchableOpacity
       key={digit}
-      style={styles.key}
+      style={[styles.key, { width: keySize, height: keySize, borderRadius: keyRadius }]}
       onPress={() => handleDigit(digit)}
       activeOpacity={0.6}
       disabled={loading}
     >
-      <Text style={styles.keyText}>{digit}</Text>
+      <Text style={[styles.keyText, isTablet && styles.keyTextTablet]}>{digit}</Text>
     </TouchableOpacity>
   );
 
   if (device.registrationState === "unregistered") {
     return (
-      <View style={styles.container}>
+      <View style={styles.unregisteredBg}>
         <StatusBar barStyle="light-content" backgroundColor="#17386b" />
         <View style={styles.unregisteredContainer}>
-          <Ionicons name="phone-portrait-outline" size={64} color="#ffffff" />
+          <View style={styles.unregisteredIconWrap}>
+            <Ionicons name="phone-portrait-outline" size={48} color="#17386b" />
+          </View>
           <Text style={styles.unregisteredTitle}>Device Not Registered</Text>
           <Text style={styles.unregisteredSubtitle}>
-            Please register this device before logging in.
+            This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
           <TouchableOpacity
             style={styles.registerButton}
             onPress={() => router.push("/(auth)/register")}
+            activeOpacity={0.85}
           >
+            <Ionicons name="qr-code" size={16} color="#17386b" style={{ marginRight: 8 }} />
             <Text style={styles.registerButtonText}>Register Device</Text>
           </TouchableOpacity>
         </View>
@@ -146,22 +161,30 @@ export default function SignInScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: "#f8fbff" }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#17386b" />
-
-        <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="fish" size={48} color="#17386b" />
+      <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          isLandscape && styles.scrollContentLandscape,
+          isTablet && styles.scrollContentTablet,
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        <View style={[styles.header, isLandscape && styles.headerLandscape, isTablet && styles.headerTablet]}>
+          <View style={[styles.logoCircle, isTablet && styles.logoCircleTablet]}>
+            <Ionicons name="fish" size={isTablet ? 54 : 44} color="#17386b" />
           </View>
-          <Text style={styles.title}>NCT Seafoods</Text>
+          <Text style={[styles.title, isTablet && styles.titleTablet]}>NCT Seafoods</Text>
           <Text style={styles.subtitle}>POS System</Text>
         </View>
 
         {mode === "pin" ? (
-          <>
+          <View style={styles.pinBlock}>
             <Text style={styles.modeTitle}>Enter PIN</Text>
             <View style={styles.dotsRow}>
               {Array.from({ length: PIN_LENGTH }).map((_, i) => renderDot(i))}
@@ -177,17 +200,17 @@ export default function SignInScreen() {
               <ActivityIndicator size="small" color="#17386b" style={{ marginBottom: 8 }} />
             )}
 
-            <View style={styles.pad}>
+            <View style={[styles.pad, { width: padWidth, gap: GAP }]}>
               {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
-              <View style={styles.keySpacer} />
+              <View style={{ width: keySize, height: keySize }} />
               {renderKey("0")}
               <TouchableOpacity
-                style={styles.key}
+                style={[styles.key, { width: keySize, height: keySize, borderRadius: keyRadius }]}
                 onPress={handleBackspace}
                 activeOpacity={0.6}
                 disabled={loading}
               >
-                <Ionicons name="backspace-outline" size={24} color="#17386b" />
+                <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color="#17386b" />
               </TouchableOpacity>
             </View>
 
@@ -197,9 +220,9 @@ export default function SignInScreen() {
             >
               <Text style={styles.modeToggleText}>Sign in with password instead</Text>
             </TouchableOpacity>
-          </>
+          </View>
         ) : (
-          <>
+          <View style={[styles.passwordBlock, isTablet && { maxWidth: 420, width: "100%" }]}>
             <Text style={styles.modeTitle}>Sign In</Text>
 
             {error ? (
@@ -252,7 +275,7 @@ export default function SignInScreen() {
             >
               <Text style={styles.modeToggleText}>Sign in with PIN instead</Text>
             </TouchableOpacity>
-          </>
+          </View>
         )}
 
         <TouchableOpacity
@@ -261,84 +284,155 @@ export default function SignInScreen() {
         >
           <Text style={styles.reRegisterText}>Re-register device</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8fbff",
+  scrollContent: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    backgroundColor: "#f8fbff",
+  },
+  scrollContentLandscape: {
+    paddingVertical: 16,
+  },
+  scrollContentTablet: {
+    paddingHorizontal: 32,
+  },
+  unregisteredBg: {
+    flex: 1,
+    backgroundColor: "#17386b",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
   },
   unregisteredContainer: {
     alignItems: "center",
-    padding: 40,
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 32,
+    width: "100%",
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  unregisteredIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
   unregisteredTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#ffffff",
-    marginTop: 20,
-  },
-  unregisteredSubtitle: {
-    fontSize: 14,
-    color: "#a3b8d6",
-    marginTop: 8,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1a202c",
     textAlign: "center",
   },
+  unregisteredSubtitle: {
+    fontSize: 13,
+    color: "#6b7b8d",
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 18,
+  },
   registerButton: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#ffffff",
-    borderRadius: 8,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    marginTop: 24,
+    borderWidth: 1.5,
+    borderColor: "#17386b",
+    borderRadius: 12,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    marginTop: 20,
   },
   registerButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
     color: "#17386b",
   },
   header: {
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  headerLandscape: {
+    marginBottom: 16,
+  },
+  headerTablet: {
+    marginBottom: 28,
   },
   logoCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 88,
+    height: 88,
+    borderRadius: 22,
     backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  logoCircleTablet: {
+    width: 104,
+    height: 104,
+    borderRadius: 26,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "800",
     color: "#17386b",
-    marginTop: 16,
+    marginTop: 14,
+    letterSpacing: -0.3,
+  },
+  titleTablet: {
+    fontSize: 26,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: "600",
     color: "#6b7b8d",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
     marginTop: 4,
   },
+  pinBlock: {
+    alignItems: "center",
+    width: "100%",
+  },
+  passwordBlock: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+  },
   modeTitle: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#1a202c",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   dotsRow: {
     flexDirection: "row",
-    gap: 14,
+    gap: 12,
     marginBottom: 8,
   },
   dot: {
@@ -365,89 +459,95 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#dc3545",
     fontSize: 13,
-    marginBottom: 8,
+    fontWeight: "500",
+    textAlign: "center",
+    marginBottom: 4,
   },
   pad: {
-    width: width * 0.75,
-    maxWidth: 320,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 12,
-    marginTop: 24,
+    marginTop: 16,
   },
   key: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
     backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: "#17386b",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 2,
   },
   keyText: {
-    fontSize: 26,
-    fontWeight: "600",
+    fontSize: 24,
+    fontWeight: "700",
     color: "#17386b",
   },
-  keySpacer: {
-    width: 68,
-    height: 68,
+  keyTextTablet: {
+    fontSize: 28,
   },
   modeToggle: {
-    marginTop: 20,
+    marginTop: 18,
+    paddingVertical: 4,
   },
   modeToggleText: {
     fontSize: 13,
-    color: "#6b7b8d",
+    color: "#64748b",
+    fontWeight: "500",
     textDecorationLine: "underline",
   },
   inputGroup: {
     width: "100%",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   label: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#4a5568",
+    fontWeight: "700",
+    color: "#334155",
     marginBottom: 6,
   },
   input: {
-    backgroundColor: "#f7f9fc",
-    borderRadius: 8,
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "#e2e8f0",
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 13,
     fontSize: 14,
     color: "#1a202c",
   },
   loginBtn: {
     width: "100%",
     backgroundColor: "#17386b",
-    borderRadius: 8,
-    paddingVertical: 16,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: "center",
     marginTop: 8,
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
   loginBtnDisabled: {
     opacity: 0.6,
   },
   loginBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#ffffff",
   },
   reRegisterLink: {
-    marginTop: 32,
+    marginTop: 24,
+    paddingVertical: 8,
   },
   reRegisterText: {
     fontSize: 12,
-    color: "#6b7b8d",
+    color: "#94a3b8",
+    fontWeight: "500",
     textDecorationLine: "underline",
   },
 });

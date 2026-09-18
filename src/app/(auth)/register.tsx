@@ -4,13 +4,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Alert,
   TextInput,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,8 +24,6 @@ import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import * as Constants from "expo-constants";
-
-const { width } = Dimensions.get("window");
 
 type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
 
@@ -175,49 +173,72 @@ export default function RegisterDevice() {
   if (step === "success") {
     return (
       <View style={styles.successContainer}>
-        <View style={styles.successCard}>
-          <View style={styles.successIconCircle}>
-            <Ionicons name="checkmark-circle" size={64} color="#28a745" />
-          </View>
-          <Text style={styles.successTitle}>Device Registered</Text>
-          <Text style={styles.successSubtitle}>
-            This POS device is now registered and ready for use.
-          </Text>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+        <ScrollView contentContainerStyle={styles.successScroll} bounces={false} showsVerticalScrollIndicator={false}>
+          <View style={styles.successCard}>
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
+            </View>
+            <Text style={styles.successTitle}>Device Registered</Text>
+            <Text style={styles.successSubtitle}>
+              This POS terminal is now provisioned and ready to use. You can sign in with your cashier credentials.
+            </Text>
 
-          <View style={styles.deviceDetails}>
-            {device.deviceCode && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Device Code</Text>
-                <Text style={styles.detailValue}>{device.deviceCode}</Text>
-              </View>
-            )}
-            {device.publicIdentifier && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Identifier</Text>
-                <Text style={styles.detailValueMono}>{device.publicIdentifier}</Text>
-              </View>
-            )}
-            {device.branchName && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Branch</Text>
-                <Text style={styles.detailValue}>{device.branchName}</Text>
-              </View>
-            )}
-            {device.deviceName && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Name</Text>
-                <Text style={styles.detailValue}>{device.deviceName}</Text>
-              </View>
-            )}
-          </View>
+            <View style={styles.deviceDetails}>
+              {device.deviceCode && (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <Ionicons name="barcode-outline" size={12} color="#6b7b8d" />
+                    <Text style={styles.detailLabel}>Device Code</Text>
+                  </View>
+                  <Text style={styles.detailValue}>{device.deviceCode}</Text>
+                </View>
+              )}
+              {device.publicIdentifier && (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <Ionicons name="finger-print-outline" size={12} color="#6b7b8d" />
+                    <Text style={styles.detailLabel}>Identifier</Text>
+                  </View>
+                  <Text style={styles.detailValueMono} numberOfLines={1}>{device.publicIdentifier}</Text>
+                </View>
+              )}
+              {device.branchName && (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <Ionicons name="storefront-outline" size={12} color="#6b7b8d" />
+                    <Text style={styles.detailLabel}>Branch</Text>
+                  </View>
+                  <Text style={styles.detailValue}>{device.branchName}</Text>
+                </View>
+              )}
+              {device.deviceName && (
+                <View style={[styles.detailRow, { marginBottom: 0 }]}>
+                  <View style={styles.detailLabelRow}>
+                    <Ionicons name="phone-portrait-outline" size={12} color="#6b7b8d" />
+                    <Text style={styles.detailLabel}>Terminal</Text>
+                  </View>
+                  <Text style={styles.detailValue}>{device.deviceName}</Text>
+                </View>
+              )}
+            </View>
 
-          <TouchableOpacity
-            style={styles.continueBtn}
-            onPress={() => router.replace("/(auth)")}
-          >
-            <Text style={styles.continueBtnText}>Continue to Sign In</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={styles.continueBtn}
+              onPress={() => router.replace("/(auth)")}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.continueBtnText}>Continue to Sign In</Text>
+              <Ionicons name="arrow-forward" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.brandFooter}>
+            <View style={styles.brandFooterIcon}>
+              <Ionicons name="fish" size={14} color="#17386b" />
+            </View>
+            <Text style={styles.brandFooterText}>NCT Seafoods  •  Point of Sale</Text>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -261,23 +282,41 @@ export default function RegisterDevice() {
 
     return (
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: "#f8fbff" }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.container}>
-          <View style={styles.header}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setStep("success")} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={20} color="#17386b" />
+          </TouchableOpacity>
+          <View style={styles.headerBrand}>
+            <View style={styles.headerBrandIcon}>
+              <Ionicons name="fish" size={16} color="#17386b" />
+            </View>
+            <Text style={styles.headerBrandText}>NCT POS</Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.formHeader}>
+            <View style={styles.formIconCircle}>
+              <Ionicons name="key-outline" size={28} color="#17386b" />
+            </View>
             <Text style={styles.formTitle}>Set Cashier PINs</Text>
             <Text style={styles.formSubtitle}>
-              Assign a 6-digit PIN for each cashier to sign in
+              Assign a PIN for each cashier to sign in quickly on this terminal
             </Text>
           </View>
 
-          <ScrollView contentContainerStyle={styles.formContent}>
+          <View style={styles.formCard}>
             {cashierPins.map((c) => (
               <View key={c.id} style={styles.inputGroup}>
                 <Text style={styles.label}>{c.displayName}</Text>
+                {c.username ? <Text style={styles.labelHint}>@{c.username}</Text> : null}
                 <TextInput
-                  style={[styles.input, pinErrors[c.id] ? { borderColor: "#dc3545" } : null]}
+                  style={[styles.input, pinErrors[c.id] ? { borderColor: "#dc3545", backgroundColor: "#fff5f5" } : null]}
                   placeholder="Enter 6-digit PIN"
                   placeholderTextColor="#b0b8c1"
                   value={c.pin}
@@ -287,9 +326,7 @@ export default function RegisterDevice() {
                   secureTextEntry
                 />
                 {pinErrors[c.id] ? (
-                  <Text style={{ color: "#dc3545", fontSize: 12, marginTop: 4 }}>
-                    {pinErrors[c.id]}
-                  </Text>
+                  <Text style={styles.fieldError}>{pinErrors[c.id]}</Text>
                 ) : null}
               </View>
             ))}
@@ -298,12 +335,15 @@ export default function RegisterDevice() {
               style={[styles.registerBtn, loading && styles.registerBtnDisabled]}
               onPress={handleSavePins}
               disabled={loading}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
               {loading ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
-                <Text style={styles.registerBtnText}>Save PINs</Text>
+                <>
+                  <Text style={styles.registerBtnText}>Save PINs</Text>
+                  <Ionicons name="checkmark" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
+                </>
               )}
             </TouchableOpacity>
 
@@ -313,8 +353,8 @@ export default function RegisterDevice() {
             >
               <Text style={styles.modeToggleText}>Skip for now</Text>
             </TouchableOpacity>
-          </ScrollView>
-        </View>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }
@@ -322,43 +362,72 @@ export default function RegisterDevice() {
   if (step === "choose") {
     return (
       <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#17386b" />
+            <Ionicons name="arrow-back" size={20} color="#17386b" />
           </TouchableOpacity>
+          <View style={styles.headerBrand}>
+            <View style={styles.headerBrandIcon}>
+              <Ionicons name="fish" size={16} color="#17386b" />
+            </View>
+            <Text style={styles.headerBrandText}>NCT POS</Text>
+          </View>
+          <View style={{ width: 40 }} />
         </View>
 
-        <View style={styles.content}>
-          <View style={styles.iconCircle}>
-            <Ionicons name="phone-portrait-outline" size={48} color="#17386b" />
+        <ScrollView contentContainerStyle={styles.chooseScroll} bounces={false} showsVerticalScrollIndicator={false}>
+          <View style={styles.brandBlock}>
+            <View style={styles.logoCircle}>
+              <Ionicons name="fish" size={44} color="#17386b" />
+            </View>
+            <Text style={styles.brandTitle}>NCT Seafoods</Text>
+            <Text style={styles.brandSubtitle}>Point of Sale Terminal</Text>
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <View style={styles.dividerDot} />
+              <View style={styles.dividerLine} />
+            </View>
           </View>
-          <Text style={styles.title}>Register Device</Text>
+
+          <Text style={styles.title}>Register this device</Text>
           <Text style={styles.subtitle}>
-            Choose how you'd like to register this POS terminal
+            Choose how you want to provision this terminal with your OMS
           </Text>
 
-          <TouchableOpacity style={styles.option} onPress={handleQRScan} activeOpacity={0.7}>
-            <View style={styles.optionIcon}>
-              <Ionicons name="qr-code" size={28} color="#17386b" />
-            </View>
-            <View style={styles.optionInfo}>
-              <Text style={styles.optionTitle}>Scan QR Code</Text>
-              <Text style={styles.optionDesc}>Scan a QR code from your OMS dashboard</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#c1c9d4" />
-          </TouchableOpacity>
+          <View style={styles.optionsWrap}>
+            <TouchableOpacity style={styles.option} onPress={handleQRScan} activeOpacity={0.7}>
+              <View style={styles.optionIcon}>
+                <Ionicons name="qr-code" size={26} color="#17386b" />
+              </View>
+              <View style={styles.optionInfo}>
+                <Text style={styles.optionTitle}>Scan QR Code</Text>
+                <Text style={styles.optionDesc}>Scan the activation QR from your OMS dashboard</Text>
+              </View>
+              <View style={styles.optionChevron}>
+                <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
+              </View>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.option} onPress={() => setStep("manual")} activeOpacity={0.7}>
-            <View style={styles.optionIcon}>
-              <Ionicons name="keypad" size={28} color="#17386b" />
-            </View>
-            <View style={styles.optionInfo}>
-              <Text style={styles.optionTitle}>Enter Token Manually</Text>
-              <Text style={styles.optionDesc}>Type your activation token and server URL</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#c1c9d4" />
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity style={styles.option} onPress={() => setStep("manual")} activeOpacity={0.7}>
+              <View style={styles.optionIcon}>
+                <Ionicons name="create-outline" size={26} color="#17386b" />
+              </View>
+              <View style={styles.optionInfo}>
+                <Text style={styles.optionTitle}>Enter Token Manually</Text>
+                <Text style={styles.optionDesc}>Type the activation token and server URL</Text>
+              </View>
+              <View style={styles.optionChevron}>
+                <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.helpCard}>
+            <Ionicons name="information-circle-outline" size={16} color="#6b7b8d" />
+            <Text style={styles.helpText}>You can generate an activation token in OMS → POS → Devices → Add Device</Text>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -366,85 +435,116 @@ export default function RegisterDevice() {
   if (step === "qr") {
     return (
       <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => { setStep("choose"); setScanned(false); }} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#17386b" />
+            <Ionicons name="arrow-back" size={20} color="#17386b" />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Scan QR</Text>
+          <View style={{ width: 40 }} />
         </View>
-        <View style={styles.qrContainer}>
-          {permission?.granted ? (
-            <View style={styles.cameraWrapper}>
-              <CameraView
-                style={styles.camera}
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
-              />
-              {loading && (
-                <View style={styles.cameraOverlay}>
-                  <ActivityIndicator size="large" color="#ffffff" />
-                  <Text style={styles.cameraOverlayText}>Registering...</Text>
+        <ScrollView contentContainerStyle={styles.qrScroll} bounces={false} showsVerticalScrollIndicator={false}>
+          <View style={styles.qrContainer}>
+            {permission?.granted ? (
+              <View style={styles.cameraCard}>
+                <View style={styles.cameraWrapper}>
+                  <CameraView
+                    style={styles.camera}
+                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                    onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+                  />
+                  {/* scanning corner brackets */}
+                  <View style={[styles.corner, styles.cornerTL]} />
+                  <View style={[styles.corner, styles.cornerTR]} />
+                  <View style={[styles.corner, styles.cornerBL]} />
+                  <View style={[styles.corner, styles.cornerBR]} />
+                  {loading && (
+                    <View style={styles.cameraOverlay}>
+                      <ActivityIndicator size="large" color="#ffffff" />
+                      <Text style={styles.cameraOverlayText}>Registering device…</Text>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.permissionContainer}>
-              <Ionicons name="camera-outline" size={80} color="#17386b" />
-              <Text style={styles.qrTitle}>Camera Permission Needed</Text>
-              <Text style={styles.qrSubtitle}>
-                Allow camera access to scan QR codes
-              </Text>
-              <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
-                <Text style={styles.permissionBtnText}>Grant Permission</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          <Text style={styles.qrTitle}>Scan QR Code</Text>
-          <Text style={styles.qrSubtitle}>
-            Point your camera at the QR code displayed on your OMS dashboard
-          </Text>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => { setStep("choose"); setScanned(false); }}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
+              </View>
+            ) : (
+              <View style={styles.permissionCard}>
+                <View style={styles.permissionIcon}>
+                  <Ionicons name="camera-outline" size={48} color="#17386b" />
+                </View>
+                <Text style={styles.qrTitle}>Camera permission needed</Text>
+                <Text style={styles.qrSubtitle}>
+                  Allow camera access to scan the OMS activation QR
+                </Text>
+                <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission} activeOpacity={0.8}>
+                  <Ionicons name="camera" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={styles.permissionBtnText}>Grant Permission</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <Text style={styles.qrTitle}>Scan QR Code</Text>
+            <Text style={styles.qrSubtitleCenter}>
+              Point your camera at the QR code displayed on your OMS dashboard
+            </Text>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => { setStep("choose"); setScanned(false); }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelButtonText}>Back</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   }
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: "#f8fbff" }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setStep("choose")} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#17386b" />
-          </TouchableOpacity>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setStep("choose")} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={20} color="#17386b" />
+        </TouchableOpacity>
+        <View style={styles.headerBrand}>
+          <View style={styles.headerBrandIcon}>
+            <Ionicons name="fish" size={16} color="#17386b" />
+          </View>
+          <Text style={styles.headerBrandText}>NCT POS</Text>
+        </View>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.formHeader}>
+          <View style={styles.formIconCircle}>
+            <Ionicons name="keypad-outline" size={28} color="#17386b" />
+          </View>
+          <Text style={styles.formTitle}>Enter details manually</Text>
+          <Text style={styles.formSubtitle}>
+            Input the activation token and server URL from your administrator
+          </Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.formContent}>
-          <Text style={styles.formTitle}>Enter Details Manually</Text>
-          <Text style={styles.formSubtitle}>
-            Input the activation token and server URL provided by your administrator
-          </Text>
-
+        <View style={styles.formCard}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Activation Token</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter activation token"
+              placeholder="Paste activation token"
               placeholderTextColor="#b0b8c1"
               value={token}
               onChangeText={setToken}
               autoCapitalize="characters"
+              autoCorrect={false}
             />
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Server URL</Text>
+            <Text style={styles.labelHint}>Leave empty to use the default staging server</Text>
             <TextInput
               style={styles.input}
               placeholder="https://oms.example.com"
@@ -453,6 +553,7 @@ export default function RegisterDevice() {
               onChangeText={setServerUrl}
               keyboardType="url"
               autoCapitalize="none"
+              autoCorrect={false}
             />
           </View>
 
@@ -460,16 +561,19 @@ export default function RegisterDevice() {
             style={[styles.registerBtn, loading && styles.registerBtnDisabled]}
             onPress={handleManualRegister}
             disabled={loading}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
           >
             {loading ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text style={styles.registerBtnText}>Register Device</Text>
+              <>
+                <Text style={styles.registerBtnText}>Register Device</Text>
+                <Ionicons name="arrow-forward" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
+              </>
             )}
           </TouchableOpacity>
-        </ScrollView>
-      </View>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -480,57 +584,153 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fbff",
   },
   header: {
-    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
     paddingTop: 50,
-    paddingBottom: 10,
+    paddingBottom: 12,
+    backgroundColor: "#f8fbff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eef2f7",
+  },
+  headerBrand: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  headerBrandIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBrandText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#17386b",
+    letterSpacing: 0.6,
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1a202c",
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  content: {
+  // choose step
+  chooseScroll: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 32,
+    alignItems: "center",
+  },
+  brandBlock: {
+    alignItems: "center",
+    paddingTop: 8,
+    paddingBottom: 12,
+    width: "100%",
+    maxWidth: 420,
+  },
+  logoCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  brandTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#17386b",
+    letterSpacing: -0.3,
+  },
+  brandSubtitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6b7b8d",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginTop: 4,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
+    width: 120,
+  },
+  dividerLine: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
+    height: 1,
+    backgroundColor: "#e8edf3",
   },
-  iconCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "#f0f4ff",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
+  dividerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#cbd5e1",
   },
   title: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#17386b",
-    marginBottom: 8,
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1a202c",
+    marginTop: 8,
+    textAlign: "center",
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#6b7b8d",
     textAlign: "center",
-    marginBottom: 40,
+    marginTop: 8,
+    marginBottom: 24,
+    lineHeight: 18,
+    paddingHorizontal: 12,
+  },
+  optionsWrap: {
+    width: "100%",
+    maxWidth: 420,
+    gap: 12,
   },
   option: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ffffff",
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
     width: "100%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
-    shadowRadius: 6,
+    shadowRadius: 12,
     elevation: 2,
   },
   optionIcon: {
@@ -538,217 +738,435 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 16,
+    marginRight: 14,
   },
   optionInfo: {
     flex: 1,
   },
   optionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#1a202c",
   },
   optionDesc: {
     fontSize: 12,
     color: "#6b7b8d",
-    marginTop: 2,
+    marginTop: 3,
+    lineHeight: 16,
+  },
+  optionChevron: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f8fbff",
+    borderWidth: 1,
+    borderColor: "#eef2f7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  helpCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 16,
+    width: "100%",
+    maxWidth: 420,
+  },
+  helpText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#5a6b84",
+    lineHeight: 16,
+  },
+  qrScroll: {
+    flexGrow: 1,
   },
   qrContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  cameraCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+    marginBottom: 20,
   },
   cameraWrapper: {
     width: 280,
     height: 280,
     borderRadius: 16,
     overflow: "hidden",
-    marginBottom: 20,
+    backgroundColor: "#0f1729",
   },
   camera: {
     flex: 1,
   },
+  corner: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderColor: "#ffffff",
+  },
+  cornerTL: { top: 14, left: 14, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 10 },
+  cornerTR: { top: 14, right: 14, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 10 },
+  cornerBL: { bottom: 14, left: 14, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 10 },
+  cornerBR: { bottom: 14, right: 14, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 10 },
   cameraOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(15,23,41,0.62)",
     alignItems: "center",
     justifyContent: "center",
   },
   cameraOverlayText: {
     color: "#ffffff",
-    fontSize: 14,
-    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 10,
   },
-  permissionContainer: {
+  permissionCard: {
     alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    width: "100%",
+    maxWidth: 360,
     marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  permissionIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    backgroundColor: "#f0f4ff",
+    borderWidth: 1,
+    borderColor: "#e0e7ff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
   },
   permissionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#17386b",
-    borderRadius: 8,
-    paddingHorizontal: 24,
+    borderRadius: 12,
+    paddingHorizontal: 22,
     paddingVertical: 12,
     marginTop: 16,
   },
   permissionBtnText: {
     color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
   },
   qrTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#17386b",
-    marginTop: 20,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1a202c",
+    marginTop: 4,
+    textAlign: "center",
   },
   qrSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
+    color: "#6b7b8d",
+    textAlign: "center",
+    marginTop: 6,
+  },
+  qrSubtitleCenter: {
+    fontSize: 13,
     color: "#6b7b8d",
     textAlign: "center",
     marginTop: 8,
-    marginBottom: 32,
+    marginBottom: 20,
+    lineHeight: 18,
+    paddingHorizontal: 16,
   },
   cancelButton: {
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: "#17386b",
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
   },
   cancelButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#17386b",
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
   },
   formContent: {
-    padding: 32,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 32,
+  },
+  formHeader: {
+    alignItems: "center",
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  formIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
   formTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#17386b",
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1a202c",
+    textAlign: "center",
   },
   formSubtitle: {
     fontSize: 13,
     color: "#6b7b8d",
-    marginBottom: 32,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 18,
+    paddingHorizontal: 12,
+  },
+  formCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    padding: 20,
+    marginTop: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   label: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#4a5568",
+    fontWeight: "700",
+    color: "#334155",
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  labelHint: {
+    fontSize: 11,
+    color: "#94a3b8",
     marginBottom: 6,
   },
   input: {
-    backgroundColor: "#f7f9fc",
-    borderRadius: 8,
+    backgroundColor: "#f8fbff",
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "#e2e8f0",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     fontSize: 14,
     color: "#1a202c",
   },
+  fieldError: {
+    color: "#dc3545",
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: "500",
+  },
   registerBtn: {
+    flexDirection: "row",
     backgroundColor: "#17386b",
-    borderRadius: 8,
-    paddingVertical: 16,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: "center",
-    marginTop: 12,
+    justifyContent: "center",
+    marginTop: 8,
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
   },
   registerBtnDisabled: {
     opacity: 0.6,
   },
   registerBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#ffffff",
+    letterSpacing: 0.2,
+  },
+  modeToggle: {
+    marginTop: 14,
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  modeToggleText: {
+    fontSize: 13,
+    color: "#64748b",
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   successContainer: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  successScroll: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: 20,
   },
   successCard: {
     backgroundColor: "#ffffff",
     borderRadius: 20,
-    padding: 32,
+    padding: 24,
     width: "100%",
     maxWidth: 400,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 5,
     alignItems: "center",
   },
   successIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#d4edda",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#dcfce7",
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   successTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
     color: "#1a202c",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   successSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#6b7b8d",
     textAlign: "center",
-    marginBottom: 24,
+    lineHeight: 18,
+    marginBottom: 20,
+    paddingHorizontal: 4,
   },
   deviceDetails: {
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#f8fbff",
     borderRadius: 12,
-    padding: 16,
+    borderWidth: 1,
+    borderColor: "#eef2f7",
+    padding: 14,
     width: "100%",
-    marginBottom: 24,
+    marginBottom: 20,
   },
   detailRow: {
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  detailLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 3,
   },
   detailLabel: {
-    fontSize: 11,
-    color: "#6b7b8d",
-    marginBottom: 2,
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#94a3b8",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   detailValue: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#1a202c",
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1e293b",
   },
   detailValueMono: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#1a202c",
-    fontFamily: "monospace",
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#1e293b",
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
   },
   continueBtn: {
+    flexDirection: "row",
     backgroundColor: "#17386b",
     borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     width: "100%",
     alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
   },
   continueBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#ffffff",
+  },
+  brandFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    opacity: 0.9,
+  },
+  brandFooterIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e8edf3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brandFooterText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94a3b8",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 });

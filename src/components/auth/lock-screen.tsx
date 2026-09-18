@@ -4,15 +4,15 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   StatusBar,
   ActivityIndicator,
+  ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { CashierService } from "@/lib/services/cashier.service";
 
-const { width } = Dimensions.get("window");
 const PIN_LENGTH = 6;
 
 interface LockScreenProps {
@@ -25,6 +25,13 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const [loading, setLoading] = useState(false);
   const session = useCashierStore((s) => s.session);
   const unlock = useCashierStore((s) => s.unlock);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isLandscape = winW > winH;
+  const isTablet = Math.min(winW, winH) >= 600;
+  const GAP = isTablet ? 14 : 12;
+  const PAD_MAX = isTablet ? 360 : 300;
+  const padWidth = Math.min(winW - 40 * 2, PAD_MAX);
+  const keySize = Math.max(56, Math.min(isTablet ? 80 : 68, Math.floor((padWidth - GAP * 2) / 3)));
 
   const handleDigit = useCallback(
     (digit: string) => {
@@ -92,47 +99,56 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const renderKey = (digit: string) => (
     <TouchableOpacity
       key={digit}
-      style={styles.key}
+      style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2 }]}
       onPress={() => handleDigit(digit)}
       activeOpacity={0.6}
       disabled={loading}
     >
-      <Text style={styles.keyText}>{digit}</Text>
+      <Text style={[styles.keyText, isTablet && { fontSize: 26 }]}>{digit}</Text>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#17386b" />
-      <View style={styles.header}>
-        <Ionicons name="fish" size={64} color="#ffffff" />
-        <Text style={styles.title}>NCT Seafoods POS System</Text>
-        <Text style={styles.subtitle}>Enter PIN to unlock</Text>
-      </View>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          isLandscape && { paddingVertical: 16 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        <View style={[styles.header, isLandscape && { marginBottom: 12 }]}>
+          <Ionicons name="fish" size={isTablet ? 56 : 48} color="#ffffff" />
+          <Text style={[styles.title, isTablet && { fontSize: 24 }]}>NCT Seafoods POS System</Text>
+          <Text style={styles.subtitle}>Enter PIN to unlock</Text>
+        </View>
 
-      <View style={styles.cashierInfo}>
-        <Ionicons name="person-circle" size={20} color="#ffffff" />
-        <Text style={styles.cashierName}>{session?.cashierName ?? "Cashier"}</Text>
-      </View>
+        <View style={styles.cashierInfo}>
+          <Ionicons name="person-circle" size={20} color="#ffffff" />
+          <Text style={styles.cashierName}>{session?.cashierName ?? "Cashier"}</Text>
+        </View>
 
-      <View style={styles.dotsRow}>
-        {Array.from({ length: PIN_LENGTH }).map((_, i) => renderDot(i))}
-      </View>
+        <View style={styles.dotsRow}>
+          {Array.from({ length: PIN_LENGTH }).map((_, i) => renderDot(i))}
+        </View>
 
-      {error && <Text style={styles.errorText}>Incorrect PIN. Try again.</Text>}
+        {error && <Text style={styles.errorText}>Incorrect PIN. Try again.</Text>}
 
-      {loading && (
-        <ActivityIndicator size="small" color="#ffffff" style={{ marginBottom: 8 }} />
-      )}
+        {loading && (
+          <ActivityIndicator size="small" color="#ffffff" style={{ marginBottom: 8 }} />
+        )}
 
-      <View style={styles.pad}>
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
-        <View style={styles.keySpacer} />
-        {renderKey("0")}
-        <TouchableOpacity style={styles.key} onPress={handleBackspace} activeOpacity={0.6} disabled={loading}>
-          <Ionicons name="backspace-outline" size={24} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
+        <View style={[styles.pad, { width: padWidth, gap: GAP }]}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
+          <View style={{ width: keySize, height: keySize }} />
+          {renderKey("0")}
+          <TouchableOpacity style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2 }]} onPress={handleBackspace} activeOpacity={0.6} disabled={loading}>
+            <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -141,24 +157,30 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#17386b",
+  },
+  scroll: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   header: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
     color: "#ffffff",
-    marginTop: 16,
+    marginTop: 12,
+    letterSpacing: -0.2,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#a3b8d6",
-    marginTop: 8,
+    marginTop: 6,
+    fontWeight: "500",
   },
   cashierInfo: {
     flexDirection: "row",
@@ -167,18 +189,20 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginBottom: 32,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
   },
   cashierName: {
     color: "#ffffff",
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
     marginLeft: 8,
   },
   dotsRow: {
     flexDirection: "row",
-    gap: 16,
-    marginBottom: 12,
+    gap: 14,
+    marginBottom: 10,
   },
   dot: {
     width: 16,
@@ -198,32 +222,25 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#ff6b6b",
     fontSize: 13,
-    marginBottom: 8,
+    fontWeight: "500",
+    marginBottom: 6,
   },
   pad: {
-    width: width * 0.7,
-    maxWidth: 300,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 12,
-    marginTop: 24,
+    marginTop: 16,
   },
   key: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
     backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
     alignItems: "center",
     justifyContent: "center",
   },
   keyText: {
-    fontSize: 24,
-    fontWeight: "600",
+    fontSize: 22,
+    fontWeight: "700",
     color: "#ffffff",
-  },
-  keySpacer: {
-    width: 64,
-    height: 64,
   },
 });
