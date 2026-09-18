@@ -54,24 +54,48 @@ export const SyncQueueService = {
 
           let body = item.payload ? JSON.parse(item.payload) : undefined;
           // Backward-compat: legacy queued sales used productId/quantity/payments shape; normalize now
-          if (item.entityType === "Sale" && body?.items?.[0]?.productId !== undefined) {
-            try {
-              const { queryFirst: qf } = await import("@/lib/db/connection");
-              const mapped: Array<{ variationId: number; qty: number }> = [];
-              for (const it of body.items as Array<{ productId: string; quantity: number }>) {
-                const r = await qf<{ sku: string | null }>("SELECT sku FROM Product WHERE id = ?", [it.productId]);
-                const vid = r?.sku ? Number(r.sku) : NaN;
-                if (Number.isFinite(vid) && vid > 0) mapped.push({ variationId: Math.trunc(vid), qty: it.quantity });
-              }
-              if (mapped.length > 0) {
-                body = { items: mapped, paymentMethod: body.payments?.[0]?.method ?? body.paymentMethod, cashierUserId: body.cashierId ?? body.cashierUserId };
-              }
-            } catch {}
-          } else if (item.entityType === "Sale" && body?.items) {
-            // Ensure legacy qty fields still map
-            const first: any = body.items[0];
-            if (first && first.variationId === undefined && first.productId !== undefined) {
-              body.items = (body.items as any[]).map((it: any) => ({ variationId: Number(it.productId ?? it.sku), qty: it.quantity ?? it.qty })).filter((x: any) => Number.isFinite(x.variationId));
+          let discardAsMock = false;
+          if (item.entityType === "Sale" && body?.items) {
+            const hasLegacy = body.items[0]?.productId !== undefined || body.items[0]?.sku !== undefined;
+            const hasCanonical = body.items[0]?.variationId !== undefined && body.items[0]?.qty !== undefined;
+            if (hasLegacy && !hasCanonical) {
+              try {
+                const { queryFirst: qf } = await import("@/lib/db/connection");
+                const mapped: Array<{ variationId: number; qty: number }> = [];
+                let sawLegacyMock = false;
+                for (const it of body.items as Array<{ productId?: string; sku?: string; quantity?: number; qty?: number }>) {
+                  const pid = (it as any).productId ?? (it as any).sku;
+                  if (!pid) continue;
+                  // pid may be UUID -> lookup sku
+                  const r = await qf<{ sku: string | null }>("SELECT sku FROM Product WHERE id = ?", [pid]);
+                  const sku = r?.sku ?? String(pid);
+                  const vid = Number(sku);
+                  if (!Number.isFinite(vid) || vid <= 0) {
+                    if (sku && /^(SHR|TUN|SAL|SQU|CRA|CHI|POR|MLK|APL|WTR)-/.test(sku)) sawLegacyMock = true;
+                    continue;
+                  }
+                  mapped.push({ variationId: Math.trunc(vid), qty: (it as any).quantity ?? (it as any).qty ?? 1 });
+                }
+                if (mapped.length > 0) {
+                  body = { items: mapped, paymentMethod: body.payments?.[0]?.method ?? body.paymentMethod, cashierUserId: body.cashierId ?? body.cashierUserId };
+                } else if (sawLegacyMock || body.items.length > 0) {
+                  // All items were legacy mocks or unmappable -> discard to stop 400 loop
+                  console.warn("[SyncQueue] Discarding unmappable legacy sale", item.id, body.items);
+                  await SyncQueueRepository.markSynced(item.id);
+                  processed++;
+                  continue;
+                }
+              } catch {}
+            } else if (hasLegacy && body.items[0]?.variationId === undefined) {
+              const mapped2 = (body.items as any[]).map((it: any) => ({ variationId: Number(it.productId ?? it.sku), qty: it.quantity ?? it.qty })).filter((x: any) => Number.isFinite(x.variationId) && x.variationId > 0);
+              if (mapped2.length > 0) body.items = mapped2;
+              else discardAsMock = true;
+            }
+            if (discardAsMock || (Array.isArray(body.items) && body.items.length === 0)) {
+              console.warn("[SyncQueue] Discarding empty sale payload", item.id);
+              await SyncQueueRepository.markSynced(item.id);
+              processed++;
+              continue;
             }
           }
           const res = method === "POST"

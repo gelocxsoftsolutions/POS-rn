@@ -146,6 +146,14 @@ async function deleteLegacyMockProducts(): Promise<void> {
   for (const c of orphanCategories) {
     await execute("DELETE FROM Category WHERE id = ?", [c.id]);
   }
+  // Purge legacy mock sales from SyncQueue to stop 400 loop
+  try {
+    for (const sku of LEGACY_MOCK_SKUS) {
+      await execute(`DELETE FROM SyncQueue WHERE payload LIKE ? AND entityType = 'Sale'`, [`%${sku}%`]);
+    }
+    // Purge any sale queue items that have empty or unmappable legacy payloads
+    await execute(`DELETE FROM SyncQueue WHERE entityType = 'Sale' AND payload LIKE '%\"productId\"%' AND payload NOT LIKE '%\"variationId\"%' AND status = 'FAILED'`);
+  } catch {}
 }
 
 export const OmsSyncService = {

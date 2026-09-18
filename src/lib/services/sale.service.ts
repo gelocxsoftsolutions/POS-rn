@@ -163,8 +163,9 @@ export const SaleService = {
   ): Promise<void> {
     const payload = await resolveSalePayload(input, saleItems, total, saleId);
     if (payload.items.length === 0) {
-      // Nothing mappable to OMS (e.g. unknown SKUs) -> keep locally and queue for later retry
-      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+      // Nothing mappable to OMS (e.g. legacy mock SKUs like SHR-001) -> keep locally, mark synced to stop 400 loop
+      console.warn("[Sale] No mappable OMS variations for sale", saleId, "- skipping OMS push (mock/unknown SKUs)");
+      await SaleRepository.markSynced(saleId);
       return;
     }
     try {
