@@ -396,18 +396,23 @@ export default function RegisterDevice() {
           </Text>
 
           <View style={styles.optionsWrap}>
-            <TouchableOpacity style={styles.option} onPress={handleQRScan} activeOpacity={0.7}>
-              <View style={styles.optionIcon}>
-                <Ionicons name="qr-code" size={26} color="#17386b" />
+            <View style={styles.optionRecommendedWrap}>
+              <View style={styles.optionBadge}>
+                <Text style={styles.optionBadgeText}>Recommended</Text>
               </View>
-              <View style={styles.optionInfo}>
-                <Text style={styles.optionTitle}>Scan QR Code</Text>
-                <Text style={styles.optionDesc}>Scan the activation QR from your OMS dashboard</Text>
-              </View>
-              <View style={styles.optionChevron}>
-                <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity style={[styles.option, styles.optionRecommended]} onPress={handleQRScan} activeOpacity={0.7}>
+                <View style={styles.optionIcon}>
+                  <Ionicons name="qr-code" size={26} color="#17386b" />
+                </View>
+                <View style={styles.optionInfo}>
+                  <Text style={styles.optionTitle}>Scan QR Code</Text>
+                  <Text style={styles.optionDesc}>Scan the activation QR from your OMS dashboard</Text>
+                </View>
+                <View style={styles.optionChevron}>
+                  <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
+                </View>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity style={styles.option} onPress={() => setStep("manual")} activeOpacity={0.7}>
               <View style={styles.optionIcon}>
@@ -732,6 +737,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 2,
+  },
+  optionRecommended: {
+    borderColor: "#17386b",
+    borderWidth: 2,
+    paddingTop: 22,
+  },
+  optionRecommendedWrap: {
+    position: "relative",
+    width: "100%",
+    paddingTop: 10,
+    overflow: "visible",
+  },
+  optionBadge: {
+    position: "absolute",
+    top: 0,
+    left: 16,
+    backgroundColor: "#eef2ff",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+  },
+  optionBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#17386b",
+    letterSpacing: 0.3,
   },
   optionIcon: {
     width: 48,
