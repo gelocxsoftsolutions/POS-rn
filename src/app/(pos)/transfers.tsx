@@ -82,6 +82,7 @@ export default function TransfersScreen() {
   const [receiveTransferNumber, setReceiveTransferNumber] = useState<string>("");
   const [receiveDraft, setReceiveDraft] = useState<ReceiveDraftItem[]>([]);
   const [receiveSaving, setReceiveSaving] = useState(false);
+  const [showConfirmScanner, setShowConfirmScanner] = useState(false);
 
   const loadTransfers = useCallback(async () => {
     try {
@@ -213,20 +214,15 @@ export default function TransfersScreen() {
     setReceiveDraft((prev) => prev.map((r) => (r.itemId === itemId ? { ...r, notes } : r)));
   }, []);
 
-  const handleConfirmReceive = useCallback(async () => {
+  const doFinalReceive = useCallback(async () => {
     if (!receiveTransferId) return;
-    // Validate: if actual != expected, notes required
-    const missingNotes = receiveDraft.filter((r) => r.actual !== r.expected && !r.notes.trim());
-    if (missingNotes.length > 0) {
-      Alert.alert("Notes required", `Please add a reason for ${missingNotes[0].productName} (expected ${missingNotes[0].expected}, received ${missingNotes[0].actual}).`);
-      return;
-    }
     setReceiveSaving(true);
     try {
       const payload = receiveDraft.map((r) => ({ itemId: r.itemId, actualQty: r.actual, notes: r.notes.trim() || undefined }));
       const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier");
       if (result) {
         setShowReceiveChecklist(false);
+        setShowConfirmScanner(false);
         setReceiveTransferId(null);
         setReceiveDraft([]);
         setSelectedTransfer(result);
@@ -241,6 +237,42 @@ export default function TransfersScreen() {
       setReceiveSaving(false);
     }
   }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers]);
+
+  const handleConfirmReceive = useCallback(async () => {
+    if (!receiveTransferId) return;
+    const missingNotes = receiveDraft.filter((r) => r.actual !== r.expected && !r.notes.trim());
+    if (missingNotes.length > 0) {
+      Alert.alert("Notes required", `Please add a reason for ${missingNotes[0].productName} (expected ${missingNotes[0].expected}, received ${missingNotes[0].actual}).`);
+      return;
+    }
+    // Require QR scan from OMS to finalize — open scanner
+    if (!permission?.granted) {
+      const p = await requestPermission();
+      if (!p.granted) {
+        Alert.alert("Camera Required", "Scan the OMS transfer QR code to confirm receipt.");
+        return;
+      }
+    }
+    setShowConfirmScanner(true);
+  }, [receiveTransferId, receiveDraft, permission, requestPermission]);
+
+  const handleConfirmQrScan = useCallback(async (raw: string) => {
+    setShowConfirmScanner(false);
+    try {
+      const payload = TransferService.parseTransferQr(raw);
+      if (!payload) {
+        Alert.alert("Invalid QR", "This is not a valid transfer QR code.");
+        return;
+      }
+      if (payload.transferNumber !== receiveTransferNumber) {
+        Alert.alert("QR mismatch", `Scanned ${payload.transferNumber} does not match ${receiveTransferNumber}. Scan the correct transfer QR from OMS.`);
+        return;
+      }
+      await doFinalReceive();
+    } catch {
+      Alert.alert("Error", "Failed to verify QR code.");
+    }
+  }, [receiveTransferNumber, doFinalReceive]);
 
   const handleScanQr = useCallback(async (raw: string) => {
     setScanning(true);
@@ -397,6 +429,7 @@ export default function TransfersScreen() {
     );
   };
 
+  // Detail view — rendered together with modals so checklist appears immediately (no back needed)
   if (selectedTransfer) {
     const canReceive =
       selectedTransfer.status === "IN_TRANSIT" || selectedTransfer.status === "APPROVED";
@@ -407,94 +440,166 @@ export default function TransfersScreen() {
       selectedTransfer.status !== "REJECTED";
 
     return (
-      <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.detailContent}>
-        <View style={styles.detailHeader}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => setSelectedTransfer(null)}
-          >
-            <Ionicons name="arrow-back" size={22} color="#17386b" />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <View style={styles.detailHeaderRow}>
-              <Text style={[styles.detailTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.transferNumber}</Text>
-              <Badge label={statusLabel(selectedTransfer.status)} color={statusColor(selectedTransfer.status)} />
-            </View>
-            <Text style={[styles.detailSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>
-              {selectedTransfer.sourceWarehouse ?? "Unknown source"} → {selectedTransfer.destinationPos ?? "Unknown destination"}
-            </Text>
-          </View>
-        </View>
-
-        {detailLoading ? (
-          <ActivityIndicator size="large" color="#17386b" style={{ marginTop: 32 }} />
-        ) : (
-          <>
-            {renderTimeline()}
-            {renderItemsTable()}
-
-            {selectedTransfer.notes && (
-              <Card style={[styles.notesCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
-                <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Notes</Text>
-                <Text style={[styles.notesText, { color: dark ? "#c1c9d4" : "#4a5568" }]}>{selectedTransfer.notes}</Text>
-              </Card>
-            )}
-
-            <Card style={[styles.infoCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
-              <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Transfer Info</Text>
-              {selectedTransfer.createdByName && (
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Created by</Text>
-                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.createdByName}</Text>
-                </View>
-              )}
-              {selectedTransfer.approvedByName && (
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Approved by</Text>
-                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.approvedByName}</Text>
-                </View>
-              )}
-              {selectedTransfer.receivedByName && (
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Received by</Text>
-                  <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.receivedByName}</Text>
-                </View>
-              )}
-            </Card>
-
-            {(canReceive || canReject) && (
-              <View style={styles.actionRow}>
-                {canReceive && (
-                  <TouchableOpacity
-                    style={[styles.receiveBtn, actionLoading && styles.btnDisabled]}
-                    onPress={() => handleReceive(selectedTransfer.id)}
-                    disabled={actionLoading}
-                  >
-                    {actionLoading ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
-                        <Text style={styles.receiveBtnText}>Receive</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
-                {canReject && (
-                  <TouchableOpacity
-                    style={[styles.rejectBtn, actionLoading && styles.btnDisabled]}
-                    onPress={() => handleReject(selectedTransfer.id)}
-                    disabled={actionLoading}
-                  >
-                    <Ionicons name="close-circle" size={16} color="#dc3545" />
-                    <Text style={styles.rejectBtnText}>Reject</Text>
-                  </TouchableOpacity>
-                )}
+      <View style={{ flex: 1 }}>
+        <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.detailContent}>
+          <View style={styles.detailHeader}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => setSelectedTransfer(null)}
+            >
+              <Ionicons name="arrow-back" size={22} color="#17386b" />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <View style={styles.detailHeaderRow}>
+                <Text style={[styles.detailTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.transferNumber}</Text>
+                <Badge label={statusLabel(selectedTransfer.status)} color={statusColor(selectedTransfer.status)} />
               </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+              <Text style={[styles.detailSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>
+                {selectedTransfer.sourceWarehouse ?? "Unknown source"} → {selectedTransfer.destinationPos ?? "Unknown destination"}
+              </Text>
+            </View>
+          </View>
+
+          {detailLoading ? (
+            <ActivityIndicator size="large" color="#17386b" style={{ marginTop: 32 }} />
+          ) : (
+            <>
+              {renderTimeline()}
+              {renderItemsTable()}
+
+              {selectedTransfer.notes && (
+                <Card style={[styles.notesCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+                  <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Notes</Text>
+                  <Text style={[styles.notesText, { color: dark ? "#c1c9d4" : "#4a5568" }]}>{selectedTransfer.notes}</Text>
+                </Card>
+              )}
+
+              <Card style={[styles.infoCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+                <Text style={[styles.sectionTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Transfer Info</Text>
+                {selectedTransfer.createdByName && (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Created by</Text>
+                    <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.createdByName}</Text>
+                  </View>
+                )}
+                {selectedTransfer.approvedByName && (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Approved by</Text>
+                    <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.approvedByName}</Text>
+                  </View>
+                )}
+                {selectedTransfer.receivedByName && (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Received by</Text>
+                    <Text style={[styles.infoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{selectedTransfer.receivedByName}</Text>
+                  </View>
+                )}
+              </Card>
+
+              {(canReceive || canReject) && (
+                <View style={styles.actionRow}>
+                  {canReceive && (
+                    <TouchableOpacity
+                      style={[styles.receiveBtn, actionLoading && styles.btnDisabled]}
+                      onPress={() => handleReceive(selectedTransfer.id)}
+                      disabled={actionLoading}
+                    >
+                      {actionLoading ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
+                          <Text style={styles.receiveBtnText}>Receive</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {canReject && (
+                    <TouchableOpacity
+                      style={[styles.rejectBtn, actionLoading && styles.btnDisabled]}
+                      onPress={() => handleReject(selectedTransfer.id)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#dc3545" />
+                      <Text style={styles.rejectBtnText}>Reject</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
+
+        {/* Checklist must be reachable from detail view — not only list view */}
+        <Modal visible={showReceiveChecklist} animationType="slide" onRequestClose={() => setShowReceiveChecklist(false)}>
+          <View style={[styles.receiveOverlay, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+            <View style={[styles.receiveHeader, { borderBottomColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.receiveTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Receive Transfer</Text>
+                <Text style={[styles.receiveSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{receiveTransferNumber}</Text>
+              </View>
+              <TouchableOpacity style={[styles.receiveClose, { backgroundColor: dark ? "#1e293b" : "#f0f4ff" }]} onPress={() => setShowReceiveChecklist(false)}>
+                <Ionicons name="close" size={20} color={dark ? "#e2e8f0" : "#17386b"} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.receiveList} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
+              <Text style={[styles.receiveHint, { color: dark ? "#8e99a4" : "#6b7b8d", backgroundColor: dark ? "#0f1729" : "#eef2ff", borderColor: dark ? "#1e293b" : "#c7d2fe" }]}>
+                Adjust received quantity with +/-. If actual ≠ expected, add a reason below each item. You will scan the OMS QR to confirm.
+              </Text>
+              {receiveDraft.map((item) => {
+                const needsNote = item.actual !== item.expected;
+                const hasMissingNote = needsNote && !item.notes.trim();
+                return (
+                  <View key={item.itemId} style={[styles.receiveItemCard, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: hasMissingNote ? "#fecaca" : dark ? "#1e293b" : "#e2e8f0" }]}>
+                    <View style={styles.receiveItemTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.receiveItemName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.productName}</Text>
+                        <Text style={[styles.receiveItemSku, { color: dark ? "#64748b" : "#8e99a4" }]}>{item.productSku ?? "—"} {item.unit ? `• ${item.unit}` : ""}</Text>
+                        <Text style={[styles.receiveExpected, { color: dark ? "#93c5fd" : "#17386b" }]}>Expected: {item.expected}</Text>
+                      </View>
+                      <View style={[styles.qtyRow, { backgroundColor: dark ? "#1e293b" : "#f8f9ff", borderColor: dark ? "#334155" : "#e2e8f0" }]}>
+                        <TouchableOpacity style={[styles.qtyBtn, item.actual <= 0 && styles.qtyBtnDisabled]} onPress={() => updateReceiveQty(item.itemId, -1)} disabled={item.actual <= 0}>
+                          <Ionicons name="remove" size={18} color={item.actual <= 0 ? "#94a3b8" : "#dc2626"} />
+                        </TouchableOpacity>
+                        <Text style={[styles.qtyValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.actual}</Text>
+                        <TouchableOpacity style={styles.qtyBtn} onPress={() => updateReceiveQty(item.itemId, 1)}>
+                          <Ionicons name="add" size={18} color="#16a34a" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    {needsNote && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.notesLabel, { color: hasMissingNote ? "#dc2626" : dark ? "#94a3b8" : "#6b7280" }]}>Reason for discrepancy {hasMissingNote ? "• required" : ""}</Text>
+                        <TextInput style={[styles.notesInput, { backgroundColor: dark ? "#020617" : "#fefefe", borderColor: hasMissingNote ? "#f87171" : dark ? "#334155" : "#e5e7eb", color: dark ? "#e2e8f0" : "#1e293b" }]} placeholder="e.g., 3 damaged, 2 short on delivery" placeholderTextColor={dark ? "#475569" : "#9ca3af"} value={item.notes} onChangeText={(v) => updateReceiveNotes(item.itemId, v)} multiline />
+                      </View>
+                    )}
+                    {needsNote && !hasMissingNote && <Text style={[styles.discrepancyNote, { color: "#b45309" }]}>Notes saved ✓</Text>}
+                  </View>
+                );
+              })}
+              <View style={[styles.receiveSummary, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+                <Text style={[styles.receiveSummaryText, { color: dark ? "#cbd5e1" : "#334155" }]}>Total to receive: {receiveDraft.reduce((s, r) => s + r.actual, 0)}  •  Expected: {receiveDraft.reduce((s, r) => s + r.expected, 0)}</Text>
+              </View>
+            </ScrollView>
+            <View style={[styles.receiveFooter, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderTopColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+              <TouchableOpacity style={[styles.receiveCancelBtn, { borderColor: dark ? "#334155" : "#e2e8f0" }]} onPress={() => setShowReceiveChecklist(false)} disabled={receiveSaving}>
+                <Text style={[styles.receiveCancelText, { color: dark ? "#cbd5e1" : "#475569" }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.receiveConfirmBtn, receiveSaving && styles.btnDisabled]} onPress={handleConfirmReceive} disabled={receiveSaving}>
+                {receiveSaving ? <ActivityIndicator size="small" color="#ffffff" /> : <><Ionicons name="qr-code-outline" size={18} color="#ffffff" /><Text style={styles.receiveConfirmText}>Scan QR to Confirm</Text></>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => setShowConfirmScanner(false)}>
+          <View style={styles.scannerContainer}>
+            <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={scanning ? undefined : ({ data }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
+            <TouchableOpacity style={styles.scannerClose} onPress={() => setShowConfirmScanner(false)}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+            <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
+          </View>
+        </Modal>
+      </View>
     );
   }
 
@@ -600,7 +705,7 @@ export default function TransfersScreen() {
 
           <ScrollView style={styles.receiveList} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
             <Text style={[styles.receiveHint, { color: dark ? "#8e99a4" : "#6b7b8d", backgroundColor: dark ? "#0f1729" : "#eef2ff", borderColor: dark ? "#1e293b" : "#c7d2fe" }]}>
-              Adjust received quantity with +/-. If actual ≠ expected, add a reason below each item.
+              Adjust received quantity with +/-. If actual ≠ expected, add a reason. You will scan the OMS QR to confirm.
             </Text>
 
             {receiveDraft.map((item) => {
@@ -678,12 +783,20 @@ export default function TransfersScreen() {
                 <ActivityIndicator size="small" color="#ffffff" />
               ) : (
                 <>
-                  <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
-                  <Text style={styles.receiveConfirmText}>Confirm Receive</Text>
+                  <Ionicons name="qr-code-outline" size={18} color="#ffffff" />
+                  <Text style={styles.receiveConfirmText}>Scan QR to Confirm</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => setShowConfirmScanner(false)}>
+        <View style={styles.scannerContainer}>
+          <CameraView style={StyleSheet.absoluteFillObject} onBarcodeScanned={scanning ? undefined : ({ data }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
+          <TouchableOpacity style={styles.scannerClose} onPress={() => setShowConfirmScanner(false)}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+          <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
         </View>
       </Modal>
     </View>
