@@ -146,13 +146,37 @@ async function deleteLegacyMockProducts(): Promise<void> {
   for (const c of orphanCategories) {
     await execute("DELETE FROM Category WHERE id = ?", [c.id]);
   }
-  // Purge legacy mock sales from SyncQueue to stop 400 loop
+  // Purge legacy/unmappable sales from SyncQueue to stop 400 loop
   try {
     for (const sku of LEGACY_MOCK_SKUS) {
       await execute(`DELETE FROM SyncQueue WHERE payload LIKE ? AND entityType = 'Sale'`, [`%${sku}%`]);
     }
-    // Purge any sale queue items that have empty or unmappable legacy payloads
-    await execute(`DELETE FROM SyncQueue WHERE entityType = 'Sale' AND payload LIKE '%\"productId\"%' AND payload NOT LIKE '%\"variationId\"%' AND status = 'FAILED'`);
+    const pendingSales = await query<{ id: string; payload: string | null; entityId: string }>(`SELECT id, payload, entityId FROM SyncQueue WHERE entityType = 'Sale' AND status IN ('PENDING','FAILED')`);
+    for (const row of pendingSales) {
+      try {
+        const body = row.payload ? JSON.parse(row.payload) : null;
+        if (!body?.items || !Array.isArray(body.items) || body.items.length === 0) {
+          await execute(`UPDATE SyncQueue SET status = 'SYNCED', updatedAt = ? WHERE id = ?`, [new Date().toISOString(), row.id]);
+          await execute(`UPDATE Sale SET synced = 1 WHERE id = ?`, [row.entityId]);
+          continue;
+        }
+        let mappable = 0;
+        for (const it of body.items as Array<{ productId?: string; sku?: string; variationId?: number }>) {
+          const pid = (it as any).productId ?? (it as any).sku;
+          if (it.variationId && Number.isFinite(Number(it.variationId))) { mappable++; continue; }
+          if (!pid) continue;
+          const r = await queryFirst<{ sku: string | null }>(`SELECT sku FROM Product WHERE id = ?`, [String(pid)]);
+          const sku = r?.sku ?? String(pid);
+          const vid = Number(sku);
+          if (Number.isFinite(vid) && vid > 0) mappable++;
+        }
+        if (mappable === 0) {
+          console.warn("[OmsSync] Purging unmappable SyncQueue sale", row.id);
+          await execute(`UPDATE SyncQueue SET status = 'SYNCED', updatedAt = ? WHERE id = ?`, [new Date().toISOString(), row.id]);
+          await execute(`UPDATE Sale SET synced = 1 WHERE id = ?`, [row.entityId]);
+        }
+      } catch {}
+    }
   } catch {}
 }
 

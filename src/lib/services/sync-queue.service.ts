@@ -78,10 +78,15 @@ export const SyncQueueService = {
                 }
                 if (mapped.length > 0) {
                   body = { items: mapped, paymentMethod: body.payments?.[0]?.method ?? body.paymentMethod, cashierUserId: body.cashierId ?? body.cashierUserId };
-                } else if (sawLegacyMock || body.items.length > 0) {
-                  // All items were legacy mocks or unmappable -> discard to stop 400 loop
-                  console.warn("[SyncQueue] Discarding unmappable legacy sale", item.id, body.items);
+                } else {
+                  // All items unmappable (mock, deleted product, or invalid sku) -> discard to stop 400 loop
+                  console.warn("[SyncQueue] Discarding unmappable sale", item.id, body.items);
                   await SyncQueueRepository.markSynced(item.id);
+                  // Also mark original Sale as synced to avoid re-enqueue
+                  try {
+                    const { execute } = await import("@/lib/db/connection");
+                    await execute("UPDATE Sale SET synced = 1 WHERE id = ?", [item.entityId]);
+                  } catch {}
                   processed++;
                   continue;
                 }
