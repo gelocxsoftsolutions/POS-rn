@@ -48,6 +48,26 @@ export const DeviceService = {
         if (res.ok && res.data) {
           const d = res.data;
 
+          // Clean slate: wipe all business data from previous device (products, inventory, sales, transfers, queues)
+          // Each new device must start empty and isolated — no cross-device leakage or mock leftovers
+          try {
+            const tablesToWipe = [
+              "SaleItem", "Payment", "Receipt", "Sale",
+              "InventoryTransferItem", "InventoryTransfer",
+              "InventoryLedger", "PosInventory", "InventoryAllocation", "StockAlert",
+              "SyncQueue", "AuditLog", "Log",
+              "Barcode", "ProductPrice", "Product", "ProductImage",
+              "Category", "Brand", "Unit", "TaxGroup",
+            ];
+            for (const tbl of tablesToWipe) {
+              try { await execute(`DELETE FROM ${tbl}`); } catch {}
+            }
+            // Reset cashiers (will be re-seeded from initialCashiers below)
+            await execute("DELETE FROM CashierSession");
+            await execute("DELETE FROM Cashier");
+            await execute("DELETE FROM Device");
+          } catch {}
+
           const device = await DeviceRepository.create({
             deviceCode: d.deviceCode,
             deviceName: d.deviceName || input.computerName,
@@ -174,9 +194,27 @@ export const DeviceService = {
   async clearRegistration(): Promise<void> {
     try {
       await DeviceRepository.clear();
+      // Full wipe for clean slate on next registration — same tables as register
+      const tablesToWipe = [
+        "SaleItem", "Payment", "Receipt", "Sale",
+        "InventoryTransferItem", "InventoryTransfer",
+        "InventoryLedger", "PosInventory", "InventoryAllocation", "StockAlert",
+        "SyncQueue", "AuditLog", "Log",
+        "Barcode", "ProductPrice", "Product", "ProductImage",
+      ];
+      for (const tbl of tablesToWipe) {
+        try { await execute(`DELETE FROM ${tbl}`); } catch {}
+      }
       await execute("DELETE FROM CashierSession");
-      await execute("UPDATE Cashier SET lastLogin = NULL");
+      await execute("DELETE FROM Cashier");
+      try { await execute("DELETE FROM Category WHERE id NOT IN (SELECT DISTINCT categoryId FROM Product WHERE categoryId IS NOT NULL)"); } catch {}
+      try { await execute("DELETE FROM Brand WHERE id NOT IN (SELECT DISTINCT brandId FROM Product WHERE brandId IS NOT NULL)"); } catch {}
+      try { await execute("DELETE FROM Unit WHERE id NOT IN (SELECT DISTINCT unitId FROM Product WHERE unitId IS NOT NULL)"); } catch {}
       useDeviceStore.getState().clearDevice();
+      try {
+        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        await AsyncStorage.removeItem("nct-pos-oms");
+      } catch {}
     } catch {
       // silent fail
     }
