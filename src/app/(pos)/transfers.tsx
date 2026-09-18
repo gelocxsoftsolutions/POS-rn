@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -17,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { TransferService } from "@/lib/services/transfer.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useUiStore } from "@/lib/stores/ui-store";
+import { api } from "@/lib/api/http";
+import { useDeviceStore } from "@/lib/stores/device-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
 
 const STATUS_FILTERS = ["All", "DRAFT", "APPROVED", "IN_TRANSIT", "RECEIVED"];
@@ -50,6 +53,16 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+type ReceiveDraftItem = {
+  itemId: string;
+  productName: string;
+  productSku: string;
+  unit: string | null;
+  expected: number;
+  actual: number;
+  notes: string;
+};
+
 export default function TransfersScreen() {
   const [filter, setFilter] = useState("All");
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
@@ -62,6 +75,13 @@ export default function TransfersScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
   const dark = useUiStore((s) => s.themeMode) === "dark";
+
+  // QR checklist receive state
+  const [showReceiveChecklist, setShowReceiveChecklist] = useState(false);
+  const [receiveTransferId, setReceiveTransferId] = useState<string | null>(null);
+  const [receiveTransferNumber, setReceiveTransferNumber] = useState<string>("");
+  const [receiveDraft, setReceiveDraft] = useState<ReceiveDraftItem[]>([]);
+  const [receiveSaving, setReceiveSaving] = useState(false);
 
   const loadTransfers = useCallback(async () => {
     try {
@@ -116,31 +136,42 @@ export default function TransfersScreen() {
     setDetailLoading(false);
   }, []);
 
+  const openReceiveChecklist = useCallback(async (transferId: string) => {
+    try {
+      const full = await TransferService.getById(transferId);
+      if (!full) {
+        Alert.alert("Error", "Transfer not found.");
+        return;
+      }
+      if (full.status === "RECEIVED" || full.status === "REJECTED" || full.status === "CANCELLED" || full.status === "COMPLETED") {
+        Alert.alert("Not receivable", `Transfer is already ${full.status}.`);
+        return;
+      }
+      const draft: ReceiveDraftItem[] = (full.items ?? []).map((it) => ({
+        itemId: it.id,
+        productName: it.productName ?? "Unknown",
+        productSku: it.productSku ?? "",
+        unit: it.unit ?? null,
+        expected: Number(it.allocatedQty ?? 0),
+        actual: Number(it.allocatedQty ?? 0),
+        notes: it.remarks ?? "",
+      }));
+      if (draft.length === 0) {
+        Alert.alert("No items", "This transfer has no items to receive.");
+        return;
+      }
+      setReceiveTransferId(full.id);
+      setReceiveTransferNumber(full.transferNumber);
+      setReceiveDraft(draft);
+      setShowReceiveChecklist(true);
+    } catch {
+      Alert.alert("Error", "Failed to load transfer items.");
+    }
+  }, []);
+
   const handleReceive = useCallback(async (id: string) => {
-    Alert.alert("Receive Transfer", "Mark this transfer as received?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Receive All",
-        onPress: async () => {
-          setActionLoading(true);
-          try {
-            const result = await TransferService.receive(id, session?.cashierName ?? "Cashier");
-            if (result) {
-              setSelectedTransfer(result);
-              await loadTransfers();
-              Alert.alert("Success", "Transfer received successfully.");
-            } else {
-              Alert.alert("Error", "Failed to receive transfer.");
-            }
-          } catch {
-            Alert.alert("Error", "Failed to receive transfer.");
-          } finally {
-            setActionLoading(false);
-          }
-        },
-      },
-    ]);
-  }, [session, loadTransfers]);
+    await openReceiveChecklist(id);
+  }, [openReceiveChecklist]);
 
   const handleReject = useCallback(async (id: string) => {
     Alert.alert("Reject Transfer", "Reject this transfer?", [
@@ -168,6 +199,49 @@ export default function TransfersScreen() {
     ]);
   }, [session, loadTransfers]);
 
+  const updateReceiveQty = useCallback((itemId: string, delta: number) => {
+    setReceiveDraft((prev) =>
+      prev.map((r) => {
+        if (r.itemId !== itemId) return r;
+        const next = Math.max(0, r.actual + delta);
+        return { ...r, actual: next };
+      })
+    );
+  }, []);
+
+  const updateReceiveNotes = useCallback((itemId: string, notes: string) => {
+    setReceiveDraft((prev) => prev.map((r) => (r.itemId === itemId ? { ...r, notes } : r)));
+  }, []);
+
+  const handleConfirmReceive = useCallback(async () => {
+    if (!receiveTransferId) return;
+    // Validate: if actual != expected, notes required
+    const missingNotes = receiveDraft.filter((r) => r.actual !== r.expected && !r.notes.trim());
+    if (missingNotes.length > 0) {
+      Alert.alert("Notes required", `Please add a reason for ${missingNotes[0].productName} (expected ${missingNotes[0].expected}, received ${missingNotes[0].actual}).`);
+      return;
+    }
+    setReceiveSaving(true);
+    try {
+      const payload = receiveDraft.map((r) => ({ itemId: r.itemId, actualQty: r.actual, notes: r.notes.trim() || undefined }));
+      const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier");
+      if (result) {
+        setShowReceiveChecklist(false);
+        setReceiveTransferId(null);
+        setReceiveDraft([]);
+        setSelectedTransfer(result);
+        await loadTransfers();
+        Alert.alert("Transfer Received", `${receiveTransferNumber} received with ${payload.reduce((s, p) => s + p.actualQty, 0)} items.`);
+      } else {
+        Alert.alert("Error", "Failed to receive transfer.");
+      }
+    } catch {
+      Alert.alert("Error", "Failed to receive transfer.");
+    } finally {
+      setReceiveSaving(false);
+    }
+  }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers]);
+
   const handleScanQr = useCallback(async (raw: string) => {
     setScanning(true);
     setShowScanner(false);
@@ -177,19 +251,58 @@ export default function TransfersScreen() {
         Alert.alert("Invalid QR", "This is not a valid transfer QR code.");
         return;
       }
-      const result = await TransferService.confirmReceipt(payload.transferId);
-      if (result) {
-        await loadTransfers();
-        Alert.alert("Transfer Received", `${result.transferNumber} marked as received.`);
-      } else {
-        Alert.alert("Error", "Failed to confirm receipt. Transfer may not exist or already received.");
+
+      // Try to find local transfer by transferNumber (now correctly TRF-xxx after for-device sync)
+      let local = transfers.find((t) => t.transferNumber === payload.transferNumber) ?? null;
+      if (!local) {
+        // Also try numeric fallback (legacy log.id)
+        const byId = transfers.find((t) => t.transferNumber === String(payload.transferId));
+        if (byId) local = byId;
       }
+      if (local) {
+        await openReceiveChecklist(local.id);
+        return;
+      }
+
+      // Not found locally — try to fetch detail from OMS and create local record then open checklist
+      try {
+        const deviceId = useDeviceStore.getState().device?.deviceId ?? "";
+        const res = await api.get<{
+          id: number;
+          transferNumber: string;
+          status: string;
+          items: Array<{
+            id: number;
+            productName: string;
+            sku: string | null;
+            allocatedQty: number;
+            unit: string | null;
+            variation: { id: string; productName: string; barcode?: string | null; unit?: string | null } | null;
+          }>;
+        }>(`/api/pos/transfers/detail/${payload.transferId}`);
+        if (res.ok && (res.data as any)?.id) {
+          const data: any = res.data;
+          // Ensure local transfer exists — create synthetic IN_TRANSIT if needed so receive checklist can operate
+          // We can open a transient checklist without persisting transfer, but ensure product exists via variation
+          // Try to upsert from detailed variation if available via pending sync
+          await loadTransfers();
+          const after = transfers.find((t) => t.transferNumber === data.transferNumber);
+          if (after) {
+            await openReceiveChecklist(after.id);
+            return;
+          }
+          Alert.alert("Transfer not synced", `${payload.transferNumber} is approved on OMS. Pull it via Sync or wait for next sync, then scan again.`);
+          return;
+        }
+      } catch {}
+
+      Alert.alert("Transfer not found", `${payload.transferNumber} not found on this device. Make sure the transfer targets this POS and sync has completed.`);
     } catch {
       Alert.alert("Error", "Failed to process QR code.");
     } finally {
       setScanning(false);
     }
-  }, [loadTransfers]);
+  }, [transfers, loadTransfers, openReceiveChecklist]);
 
   const openScanner = useCallback(async () => {
     if (!permission?.granted) {
@@ -362,7 +475,7 @@ export default function TransfersScreen() {
                     ) : (
                       <>
                         <Ionicons name="checkmark-circle" size={16} color="#ffffff" />
-                        <Text style={styles.receiveBtnText}>Receive All</Text>
+                        <Text style={styles.receiveBtnText}>Receive</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -469,6 +582,108 @@ export default function TransfersScreen() {
             <Ionicons name="close-circle" size={36} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.scannerHint}>Point camera at transfer QR code</Text>
+        </View>
+      </Modal>
+
+      {/* Receive checklist — QR → actual quantities + notes */}
+      <Modal visible={showReceiveChecklist} animationType="slide" onRequestClose={() => setShowReceiveChecklist(false)}>
+        <View style={[styles.receiveOverlay, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+          <View style={[styles.receiveHeader, { borderBottomColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.receiveTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Receive Transfer</Text>
+              <Text style={[styles.receiveSubtitle, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{receiveTransferNumber}</Text>
+            </View>
+            <TouchableOpacity style={[styles.receiveClose, { backgroundColor: dark ? "#1e293b" : "#f0f4ff" }]} onPress={() => setShowReceiveChecklist(false)}>
+              <Ionicons name="close" size={20} color={dark ? "#e2e8f0" : "#17386b"} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.receiveList} contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
+            <Text style={[styles.receiveHint, { color: dark ? "#8e99a4" : "#6b7b8d", backgroundColor: dark ? "#0f1729" : "#eef2ff", borderColor: dark ? "#1e293b" : "#c7d2fe" }]}>
+              Adjust received quantity with +/-. If actual ≠ expected, add a reason below each item.
+            </Text>
+
+            {receiveDraft.map((item) => {
+              const needsNote = item.actual !== item.expected;
+              const hasMissingNote = needsNote && !item.notes.trim();
+              return (
+                <View key={item.itemId} style={[styles.receiveItemCard, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: hasMissingNote ? "#fecaca" : dark ? "#1e293b" : "#e2e8f0" }]}>
+                  <View style={styles.receiveItemTop}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.receiveItemName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.productName}</Text>
+                      <Text style={[styles.receiveItemSku, { color: dark ? "#64748b" : "#8e99a4" }]}>{item.productSku ?? "—"} {item.unit ? `• ${item.unit}` : ""}</Text>
+                      <Text style={[styles.receiveExpected, { color: dark ? "#93c5fd" : "#17386b" }]}>Expected: {item.expected}</Text>
+                    </View>
+                    <View style={[styles.qtyRow, { backgroundColor: dark ? "#1e293b" : "#f8f9ff", borderColor: dark ? "#334155" : "#e2e8f0" }]}>
+                      <TouchableOpacity
+                        style={[styles.qtyBtn, item.actual <= 0 && styles.qtyBtnDisabled]}
+                        onPress={() => updateReceiveQty(item.itemId, -1)}
+                        disabled={item.actual <= 0}
+                      >
+                        <Ionicons name="remove" size={18} color={item.actual <= 0 ? "#94a3b8" : "#dc2626"} />
+                      </TouchableOpacity>
+                      <Text style={[styles.qtyValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.actual}</Text>
+                      <TouchableOpacity style={styles.qtyBtn} onPress={() => updateReceiveQty(item.itemId, 1)}>
+                        <Ionicons name="add" size={18} color="#16a34a" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {needsNote && (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={[styles.notesLabel, { color: hasMissingNote ? "#dc2626" : dark ? "#94a3b8" : "#6b7280" }]}>
+                        Reason for discrepancy {hasMissingNote ? "• required" : ""}
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.notesInput,
+                          {
+                            backgroundColor: dark ? "#020617" : "#fefefe",
+                            borderColor: hasMissingNote ? "#f87171" : dark ? "#334155" : "#e5e7eb",
+                            color: dark ? "#e2e8f0" : "#1e293b",
+                          },
+                        ]}
+                        placeholder="e.g., 3 damaged, 2 short on delivery"
+                        placeholderTextColor={dark ? "#475569" : "#9ca3af"}
+                        value={item.notes}
+                        onChangeText={(v) => updateReceiveNotes(item.itemId, v)}
+                        multiline
+                      />
+                    </View>
+                  )}
+                  {needsNote && !hasMissingNote && (
+                    <Text style={[styles.discrepancyNote, { color: "#b45309" }]}>Notes saved ✓</Text>
+                  )}
+                </View>
+              );
+            })}
+
+            <View style={[styles.receiveSummary, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+              <Text style={[styles.receiveSummaryText, { color: dark ? "#cbd5e1" : "#334155" }]}>
+                Total to receive: {receiveDraft.reduce((s, r) => s + r.actual, 0)}  •  Expected: {receiveDraft.reduce((s, r) => s + r.expected, 0)}
+              </Text>
+            </View>
+          </ScrollView>
+
+          <View style={[styles.receiveFooter, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderTopColor: dark ? "#1e293b" : "#e2e8f0" }]}>
+            <TouchableOpacity style={[styles.receiveCancelBtn, { borderColor: dark ? "#334155" : "#e2e8f0" }]} onPress={() => setShowReceiveChecklist(false)} disabled={receiveSaving}>
+              <Text style={[styles.receiveCancelText, { color: dark ? "#cbd5e1" : "#475569" }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.receiveConfirmBtn, receiveSaving && styles.btnDisabled]}
+              onPress={handleConfirmReceive}
+              disabled={receiveSaving}
+            >
+              {receiveSaving ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#ffffff" />
+                  <Text style={styles.receiveConfirmText}>Confirm Receive</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>
@@ -830,4 +1045,103 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     paddingVertical: 8,
   },
+  receiveOverlay: { flex: 1 },
+  receiveHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 48,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  receiveTitle: { fontSize: 18, fontWeight: "700" },
+  receiveSubtitle: { fontSize: 12, marginTop: 2 },
+  receiveClose: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  receiveList: { flex: 1 },
+  receiveHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  receiveItemCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  receiveItemTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  receiveItemName: { fontSize: 14, fontWeight: "600" },
+  receiveItemSku: { fontSize: 11, marginTop: 2 },
+  receiveExpected: { fontSize: 12, fontWeight: "600", marginTop: 4 },
+  qtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    gap: 8,
+  },
+  qtyBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  qtyBtnDisabled: { opacity: 0.5 },
+  qtyValue: { fontSize: 16, fontWeight: "700", minWidth: 24, textAlign: "center" },
+  notesLabel: { fontSize: 11, fontWeight: "600", marginBottom: 6 },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    minHeight: 44,
+    textAlignVertical: "top",
+  },
+  discrepancyNote: { fontSize: 11, marginTop: 6, fontWeight: "500" },
+  receiveSummary: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  receiveSummaryText: { fontSize: 13, fontWeight: "600", textAlign: "center" },
+  receiveFooter: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+  },
+  receiveCancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  receiveCancelText: { fontSize: 14, fontWeight: "600" },
+  receiveConfirmBtn: {
+    flex: 2,
+    flexDirection: "row",
+    backgroundColor: "#16a34a",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  receiveConfirmText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
 });

@@ -199,6 +199,16 @@ export const OmsSyncService = {
         const product = await upsertProductFromVariation(item.variation);
         if (!product?.id) continue;
 
+        // Guard: if this product belongs to an IN_TRANSIT transfer, don't apply OMS device stock yet
+        // — stock is only added when user confirms via QR checklist (prevents 999/early stock bug).
+        try {
+          const pending = await queryFirst<{ one: number }>(
+            `SELECT 1 as one FROM InventoryTransfer t JOIN InventoryTransferItem iti ON iti.transferId = t.id WHERE t.status = 'IN_TRANSIT' AND iti.productId = ? LIMIT 1`,
+            [product.id]
+          );
+          if (pending) continue;
+        } catch {}
+
         await InventoryRepository.upsert(product.id, {
           availableQty: Number(item.qty ?? 0),
         });
@@ -270,59 +280,96 @@ export const OmsSyncService = {
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {
     try {
+      // Primary: fetch approved/in-transit inventory_transfers for this device (proper TRF numbers + full items)
       const res = await api.get<{ data: Array<{
+        id: number;
+        transferNumber: string;
+        status: string;
+        direction: string;
+        createdAt: string;
+        approvedAt: string | null;
+        notes: string | null;
+        items: Array<{
+          id: number;
+          variationId: number;
+          productName: string;
+          allocatedQty: number;
+          unit: string | null;
+          variation: VariationDto | null;
+        }>;
+      }> }>(`/api/pos/transfers/for-device?deviceId=${deviceId}`);
+
+      const transfers = res.data?.data;
+      if (res.ok && Array.isArray(transfers) && transfers.length > 0) {
+        let synced = 0;
+        for (const t of transfers) {
+          const existing = await queryFirst<{ id: string }>(
+            "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [t.transferNumber]
+          );
+          if (existing) continue;
+
+          const items: Array<{ productId: string; allocatedQty: number; unit?: string }> = [];
+          for (const it of t.items ?? []) {
+            let product = await queryFirst<{ id: string }>(
+              "SELECT id FROM Product WHERE sku = ?", [String(it.variationId)]
+            );
+            if (!product && (it as any).variation) {
+              const up = await upsertProductFromVariation((it as any).variation as VariationDto);
+              if (up?.id) product = { id: up.id };
+            }
+            if (!product) continue;
+            items.push({ productId: product.id, allocatedQty: Number(it.allocatedQty ?? 0), unit: it.unit ?? undefined });
+          }
+          if (items.length === 0) continue;
+
+          await TransferRepository.create({
+            transferNumber: t.transferNumber,
+            sourceWarehouse: "OMS Warehouse",
+            destinationPos: undefined,
+            notes: t.notes ?? t.direction,
+            status: "IN_TRANSIT",
+            items,
+          });
+          synced++;
+        }
+        return { synced };
+      }
+
+      // Fallback: legacy pending logs (creates synthetic IN_TRANSIT records, no inventory touch)
+      const fallback = await api.get<{ data: Array<{
         id: string;
         direction: string;
         variationId?: string;
         qty: number;
         deviceName?: string | null;
-        createdAt?: string;
         variation?: VariationDto | null;
-        groupKey?: string | null;
       }> }>(`/api/pos/transfers/pending?deviceId=${deviceId}`);
-
-      const logs = res.data?.data;
-      if (!res.ok || !Array.isArray(logs)) return { synced: 0 };
-
+      const logs = fallback.data?.data;
+      if (!fallback.ok || !Array.isArray(logs)) return { synced: 0 };
       let synced = 0;
       for (const log of logs) {
         if (!log.variationId) continue;
-
-        // Ensure product exists — upsert from OMS variation if provided
         let product = await queryFirst<{ id: string }>(
           "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
         );
         if (!product && (log as any).variation) {
-          const v = (log as any).variation as VariationDto;
-          const up = await upsertProductFromVariation(v);
+          const up = await upsertProductFromVariation((log as any).variation as VariationDto);
           if (up?.id) product = { id: up.id };
         }
         if (!product) continue;
-
-        // Ensure inventory reflects transferred qty (POS stock is synced via syncInventory, but also ensure local)
-        try {
-          const existingInv = await InventoryRepository.findByProduct(product.id);
-          if (!existingInv) {
-            await InventoryRepository.upsert(product.id, { availableQty: Number(log.qty ?? 0) });
-          } else if (log.direction === "INVENTORY_TO_POS") {
-            await InventoryRepository.updateQuantities(product.id, { availableQty: Number(log.qty ?? 0) });
-          }
-        } catch {}
-
         const existing = await queryFirst<{ id: string }>(
           "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [String(log.id)]
         );
         if (existing) continue;
-
         await TransferRepository.create({
           transferNumber: String(log.id),
           sourceWarehouse: log.deviceName ?? undefined,
-          notes: log.direction === "INVENTORY_TO_POS" ? "Stock transfer in" : log.direction === "POS_TO_INVENTORY" ? "Stock transfer out" : log.direction,
+          notes: log.direction,
+          status: "IN_TRANSIT",
           items: [{ productId: product.id, allocatedQty: Number(log.qty ?? 0) }],
         });
         synced++;
       }
-
       return { synced };
     } catch {
       return { synced: 0 };

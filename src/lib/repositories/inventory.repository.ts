@@ -83,6 +83,28 @@ export const InventoryRepository = {
     return this.findByProduct(productId) as Promise<InventoryDTO>;
   },
 
+  /**
+   * Set absolute quantity (used for transfer receive — not additive).
+   * Creates inventory row if missing, otherwise overwrites availableQty.
+   */
+  async setQuantity(productId: string, quantity: number): Promise<InventoryDTO> {
+    const existing = await this.findByProduct(productId);
+    if (!existing) {
+      return this.upsert(productId, { availableQty: quantity, allocatedQty: 0 });
+    }
+    const now = new Date().toISOString();
+    await execute(`UPDATE PosInventory SET availableQty = ?, updatedAt = ? WHERE id = ?`, [
+      quantity,
+      now,
+      existing.id,
+    ]);
+    return (await this.findByProduct(productId)) as InventoryDTO;
+  },
+
+  /**
+   * ADDITIVE update — adds deltas to current quantity.
+   * ⚠️ For transfers, use setQuantity() or explicit absolute logic instead.
+   */
   async updateQuantities(
     productId: string,
     deltas: {

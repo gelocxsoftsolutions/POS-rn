@@ -13,6 +13,7 @@ export interface CreateTransferInput {
   createdById?: string;
   createdByName?: string;
   notes?: string;
+  status?: string;
   items: Array<{
     productId: string;
     allocatedQty: number;
@@ -73,13 +74,26 @@ export const TransferRepository = {
     );
     const total = countResult?.c ?? 0;
 
-    const transfers = await query<InventoryTransferDTO>(
+    const transfers = await query<InventoryTransferDTO & { itemCount?: number }>(
       `SELECT * FROM InventoryTransfer ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
 
+    // Attach item count for list rows (avoid crash where items is undefined)
+    const withCounts = await Promise.all(
+      transfers.map(async (t: any) => {
+        if (Array.isArray((t as any).items)) return t;
+        try {
+          const r = await queryFirst<{ c: number }>(`SELECT COUNT(*) as c FROM InventoryTransferItem WHERE transferId = ?`, [t.id]);
+          (t as any).itemCount = r?.c ?? 0;
+          (t as any).items = undefined;
+        } catch {}
+        return t;
+      })
+    );
+
     return {
-      items: transfers,
+      items: withCounts as InventoryTransferDTO[],
       total,
       page,
       pageSize,
@@ -90,15 +104,17 @@ export const TransferRepository = {
   async create(input: CreateTransferInput): Promise<InventoryTransferDTO> {
     const id = uuid();
     const now = new Date().toISOString();
+    const status = input.status ?? 'DRAFT';
 
     await execute(
       `INSERT INTO InventoryTransfer (id, transferNumber, sourceWarehouse, destinationPos, status, createdById, createdByName, notes, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.transferNumber,
         input.sourceWarehouse ?? null,
         input.destinationPos ?? null,
+        status,
         input.createdById ?? null,
         input.createdByName ?? null,
         input.notes ?? null,

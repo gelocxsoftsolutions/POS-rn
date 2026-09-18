@@ -82,7 +82,7 @@ export default function SalesScreen() {
         barcode: p.sku,
         unitPrice: p.retailPrice ?? 0,
         quantity: 0,
-        maxQuantity: stockMapLocal.get(p.id) ?? 999,
+        maxQuantity: stockMapLocal.get(p.id) ?? 0,
       }));
       setProducts(items);
     } catch {
@@ -129,7 +129,7 @@ export default function SalesScreen() {
         barcode: p.sku,
         unitPrice: p.retailPrice ?? 0,
         quantity: 0,
-        maxQuantity: stockMapLocal.get(p.id) ?? 999,
+        maxQuantity: stockMapLocal.get(p.id) ?? 0,
       }));
       setProducts(items);
     }, 300);
@@ -198,7 +198,7 @@ export default function SalesScreen() {
           barcode: barcode,
           unitPrice: product.retailPrice ?? 0,
           quantity: 0,
-          maxQuantity: stockMap.get(product.id) ?? 999,
+          maxQuantity: stockMap.get(product.id) ?? 0,
         };
 
         handleAddToCart(item);
