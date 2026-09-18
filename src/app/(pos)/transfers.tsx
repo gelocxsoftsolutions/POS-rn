@@ -268,7 +268,7 @@ export default function TransfersScreen() {
           <Text style={[styles.tableHeaderText, { width: 50, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Unit</Text>
           <Text style={[styles.tableHeaderText, { flex: 1, color: dark ? "#8e99a4" : "#6b7b8d" }]}>Remarks</Text>
         </View>
-        {selectedTransfer.items.map((item: InventoryTransferItemDTO) => (
+        {(selectedTransfer.items ?? []).map((item: InventoryTransferItemDTO) => (
           <View key={item.id} style={styles.tableRow}>
             <View style={{ flex: 2 }}>
               <Text style={[styles.tableCellPrimary, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.productName ?? "Unknown"}</Text>
@@ -438,7 +438,7 @@ export default function TransfersScreen() {
                 </View>
               </View>
               <View style={styles.transferFooter}>
-                <Text style={styles.itemCount}>{item.items.length} items</Text>
+                <Text style={styles.itemCount}>{(item.items as any)?.length ?? (item as any).itemCount ?? 0} items</Text>
                 <Ionicons name="chevron-forward" size={16} color="#c1c9d4" />
               </View>
             </Card>
