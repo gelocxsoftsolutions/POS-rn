@@ -265,11 +265,11 @@ export default function TransfersScreen() {
         return;
       }
     }
-    // Hide checklist to avoid Android Modal stacking black screen — two simultaneous Modals cause CameraView to mount black on Android
+    // Hide checklist to avoid Android double-Modal black screen — CameraView inside second Modal mounts black if first Modal still animating
     setConfirmScanning(false);
     setShowReceiveChecklist(false);
-    // Wait for checklist Modal dismiss animation (~300ms) before mounting CameraView
-    setTimeout(() => setShowConfirmScanner(true), 350);
+    // Wait for checklist Modal slide dismiss (~350ms) + buffer before mounting scanner Modal
+    setTimeout(() => setShowConfirmScanner(true), 500);
   }, [receiveTransferId, receiveDraft, permission, requestPermission]);
 
   const handleConfirmQrScan = useCallback(async (raw: string) => {
@@ -630,22 +630,32 @@ export default function TransfersScreen() {
 
         <Modal
           visible={showConfirmScanner}
-          animationType="slide"
+          animationType="fade"
+          transparent={false}
+          statusBarTranslucent
+          onShow={() => setConfirmScanning(false)}
           onRequestClose={() => {
             setConfirmScanning(false);
             setShowConfirmScanner(false);
             setShowReceiveChecklist(true);
           }}
-          statusBarTranslucent
         >
           <View style={styles.scannerContainer}>
-            <CameraView
-              facing="back"
-              style={StyleSheet.absoluteFillObject}
-              onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onMountError={(e) => console.warn("[Camera] mount error", e)}
-            />
+            {permission?.granted ? (
+              <CameraView
+                key={showConfirmScanner ? "confirm-camera-mounted" : "confirm-camera-unmounted"}
+                facing="back"
+                style={StyleSheet.absoluteFillObject}
+                onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onMountError={(e) => console.warn("[Camera] mount error", e)}
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator size="large" color="#fff" />
+                <Text style={{ color: "#fff", marginTop: 12 }}>Requesting camera permission…</Text>
+              </View>
+            )}
             <TouchableOpacity
               style={styles.scannerClose}
               onPress={() => {
@@ -868,22 +878,32 @@ export default function TransfersScreen() {
 
       <Modal
         visible={showConfirmScanner}
-        animationType="slide"
+        animationType="fade"
+        transparent={false}
+        statusBarTranslucent
+        onShow={() => setConfirmScanning(false)}
         onRequestClose={() => {
           setConfirmScanning(false);
           setShowConfirmScanner(false);
           setShowReceiveChecklist(true);
         }}
-        statusBarTranslucent
       >
         <View style={styles.scannerContainer}>
-          <CameraView
-            facing="back"
-            style={StyleSheet.absoluteFillObject}
-            onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
-            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-            onMountError={(e) => console.warn("[Camera] mount error", e)}
-          />
+          {permission?.granted ? (
+            <CameraView
+              key={showConfirmScanner ? "confirm-camera-mounted-2" : "confirm-camera-unmounted-2"}
+              facing="back"
+              style={StyleSheet.absoluteFillObject}
+              onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onMountError={(e) => console.warn("[Camera] mount error", e)}
+            />
+          ) : (
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", justifyContent: "center", alignItems: "center" }]}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={{ color: "#fff", marginTop: 12 }}>Requesting camera permission…</Text>
+            </View>
+          )}
           <TouchableOpacity
             style={styles.scannerClose}
             onPress={() => {
