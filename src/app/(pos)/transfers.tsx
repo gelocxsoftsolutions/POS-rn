@@ -218,13 +218,13 @@ export default function TransfersScreen() {
     setReceiveDraft((prev) => prev.map((r) => (r.itemId === itemId ? { ...r, notes } : r)));
   }, []);
 
-  const doFinalReceive = useCallback(async () => {
+  const doFinalReceive = useCallback(async (omsTransferId?: number) => {
     if (!receiveTransferId) return;
     setReceiveSaving(true);
     try {
       const payload = receiveDraft.map((r) => ({ itemId: r.itemId, actualQty: r.actual, notes: r.notes.trim() || undefined }));
-      console.log("[Transfer] doFinalReceive", receiveTransferId, payload);
-      const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier");
+      console.log("[Transfer] doFinalReceive", receiveTransferId, payload, "omsTransferId", omsTransferId);
+      const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier", omsTransferId);
       if (result) {
         setShowReceiveChecklist(false);
         setShowConfirmScanner(false);
@@ -293,7 +293,7 @@ export default function TransfersScreen() {
         ]);
         return;
       }
-      await doFinalReceive();
+      await doFinalReceive(payload.transferId);
     } catch {
       Alert.alert("Error", "Failed to verify QR code.", [
         { text: "OK", onPress: () => setShowReceiveChecklist(true) },

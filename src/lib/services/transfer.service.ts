@@ -41,7 +41,8 @@ export const TransferService = {
   async receive(
     id: string,
     itemsOrName: string | Array<{ itemId: string; actualQty: number; notes?: string }>,
-    maybeName?: string
+    maybeName?: string,
+    omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
     try {
       const transfer = await TransferRepository.findById(id);
@@ -153,14 +154,18 @@ export const TransferService = {
 
       const result = await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
 
-      // Notify OMS in background (best-effort) — extract numeric transferId from transferNumber if possible
+      // Notify OMS in background (best-effort) — prefer explicit omsTransferId from QR, fallback to transferNumber parsing
+      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
+      let derivedOmsId: number | undefined;
       const transferNumber = transfer.transferNumber;
       if (transferNumber) {
         const raw = transferNumber.replace(/\D/g, "");
-        const omsTransferId = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
-        if (!isNaN(omsTransferId) && omsTransferId > 0) {
-          this.confirmReceipt(omsTransferId).catch(() => {});
-        }
+        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
+        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
+      }
+      const finalOmsId = explicitId ?? derivedOmsId;
+      if (finalOmsId) {
+        this.confirmReceipt(finalOmsId).catch((e) => console.warn("[Transfer] confirmReceipt failed", e));
       }
 
       return result;
