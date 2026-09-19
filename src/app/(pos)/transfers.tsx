@@ -630,43 +630,72 @@ export default function TransfersScreen() {
 
         <Modal
           visible={showConfirmScanner}
-          animationType="fade"
-          transparent={false}
-          statusBarTranslucent
-          onShow={() => setConfirmScanning(false)}
+          animationType="slide"
           onRequestClose={() => {
             setConfirmScanning(false);
             setShowConfirmScanner(false);
             setShowReceiveChecklist(true);
           }}
         >
-          <View style={styles.scannerContainer}>
-            {permission?.granted ? (
-              <CameraView
-                key={showConfirmScanner ? "confirm-camera-mounted" : "confirm-camera-unmounted"}
-                facing="back"
-                style={StyleSheet.absoluteFillObject}
-                onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onMountError={(e) => console.warn("[Camera] mount error", e)}
-              />
-            ) : (
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", justifyContent: "center", alignItems: "center" }]}>
-                <ActivityIndicator size="large" color="#fff" />
-                <Text style={{ color: "#fff", marginTop: 12 }}>Requesting camera permission…</Text>
-              </View>
-            )}
-            <TouchableOpacity
-              style={styles.scannerClose}
-              onPress={() => {
-                setConfirmScanning(false);
-                setShowConfirmScanner(false);
-                setShowReceiveChecklist(true);
-              }}
-            >
-              <Ionicons name="close-circle" size={36} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
+          <View style={styles.qrModalContainer}>
+            <View style={styles.qrModalHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  setConfirmScanning(false);
+                  setShowConfirmScanner(false);
+                  setShowReceiveChecklist(true);
+                }}
+                style={styles.backButton}
+              >
+                <Ionicons name="arrow-back" size={20} color="#17386b" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>Scan QR</Text>
+              <View style={{ width: 40 }} />
+            </View>
+            <View style={styles.qrContainer}>
+              {permission?.granted ? (
+                <View style={styles.cameraCard}>
+                  <View style={styles.cameraWrapper}>
+                    <CameraView
+                      key={showConfirmScanner ? "confirm-camera-mounted" : "confirm-camera-unmounted"}
+                      style={styles.camera}
+                      barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                      onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+                      onMountError={(e) => console.warn("[Camera] mount error", e)}
+                    />
+                    <View style={[styles.corner, styles.cornerTL]} />
+                    <View style={[styles.corner, styles.cornerTR]} />
+                    <View style={[styles.corner, styles.cornerBL]} />
+                    <View style={[styles.corner, styles.cornerBR]} />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.permissionCard}>
+                  <View style={styles.permissionIcon}>
+                    <Ionicons name="camera-outline" size={48} color="#17386b" />
+                  </View>
+                  <Text style={styles.qrTitle}>Camera permission needed</Text>
+                  <Text style={styles.qrSubtitle}>Allow camera access to scan the OMS Transfer QR</Text>
+                  <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission} activeOpacity={0.8}>
+                    <Ionicons name="camera" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.permissionBtnText}>Grant Permission</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <Text style={styles.qrTitle}>Scan OMS Transfer QR</Text>
+              <Text style={styles.qrSubtitleCenter}>Point camera at {receiveTransferNumber} QR from OMS to finalize</Text>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setConfirmScanning(false);
+                  setShowConfirmScanner(false);
+                  setShowReceiveChecklist(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Modal>
       </View>
@@ -878,43 +907,72 @@ export default function TransfersScreen() {
 
       <Modal
         visible={showConfirmScanner}
-        animationType="fade"
-        transparent={false}
-        statusBarTranslucent
-        onShow={() => setConfirmScanning(false)}
+        animationType="slide"
         onRequestClose={() => {
           setConfirmScanning(false);
           setShowConfirmScanner(false);
           setShowReceiveChecklist(true);
         }}
       >
-        <View style={styles.scannerContainer}>
-          {permission?.granted ? (
-            <CameraView
-              key={showConfirmScanner ? "confirm-camera-mounted-2" : "confirm-camera-unmounted-2"}
-              facing="back"
-              style={StyleSheet.absoluteFillObject}
-              onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onMountError={(e) => console.warn("[Camera] mount error", e)}
-            />
-          ) : (
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", justifyContent: "center", alignItems: "center" }]}>
-              <ActivityIndicator size="large" color="#fff" />
-              <Text style={{ color: "#fff", marginTop: 12 }}>Requesting camera permission…</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={styles.scannerClose}
-            onPress={() => {
-              setConfirmScanning(false);
-              setShowConfirmScanner(false);
-              setShowReceiveChecklist(true);
-            }}
-          >
-            <Ionicons name="close-circle" size={36} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
+        <View style={styles.qrModalContainer}>
+          <View style={styles.qrModalHeader}>
+            <TouchableOpacity
+              onPress={() => {
+                setConfirmScanning(false);
+                setShowConfirmScanner(false);
+                setShowReceiveChecklist(true);
+              }}
+              style={styles.backButton}
+            >
+              <Ionicons name="arrow-back" size={20} color="#17386b" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Scan QR</Text>
+            <View style={{ width: 40 }} />
+          </View>
+          <View style={styles.qrContainer}>
+            {permission?.granted ? (
+              <View style={styles.cameraCard}>
+                <View style={styles.cameraWrapper}>
+                  <CameraView
+                    key={showConfirmScanner ? "confirm-camera-mounted-2" : "confirm-camera-unmounted-2"}
+                    style={styles.camera}
+                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                    onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+                    onMountError={(e) => console.warn("[Camera] mount error", e)}
+                  />
+                  <View style={[styles.corner, styles.cornerTL]} />
+                  <View style={[styles.corner, styles.cornerTR]} />
+                  <View style={[styles.corner, styles.cornerBL]} />
+                  <View style={[styles.corner, styles.cornerBR]} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.permissionCard}>
+                <View style={styles.permissionIcon}>
+                  <Ionicons name="camera-outline" size={48} color="#17386b" />
+                </View>
+                <Text style={styles.qrTitle}>Camera permission needed</Text>
+                <Text style={styles.qrSubtitle}>Allow camera access to scan the OMS Transfer QR</Text>
+                <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission} activeOpacity={0.8}>
+                  <Ionicons name="camera" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={styles.permissionBtnText}>Grant Permission</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <Text style={styles.qrTitle}>Scan OMS Transfer QR</Text>
+            <Text style={styles.qrSubtitleCenter}>Point camera at {receiveTransferNumber} QR from OMS to finalize</Text>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
+                setConfirmScanning(false);
+                setShowConfirmScanner(false);
+                setShowReceiveChecklist(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>
@@ -1375,4 +1433,28 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   receiveConfirmText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
+  qrModalContainer: { flex: 1, backgroundColor: "#f8fbff" },
+  qrModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12, backgroundColor: "#f8fbff", borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
+  headerTitle: { fontSize: 15, fontWeight: "700", color: "#1a202c" },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e8edf3", alignItems: "center", justifyContent: "center" },
+  qrContainer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, paddingVertical: 20 },
+  cameraCard: { backgroundColor: "#ffffff", borderRadius: 20, padding: 12, borderWidth: 1, borderColor: "#e8edf3", shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4, marginBottom: 20 },
+  cameraWrapper: { width: 280, height: 280, borderRadius: 16, overflow: "hidden", backgroundColor: "#0f1729" },
+  camera: { flex: 1 },
+  corner: { position: "absolute", width: 28, height: 28, borderColor: "#ffffff" },
+  cornerTL: { top: 14, left: 14, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 10 },
+  cornerTR: { top: 14, right: 14, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 10 },
+  cornerBL: { bottom: 14, left: 14, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 10 },
+  cornerBR: { bottom: 14, right: 14, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 10 },
+  cameraOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,41,0.62)", alignItems: "center", justifyContent: "center" },
+  cameraOverlayText: { color: "#ffffff", fontSize: 13, fontWeight: "600", marginTop: 10 },
+  permissionCard: { alignItems: "center", backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e8edf3", paddingHorizontal: 24, paddingVertical: 28, width: "100%", maxWidth: 360, marginBottom: 20 },
+  permissionIcon: { width: 80, height: 80, borderRadius: 20, backgroundColor: "#f0f4ff", borderWidth: 1, borderColor: "#e0e7ff", alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  permissionBtn: { flexDirection: "row", alignItems: "center", backgroundColor: "#17386b", borderRadius: 12, paddingHorizontal: 22, paddingVertical: 12, marginTop: 16 },
+  permissionBtnText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  qrTitle: { fontSize: 18, fontWeight: "800", color: "#1a202c", marginTop: 4, textAlign: "center" },
+  qrSubtitle: { fontSize: 13, color: "#6b7b8d", textAlign: "center", marginTop: 6 },
+  qrSubtitleCenter: { fontSize: 13, color: "#6b7b8d", textAlign: "center", marginTop: 8, marginBottom: 20, lineHeight: 18, paddingHorizontal: 16 },
+  cancelButton: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: "#e2e8f0", backgroundColor: "#ffffff" },
+  cancelButtonText: { fontSize: 13, fontWeight: "700", color: "#475569" },
 });
