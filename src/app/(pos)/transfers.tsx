@@ -265,10 +265,11 @@ export default function TransfersScreen() {
         return;
       }
     }
-    // Hide checklist to avoid Android Modal stacking bug (two Modals at once) — checklist will be restored if scan cancelled/mismatch
+    // Hide checklist to avoid Android Modal stacking black screen — two simultaneous Modals cause CameraView to mount black on Android
     setConfirmScanning(false);
     setShowReceiveChecklist(false);
-    setTimeout(() => setShowConfirmScanner(true), 100);
+    // Wait for checklist Modal dismiss animation (~300ms) before mounting CameraView
+    setTimeout(() => setShowConfirmScanner(true), 350);
   }, [receiveTransferId, receiveDraft, permission, requestPermission]);
 
   const handleConfirmQrScan = useCallback(async (raw: string) => {
@@ -627,13 +628,28 @@ export default function TransfersScreen() {
           </View>
         </Modal>
 
-        <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => { setConfirmScanning(false); setShowConfirmScanner(false); setShowReceiveChecklist(true); }} statusBarTranslucent>
-          <View style={styles.scannerContainer}>
-            <CameraView facing="back" style={StyleSheet.absoluteFillObject} onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
-            <TouchableOpacity style={styles.scannerClose} onPress={() => { setConfirmScanning(false); setShowConfirmScanner(false); setShowReceiveChecklist(true); }}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+        {showConfirmScanner && (
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", zIndex: 999 }]}>
+            <CameraView
+              facing="back"
+              style={StyleSheet.absoluteFillObject}
+              onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onMountError={(e) => console.warn("[Camera] mount error", e)}
+            />
+            <TouchableOpacity
+              style={styles.scannerClose}
+              onPress={() => {
+                setConfirmScanning(false);
+                setShowConfirmScanner(false);
+                setShowReceiveChecklist(true);
+              }}
+            >
+              <Ionicons name="close-circle" size={36} color="#fff" />
+            </TouchableOpacity>
             <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
           </View>
-        </Modal>
+        )}
       </View>
     );
   }
@@ -841,13 +857,28 @@ export default function TransfersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showConfirmScanner} animationType="slide" onRequestClose={() => { setConfirmScanning(false); setShowConfirmScanner(false); setShowReceiveChecklist(true); }} statusBarTranslucent>
-        <View style={styles.scannerContainer}>
-          <CameraView facing="back" style={StyleSheet.absoluteFillObject} onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} />
-          <TouchableOpacity style={styles.scannerClose} onPress={() => { setConfirmScanning(false); setShowConfirmScanner(false); setShowReceiveChecklist(true); }}><Ionicons name="close-circle" size={36} color="#fff" /></TouchableOpacity>
+      {showConfirmScanner && (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", zIndex: 999 }]}>
+          <CameraView
+            facing="back"
+            style={StyleSheet.absoluteFillObject}
+            onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            onMountError={(e) => console.warn("[Camera] mount error", e)}
+          />
+          <TouchableOpacity
+            style={styles.scannerClose}
+            onPress={() => {
+              setConfirmScanning(false);
+              setShowConfirmScanner(false);
+              setShowReceiveChecklist(true);
+            }}
+          >
+            <Ionicons name="close-circle" size={36} color="#fff" />
+          </TouchableOpacity>
           <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
