@@ -223,6 +223,7 @@ export default function TransfersScreen() {
     setReceiveSaving(true);
     try {
       const payload = receiveDraft.map((r) => ({ itemId: r.itemId, actualQty: r.actual, notes: r.notes.trim() || undefined }));
+      console.log("[Transfer] doFinalReceive", receiveTransferId, payload);
       const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier");
       if (result) {
         setShowReceiveChecklist(false);
@@ -233,10 +234,12 @@ export default function TransfersScreen() {
         await loadTransfers();
         Alert.alert("Transfer Received", `${receiveTransferNumber} received with ${payload.reduce((s, p) => s + p.actualQty, 0)} items.`);
       } else {
-        Alert.alert("Error", "Failed to receive transfer.");
+        console.warn("[Transfer] receive returned null", receiveTransferId);
+        Alert.alert("Error", "Failed to receive transfer. Check that products are synced and try again.");
       }
-    } catch {
-      Alert.alert("Error", "Failed to receive transfer.");
+    } catch (e: any) {
+      console.error("[Transfer] doFinalReceive error", e?.message ?? e);
+      Alert.alert("Error", e?.message ?? "Failed to receive transfer.");
     } finally {
       setReceiveSaving(false);
     }
