@@ -628,8 +628,17 @@ export default function TransfersScreen() {
           </View>
         </Modal>
 
-        {showConfirmScanner && (
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", zIndex: 999 }]}>
+        <Modal
+          visible={showConfirmScanner}
+          animationType="slide"
+          onRequestClose={() => {
+            setConfirmScanning(false);
+            setShowConfirmScanner(false);
+            setShowReceiveChecklist(true);
+          }}
+          statusBarTranslucent
+        >
+          <View style={styles.scannerContainer}>
             <CameraView
               facing="back"
               style={StyleSheet.absoluteFillObject}
@@ -649,7 +658,7 @@ export default function TransfersScreen() {
             </TouchableOpacity>
             <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
           </View>
-        )}
+        </Modal>
       </View>
     );
   }
@@ -857,8 +866,17 @@ export default function TransfersScreen() {
         </View>
       </Modal>
 
-      {showConfirmScanner && (
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", zIndex: 999 }]}>
+      <Modal
+        visible={showConfirmScanner}
+        animationType="slide"
+        onRequestClose={() => {
+          setConfirmScanning(false);
+          setShowConfirmScanner(false);
+          setShowReceiveChecklist(true);
+        }}
+        statusBarTranslucent
+      >
+        <View style={styles.scannerContainer}>
           <CameraView
             facing="back"
             style={StyleSheet.absoluteFillObject}
@@ -878,7 +896,7 @@ export default function TransfersScreen() {
           </TouchableOpacity>
           <Text style={styles.scannerHint}>Scan OMS transfer QR ({receiveTransferNumber}) to finalize</Text>
         </View>
-      )}
+      </Modal>
     </View>
   );
 }
