@@ -36,13 +36,14 @@ export const ProductRepository = {
         u.name as unitName,
         tg.name as taxGroupName,
         tg.rate as taxRate,
-        pp.price as retailPrice
+        (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
+        pi.fileName as imageUrl
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
-      LEFT JOIN ProductPrice pp ON p.id = pp.productId AND pp.priceList = 'retail' AND pp.active = 1
+      LEFT JOIN ProductImage pi ON p.imageId = pi.id
       WHERE p.id = ?`,
       [id]
     );
@@ -56,13 +57,14 @@ export const ProductRepository = {
         u.name as unitName,
         tg.name as taxGroupName,
         tg.rate as taxRate,
-        pp.price as retailPrice
+        (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
+        pi.fileName as imageUrl
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
-      LEFT JOIN ProductPrice pp ON p.id = pp.productId AND pp.priceList = 'retail' AND pp.active = 1
+      LEFT JOIN ProductImage pi ON p.imageId = pi.id
       WHERE p.sku = ?`,
       [sku]
     );
@@ -107,13 +109,14 @@ export const ProductRepository = {
         u.name as unitName,
         tg.name as taxGroupName,
         tg.rate as taxRate,
-        pp.price as retailPrice
+        (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
+        pi.fileName as imageUrl
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
-      LEFT JOIN ProductPrice pp ON p.id = pp.productId AND pp.priceList = 'retail' AND pp.active = 1
+      LEFT JOIN ProductImage pi ON p.imageId = pi.id
       ${where}
       ORDER BY p.name ASC
       LIMIT ? OFFSET ?`,
@@ -137,13 +140,14 @@ export const ProductRepository = {
         u.name as unitName,
         tg.name as taxGroupName,
         tg.rate as taxRate,
-        pp.price as retailPrice
+        (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
+        pi.fileName as imageUrl
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
-      LEFT JOIN ProductPrice pp ON p.id = pp.productId AND pp.priceList = 'retail' AND pp.active = 1
+      LEFT JOIN ProductImage pi ON p.imageId = pi.id
       WHERE p.status = 'ACTIVE'
       ORDER BY p.name ASC`
     );

@@ -126,10 +126,11 @@ export const CashierService = {
   async logout(sessionId: string): Promise<void> {
     try {
       await SessionRepository.deactivate(sessionId);
-      useCashierStore.getState().clearSession();
-      useAuthStore.getState().signOut();
     } catch {
       // silent fail
+    } finally {
+      useCashierStore.getState().clearSession();
+      useAuthStore.getState().signOut();
     }
   },
 
@@ -153,6 +154,23 @@ export const CashierService = {
 
   getCurrentSession() {
     return useCashierStore.getState().session;
+  },
+
+  async updateProfile(cashierId: string, displayName: string, pin?: string) {
+    const updates: { displayName: string; pinHash?: string } = { displayName };
+    if (pin) updates.pinHash = sha256(pin);
+    const cashier = await CashierRepository.update(cashierId, updates);
+    if (!cashier) throw new Error("Cashier profile not found");
+
+    const currentSession = useCashierStore.getState().session;
+    if (currentSession) {
+      useCashierStore.getState().setSession({ ...currentSession, cashierName: cashier.displayName });
+    }
+    const currentAuth = useAuthStore.getState().cashier;
+    if (currentAuth) {
+      useAuthStore.getState().signIn({ ...currentAuth, name: cashier.displayName, pin: pin || currentAuth.pin });
+    }
+    return cashier;
   },
 
   async getRolePermissions(roleId: string) {

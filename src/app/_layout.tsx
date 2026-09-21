@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { PaperProvider } from "react-native-paper";
+import { MD3DarkTheme, MD3LightTheme, PaperProvider } from "react-native-paper";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { getDatabase } from "@/lib/db/connection";
@@ -11,10 +11,13 @@ import { initApiConfig } from "@/lib/api/http";
 import { AuthenticationService } from "@/lib/services/authentication.service";
 import { startNetworkListener } from "@/lib/services/network.service";
 import { startBackgroundSync } from "@/lib/services/sync-worker";
+import { useIsDarkTheme } from "@/lib/stores/ui-store";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dark = useIsDarkTheme();
+  const shellBackground = dark ? "#050a14" : "#f8fbff";
 
   useEffect(() => {
     let mounted = true;
@@ -58,11 +61,11 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <PaperProvider>
-          <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false }}>
+    <GestureHandlerRootView style={[styles.root, { backgroundColor: shellBackground }]}>
+      <SafeAreaProvider style={[styles.root, { backgroundColor: shellBackground }]}>
+        <PaperProvider theme={dark ? MD3DarkTheme : MD3LightTheme}>
+          <StatusBar style={dark ? "light" : "dark"} />
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: shellBackground } }}>
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(pos)" />
           </Stack>
@@ -73,6 +76,9 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   splash: {
     flex: 1,
     alignItems: "center",

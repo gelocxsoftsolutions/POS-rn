@@ -77,6 +77,7 @@ export interface ProductDTO {
   taxRate: number | null;
   status: string;
   imageId: string | null;
+  imageUrl?: string | null;
   retailPrice: number | null;
   createdAt: string;
   updatedAt: string;

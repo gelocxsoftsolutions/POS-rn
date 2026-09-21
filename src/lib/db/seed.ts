@@ -25,6 +25,6 @@ export async function seedIfNeeded(): Promise<void> {
   );
 
   await execute(
-    `INSERT OR IGNORE INTO StoreSettings (id, storeName, storeCode, currencyCode, taxLabel, taxRate, address, receiptFooter) VALUES ('default', 'NCT Seafoods POS', 'NCT-MAIN', 'PHP', 'VAT', 12, 'Manila, Philippines', 'Thank you for your purchase!')`
+    `INSERT OR IGNORE INTO StoreSettings (id, storeName, storeCode, currencyCode, taxLabel, taxRate, address, receiptFooter) VALUES ('default', 'NCT Seafoods POS', 'NCT-MAIN', 'PHP', 'VAT', 0.12, 'Manila, Philippines', 'Thank you for your purchase!')`
   );
 }

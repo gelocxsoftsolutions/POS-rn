@@ -6,6 +6,9 @@ import { execute, query, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
+import { ProductImageRepository } from "@/lib/repositories/product-image.repository";
+import { Directory, File, Paths } from "expo-file-system";
+import { Platform } from "react-native";
 
 interface VariationDto {
   id: string;
@@ -31,14 +34,12 @@ async function findCategoryId(name: string): Promise<string | undefined> {
     "SELECT id FROM Category WHERE name = ?", [name]
   );
   if (existing?.id) return existing.id;
-  const created = await execute(
+  const id = uuid();
+  await execute(
     "INSERT INTO Category (id, name, sortOrder, active, createdAt, updatedAt) VALUES (?, ?, 0, 1, datetime('now'), datetime('now'))",
-    [uuid(), name]
+    [id, name]
   );
-  if (!created || !created.lastInsertRowId) {
-    return (await queryFirst<{ id: string }>("SELECT id FROM Category WHERE name = ?", [name]))?.id;
-  }
-  return created.lastInsertRowId.toString();
+  return id;
 }
 
 async function findUnitId(name: string): Promise<string | undefined> {
@@ -46,19 +47,52 @@ async function findUnitId(name: string): Promise<string | undefined> {
     "SELECT id FROM Unit WHERE name = ?", [name]
   );
   if (existing?.id) return existing.id;
-  const created = await execute(
+  const id = uuid();
+  await execute(
     "INSERT INTO Unit (id, name, active, createdAt, updatedAt) VALUES (?, ?, 1, datetime('now'), datetime('now'))",
-    [uuid(), name]
+    [id, name]
   );
-  if (!created || !created.lastInsertRowId) {
-    return (await queryFirst<{ id: string }>("SELECT id FROM Unit WHERE name = ?", [name]))?.id;
-  }
-  return created.lastInsertRowId.toString();
+  return id;
 }
 
 interface SyncProduct {
   id?: string;
   sku: string;
+}
+
+async function cacheProductImage(imageId: string, sku: string, imageUrl: string): Promise<string> {
+  if (Platform.OS === "web") return imageUrl;
+
+  const existing = await ProductImageRepository.findById(imageId);
+  if (existing?.fileName?.startsWith("file:") && existing.checksum === imageUrl) {
+    const cached = new File(existing.fileName);
+    if (cached.exists) return cached.uri;
+  }
+
+  const directory = new Directory(Paths.document, "product-images");
+  directory.create({ intermediates: true, idempotent: true });
+  const extension = imageUrl.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/)?.[1]?.toLowerCase() ?? "jpg";
+  const safeSku = sku.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const destination = new File(directory, `${safeSku}.${extension}`);
+
+  const apiConfig = getApiConfig();
+  const headers: Record<string, string> = {};
+  if (apiConfig.apiKey) headers["x-pos-key"] = apiConfig.apiKey;
+  if (apiConfig.accessToken) headers.Authorization = `Bearer ${apiConfig.accessToken}`;
+
+  try {
+    const downloaded = await File.downloadFileAsync(imageUrl, destination, {
+      headers,
+      idempotent: true,
+    });
+    return downloaded.uri;
+  } catch {
+    if (existing?.fileName?.startsWith("file:")) {
+      const cached = new File(existing.fileName);
+      if (cached.exists) return cached.uri;
+    }
+    return imageUrl;
+  }
 }
 
 async function upsertProductFromVariation(
@@ -74,6 +108,18 @@ async function upsertProductFromVariation(
     ? await findCategoryId(variation.category.name)
     : undefined;
   const unitId = variation.unit ? await findUnitId(variation.unit) : undefined;
+  const rawImageUrl = variation.imageUrl?.trim();
+  const imageUrl = rawImageUrl
+    ? (/^https?:\/\//i.test(rawImageUrl)
+      ? rawImageUrl
+      : `${getApiConfig().baseUrl.replace(/\/$/, "")}/${rawImageUrl.replace(/^\//, "")}`)
+    : undefined;
+  const imageId = imageUrl ? `oms-variation-${sku}` : undefined;
+
+  if (imageId && imageUrl) {
+    const imageLocation = await cacheProductImage(imageId, sku, imageUrl);
+    await ProductImageRepository.upsertRemote(imageId, imageLocation, imageUrl);
+  }
 
   const existing = await queryFirst<{ id: string }>(
     "SELECT id FROM Product WHERE sku = ?", [sku]
@@ -87,24 +133,24 @@ async function upsertProductFromVariation(
       categoryId,
       unitId,
       description: variation.variationName || undefined,
+      imageId,
     });
   } else {
-    const createResult = await execute(
-      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, taxGroupId, status, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'ACTIVE', datetime('now'), datetime('now'))`,
+    productId = uuid();
+    await execute(
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, taxGroupId, status, imageId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'ACTIVE', ?, datetime('now'), datetime('now'))`,
       [
-        uuid(),
+        productId,
         sku,
         variation.productId !== undefined ? String(variation.productId) : sku,
         name,
         variation.variationName || null,
         categoryId ?? null,
         unitId ?? null,
+        imageId ?? null,
       ]
     );
-    productId = createResult.lastInsertRowId?.toString()
-      ?? (await queryFirst<{ id: string }>("SELECT id FROM Product WHERE sku = ?", [sku]))?.id
-      ?? "";
   }
 
   if (!productId) return null;
@@ -112,14 +158,18 @@ async function upsertProductFromVariation(
   const price = Number(fallbackPosPrice ?? variation.posPrice ?? variation.price ?? 0);
   if (price > 0) {
     await execute(
-      `INSERT OR REPLACE INTO ProductPrice (id, productId, priceList, price, currency, active, createdAt, updatedAt)
+      "DELETE FROM ProductPrice WHERE productId = ? AND priceList = 'retail'",
+      [productId]
+    );
+    await execute(
+      `INSERT INTO ProductPrice (id, productId, priceList, price, currency, active, createdAt, updatedAt)
        VALUES (?, ?, 'retail', ?, 'PHP', 1, ?, ?)`,
       [uuid(), productId, price, new Date().toISOString(), new Date().toISOString()]
     );
   }
 
   if (variation.barcode) {
-    await BarcodeRepository.upsert({ productId, barcode: variation.barcode });
+    await BarcodeRepository.upsert({ productId, barcode: variation.barcode, type: "variation" });
   }
 
   return { id: productId, sku };
@@ -306,20 +356,23 @@ export const OmsSyncService = {
           const existing = await queryFirst<{ id: string }>(
             "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [t.transferNumber]
           );
-          if (existing) continue;
 
           const items: Array<{ productId: string; allocatedQty: number; unit?: string }> = [];
           for (const it of t.items ?? []) {
-            let product = await queryFirst<{ id: string }>(
-              "SELECT id FROM Product WHERE sku = ?", [String(it.variationId)]
-            );
-            if (!product && (it as any).variation) {
+            let product: { id: string } | null = null;
+            if ((it as any).variation) {
               const up = await upsertProductFromVariation((it as any).variation as VariationDto);
               if (up?.id) product = { id: up.id };
+            }
+            if (!product) {
+              product = await queryFirst<{ id: string }>(
+                "SELECT id FROM Product WHERE sku = ?", [String(it.variationId)]
+              );
             }
             if (!product) continue;
             items.push({ productId: product.id, allocatedQty: Number(it.allocatedQty ?? 0), unit: it.unit ?? undefined });
           }
+          if (existing) continue;
           if (items.length === 0) continue;
 
           await TransferRepository.create({
@@ -349,12 +402,15 @@ export const OmsSyncService = {
       let synced = 0;
       for (const log of logs) {
         if (!log.variationId) continue;
-        let product = await queryFirst<{ id: string }>(
-          "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
-        );
-        if (!product && (log as any).variation) {
+        let product: { id: string } | null = null;
+        if ((log as any).variation) {
           const up = await upsertProductFromVariation((log as any).variation as VariationDto);
           if (up?.id) product = { id: up.id };
+        }
+        if (!product) {
+          product = await queryFirst<{ id: string }>(
+            "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
+          );
         }
         if (!product) continue;
         const existing = await queryFirst<{ id: string }>(

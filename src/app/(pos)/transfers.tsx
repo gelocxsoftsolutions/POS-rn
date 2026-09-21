@@ -18,10 +18,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TransferService } from "@/lib/services/transfer.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { api } from "@/lib/api/http";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
+import { useLocalSearchParams } from "expo-router";
 
 const STATUS_FILTERS = ["All", "DRAFT", "APPROVED", "IN_TRANSIT", "RECEIVED"];
 
@@ -75,9 +76,20 @@ export default function TransfersScreen() {
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
-  const dark = useUiStore((s) => s.themeMode) === "dark";
+  const dark = useIsDarkTheme();
   const device = useDeviceStore((s) => s.device);
   const currentDeviceName = (device.deviceName || device.branchName || "This device").trim();
+  const params = useLocalSearchParams<{ highlight?: string }>();
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const h = params.highlight as string | undefined;
+    if (h) {
+      setHighlightedId(h);
+      const t = setTimeout(() => setHighlightedId(null), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [params.highlight]);
 
   // QR checklist receive state
   const [showReceiveChecklist, setShowReceiveChecklist] = useState(false);
@@ -714,7 +726,16 @@ export default function TransfersScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+      <View style={styles.pageHeader}>
+        <View>
+          <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Transfers</Text>
+          <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Track incoming and outgoing inventory</Text>
+        </View>
+        <View style={[styles.countBadge, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{filtered.length} records</Text>
+        </View>
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -749,9 +770,15 @@ export default function TransfersScreen() {
 
       <FlatList
         data={filtered}
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const isHighlighted = highlightedId === item.id;
+          return (
           <TouchableOpacity onPress={() => handleTransferPress(item)} activeOpacity={0.7}>
-            <Card style={[styles.transferCard, { backgroundColor: dark ? "#101928" : "#ffffff" }]}>
+            <Card style={[
+              styles.transferCard,
+              { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+              isHighlighted && (dark ? styles.transferCardHighlightedDark : styles.transferCardHighlighted),
+            ]}>
               <View style={styles.transferHeader}>
                 <View style={styles.transferInfo}>
                   <Text style={[styles.transferNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.transferNumber}</Text>
@@ -776,7 +803,8 @@ export default function TransfersScreen() {
               </View>
             </Card>
           </TouchableOpacity>
-        )}
+          );
+        }}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
@@ -787,15 +815,11 @@ export default function TransfersScreen() {
         }
       />
 
-      <TouchableOpacity style={styles.scanFab} onPress={openScanner} activeOpacity={0.8}>
-        <Ionicons name="qr-code-outline" size={24} color="#fff" />
-      </TouchableOpacity>
-
       <Modal visible={showScanner} animationType="slide" onRequestClose={() => { setScanning(false); setShowScanner(false); }} statusBarTranslucent>
         <View style={styles.scannerContainer}>
           <CameraView
             facing="back"
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             onBarcodeScanned={scanning ? undefined : ({ data }: { data: string }) => handleScanQr(data)}
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
           />
@@ -987,6 +1011,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fbff",
   },
+  pageHeader: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  pageSubtitle: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  countBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
@@ -1036,6 +1085,25 @@ const styles = StyleSheet.create({
   transferCard: {
     padding: 16,
     marginBottom: 10,
+    borderWidth: 1,
+  },
+  transferCardHighlighted: {
+    backgroundColor: "#fefce8",
+    borderColor: "#f59e0b",
+    borderWidth: 2,
+    shadowColor: "#f59e0b",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  transferCardHighlightedDark: {
+    backgroundColor: "#3a2e0a",
+    borderColor: "#f59e0b",
+    borderWidth: 2,
+    shadowColor: "#f59e0b",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   transferHeader: {
     flexDirection: "row",
@@ -1449,7 +1517,7 @@ const styles = StyleSheet.create({
   cornerTR: { top: 14, right: 14, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 10 },
   cornerBL: { bottom: 14, left: 14, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 10 },
   cornerBR: { bottom: 14, right: 14, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 10 },
-  cameraOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,41,0.62)", alignItems: "center", justifyContent: "center" },
+  cameraOverlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(15,23,41,0.62)", alignItems: "center", justifyContent: "center" },
   cameraOverlayText: { color: "#ffffff", fontSize: 13, fontWeight: "600", marginTop: 10 },
   permissionCard: { alignItems: "center", backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e8edf3", paddingHorizontal: 24, paddingVertical: 28, width: "100%", maxWidth: 360, marginBottom: 20 },
   permissionIcon: { width: 80, height: 80, borderRadius: 20, backgroundColor: "#f0f4ff", borderWidth: 1, borderColor: "#e0e7ff", alignItems: "center", justifyContent: "center", marginBottom: 16 },

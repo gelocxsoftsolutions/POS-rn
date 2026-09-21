@@ -2,26 +2,28 @@ import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   FlatList,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Modal,
   ScrollView,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Code128Barcode } from "@/components/ui/code128-barcode";
+import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
-import { useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import type { ProductDTO, ProductDetailDTO, CategoryDTO, BarcodeDTO } from "@/lib/types/inventory";
 
-const { width } = Dimensions.get("window");
-const GRID_COLUMNS = 2;
-const GRID_CARD_WIDTH = (width - 48) / GRID_COLUMNS;
+const GRID_COLUMNS = 5;
 
 const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 type ViewMode = "grid" | "list";
@@ -40,8 +42,13 @@ export default function ProductsScreen() {
   const [detailProduct, setDetailProduct] = useState<ProductDetailDTO | null>(null);
   const [detailBarcodes, setDetailBarcodes] = useState<BarcodeDTO[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const pageSize = 20;
-  const dark = useUiStore((s) => s.themeMode) === "dark";
+  const dark = useIsDarkTheme();
+  const { width, height } = useWindowDimensions();
+  const gridCardWidth = (width - 32 - (GRID_COLUMNS - 1) * 12) / GRID_COLUMNS;
+  const gridImageSize = Math.min(160, gridCardWidth - 24);
+  const detailImageSize = Math.min(320, width * 0.32, height * 0.34);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -56,7 +63,7 @@ export default function ProductsScreen() {
       else if (stockFilter === "Low") items = items.filter((p: any) => (p.availableQty ?? 0) > 0 && (p.availableQty ?? 0) <= (p.minimumStock ?? 0));
       else if (stockFilter === "Out of Stock") items = items.filter((p: any) => (p.availableQty ?? 0) <= 0);
 
-      setProducts(items);
+      setProducts(Array.from(new Map(items.map((item) => [item.id, item])).values()));
       setTotalPages(result.totalPages || 1);
       setTotal(result.total);
     } catch {
@@ -91,7 +98,7 @@ export default function ProductsScreen() {
 
   const openDetail = useCallback(async (product: ProductDTO) => {
     setDetailLoading(true);
-    setDetailProduct(null);
+    setDetailProduct(product as ProductDetailDTO);
     setDetailBarcodes([]);
     try {
       const full = await ProductService.getById(product.id);
@@ -99,12 +106,26 @@ export default function ProductsScreen() {
         setDetailProduct(full as ProductDetailDTO);
         try {
           const barcodes = await BarcodeRepository.findByProduct(product.id);
-          setDetailBarcodes(barcodes);
+          setDetailBarcodes(Array.from(new Map(barcodes.map((barcode) => [barcode.barcode, barcode])).values()));
         } catch { /* no barcodes */ }
       }
     } catch { /* use partial */ }
     setDetailLoading(false);
   }, []);
+
+  const handleBarcodeScan = useCallback(async (barcode: string) => {
+    setScannerVisible(false);
+    try {
+      const product = await ProductService.getByBarcode(barcode);
+      if (!product) {
+        Alert.alert("Not Found", "No product matched that barcode.");
+        return;
+      }
+      await openDetail(product);
+    } catch {
+      Alert.alert("Error", "Failed to look up product by barcode.");
+    }
+  }, [openDetail]);
 
   const stockBadge = (product: ProductDTO) => {
     const qty = (product as any).availableQty ?? 0;
@@ -118,9 +139,13 @@ export default function ProductsScreen() {
     const badge = stockBadge(item);
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
-        <Card style={[styles.gridCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
-          <View style={styles.gridImagePlaceholder}>
-            <Ionicons name="fish" size={32} color="#17386b" />
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+          <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
+            {item.imageUrl ? (
+              <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
+            ) : (
+              <Ionicons name="fish" size={32} color="#17386b" />
+            )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
           <Text style={styles.gridProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
@@ -137,7 +162,11 @@ export default function ProductsScreen() {
         <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
           <View style={styles.listRow}>
             <View style={styles.listImagePlaceholder}>
-              <Ionicons name="fish" size={28} color="#17386b" />
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
+              ) : (
+                <Ionicons name="fish" size={28} color="#17386b" />
+              )}
             </View>
             <View style={styles.listInfo}>
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
@@ -219,21 +248,35 @@ export default function ProductsScreen() {
   const allCategories = [{ id: null, name: "All" } as any, ...categories];
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-      <View style={[styles.searchBar, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }]}>
-        <Ionicons name="search" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
-        <TextInput
-          style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
-          placeholder="Search products..."
-          placeholderTextColor={dark ? "#4a6785" : "#b0b8c1"}
-          value={search}
-          onChangeText={(t) => { setSearch(t); setPage(1); }}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-            <Ionicons name="close-circle" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
-          </TouchableOpacity>
-        )}
+    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+      <View style={styles.pageHeader}>
+        <View>
+          <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
+          <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
+        </View>
+        <View style={[styles.countBadge, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{products.length} shown</Text>
+        </View>
+      </View>
+      <View style={styles.searchTools}>
+        <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
+          <Ionicons name="search" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+          <TextInput
+            style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+            placeholder="Search products..."
+            placeholderTextColor={dark ? "#4a6785" : "#b0b8c1"}
+            value={search}
+            onChangeText={(t) => { setSearch(t); setPage(1); }}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
+              <Ionicons name="close-circle" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
+          <Ionicons name="scan" size={21} color="#ffffff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.toggleRow}>
@@ -329,6 +372,13 @@ export default function ProductsScreen() {
 
       {totalPages > 1 && renderPageNumbers()}
 
+      <BarcodeScannerModal
+        visible={scannerVisible}
+        dark={dark}
+        onClose={() => setScannerVisible(false)}
+        onScan={handleBarcodeScan}
+      />
+
       <Modal
         visible={!!detailProduct}
         animationType="slide"
@@ -345,17 +395,50 @@ export default function ProductsScreen() {
               <TouchableOpacity onPress={() => setDetailProduct(null)} style={styles.detailBackBtn}>
                 <Ionicons name="close" size={22} color="#17386b" />
               </TouchableOpacity>
-              <Text style={[styles.detailHeaderTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{detailProduct.name}</Text>
+              <Text style={[styles.detailHeaderTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Details</Text>
             </View>
 
-            <ScrollView contentContainerStyle={styles.detailScroll}>
-              <View style={styles.detailImagePlaceholder}>
-                <Ionicons name="fish" size={64} color="#17386b" />
-              </View>
+            <View style={[styles.detailBody, width < 700 && styles.detailBodyPortrait]}>
+              <ScrollView
+                style={[
+                styles.detailIdentity,
+                width < 700 && styles.detailIdentityPortrait,
+                { borderColor: dark ? "#1a2a42" : "#e8edf3" },
+                ]}
+                contentContainerStyle={styles.detailIdentityContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={[styles.detailImagePlaceholder, { width: detailImageSize, height: detailImageSize }]}>
+                  {detailProduct.imageUrl ? (
+                    <Image source={{ uri: detailProduct.imageUrl }} style={styles.productImage} resizeMode="contain" />
+                  ) : (
+                    <Ionicons name="fish" size={64} color="#17386b" />
+                  )}
+                </View>
 
-              <Text style={[styles.detailProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.name}</Text>
+                <Text style={[styles.detailProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.name}</Text>
+                <View style={[styles.detailBarcodeCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e8edf3" }]}>
+                  <View style={styles.barcodeFooterHeading}>
+                    <Ionicons name="barcode-outline" size={20} color={dark ? "#8fb4e8" : "#17386b"} />
+                    <Text style={[styles.barcodeFooterTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Variation Barcode</Text>
+                  </View>
+                  {detailBarcodes.length > 0 ? detailBarcodes.map((bc, index) => (
+                    <View key={`${bc.barcode}-${index}`} style={[styles.barcodeRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+                      <Code128Barcode value={bc.barcode} height={68} dark={dark} />
+                      <View style={styles.barcodeCaption}>
+                        <Text style={[styles.barcodeText, { color: dark ? "#f8fafc" : "#1a202c" }]} selectable>{bc.barcode}</Text>
+                        <Text style={[styles.barcodeType, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{bc.type}</Text>
+                      </View>
+                    </View>
+                  )) : (
+                    <Text style={[styles.barcodeEmptyText, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>No barcode received from OMS</Text>
+                  )}
+                </View>
+              </ScrollView>
 
-              <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+              <ScrollView style={styles.detailInformation} contentContainerStyle={styles.detailScroll}>
+                <Text style={[styles.detailColumnTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Information</Text>
+                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
                 <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                   <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>SKU</Text>
                   <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.sku}</Text>
@@ -394,20 +477,9 @@ export default function ProductsScreen() {
                     </Text>
                   </View>
                 )}
-              </View>
-
-              {detailBarcodes.length > 0 && (
-                <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionTitle}>Barcodes</Text>
-                  {detailBarcodes.map((bc) => (
-                    <View key={bc.id} style={styles.barcodeRow}>
-                      <Text style={styles.barcodeText}>{bc.barcode}</Text>
-                      <Text style={styles.barcodeType}>{bc.type}</Text>
-                    </View>
-                  ))}
                 </View>
-              )}
-            </ScrollView>
+              </ScrollView>
+            </View>
           </View>
         ) : null}
       </Modal>
@@ -419,6 +491,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  pageHeader: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  pageSubtitle: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  countBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   loadingContainer: {
     flex: 1,
@@ -434,12 +531,18 @@ const styles = StyleSheet.create({
     color: "#6b7b8d",
     marginTop: 8,
   },
+  searchTools: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    margin: 16,
+    marginBottom: 8,
+  },
   searchBar: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#ffffff",
-    margin: 16,
-    marginBottom: 8,
     borderRadius: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
@@ -451,6 +554,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     fontSize: 14,
     color: "#1a202c",
+  },
+  scanBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: "#17386b",
+    alignItems: "center",
+    justifyContent: "center",
   },
   toggleRow: {
     flexDirection: "row",
@@ -510,21 +621,25 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   gridRow: {
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
+    gap: 12,
   },
   gridCard: {
-    width: GRID_CARD_WIDTH,
     padding: 12,
     marginBottom: 12,
   },
   gridImagePlaceholder: {
-    width: "100%",
-    height: 100,
     borderRadius: 10,
     backgroundColor: "#f0f4ff",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
+    overflow: "hidden",
+    alignSelf: "center",
+  },
+  productImage: {
+    width: "100%",
+    height: "100%",
   },
   gridProductName: {
     fontSize: 13,
@@ -558,6 +673,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
+    overflow: "hidden",
   },
   listInfo: {
     flex: 1,
@@ -639,6 +755,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fbff",
   },
+  detailBody: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  detailBodyPortrait: {
+    flexDirection: "column",
+  },
+  detailIdentity: {
+    flex: 1,
+    minWidth: 0,
+    borderRightWidth: 1,
+  },
+  detailIdentityContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  detailIdentityPortrait: {
+    borderRightWidth: 0,
+    borderBottomWidth: 1,
+  },
+  detailInformation: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailColumnTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 14,
+  },
   detailHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -666,21 +813,30 @@ const styles = StyleSheet.create({
   },
   detailScroll: {
     padding: 20,
+    flexGrow: 1,
   },
   detailImagePlaceholder: {
-    width: "100%",
-    height: 180,
     borderRadius: 16,
     backgroundColor: "#f0f4ff",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,
+    overflow: "hidden",
+    alignSelf: "center",
   },
   detailProductName: {
     fontSize: 20,
     fontWeight: "700",
     color: "#1a202c",
     marginBottom: 16,
+    textAlign: "center",
+  },
+  detailBarcodeCard: {
+    width: "100%",
+    maxWidth: 440,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14,
   },
   detailSection: {
     backgroundColor: "#ffffff",
@@ -723,11 +879,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   barcodeRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    width: "100%",
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f4ff",
+  },
+  barcodeCaption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
   },
   barcodeText: {
     fontSize: 14,
@@ -738,5 +899,25 @@ const styles = StyleSheet.create({
   barcodeType: {
     fontSize: 12,
     color: "#6b7b8d",
+  },
+  barcodeFooter: {
+    borderTopWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  barcodeFooterHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  barcodeFooterTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  barcodeEmptyText: {
+    fontSize: 13,
+    paddingVertical: 8,
   },
 });

@@ -30,6 +30,14 @@ export interface TransferFilter {
 }
 
 export const TransferRepository = {
+  async findByTransferNumber(transferNumber: string): Promise<InventoryTransferDTO | null> {
+    const row = await queryFirst<{ id: string }>(
+      "SELECT id FROM InventoryTransfer WHERE transferNumber = ?",
+      [transferNumber]
+    );
+    return row?.id ? this.findById(row.id) : null;
+  },
+
   async findById(id: string): Promise<InventoryTransferDTO | null> {
     const transfer = await queryFirst<InventoryTransferDTO>(
       "SELECT * FROM InventoryTransfer WHERE id = ?",

@@ -7,7 +7,7 @@ import {
 } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { PermissionService } from "@/lib/services/permission.service";
 import { SessionIndicator } from "@/components/layout/session-indicator";
@@ -37,11 +37,10 @@ interface SidebarProps {
 
 export function Sidebar({ currentPath, transferCount = 0 }: SidebarProps) {
   const router = useRouter();
-  const themeMode = useUiStore((s) => s.themeMode);
   const session = useCashierStore((s) => s.session);
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
 
-  const dark = themeMode === "dark";
+  const dark = useIsDarkTheme();
 
   useEffect(() => {
     if (!session?.roleId) return;
