@@ -4,28 +4,30 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   ScrollView,
   Animated,
+  Image,
+  PanResponder,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { PermissionService } from "@/lib/services/permission.service";
 import { TransferService } from "@/lib/services/transfer.service";
+import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { SessionIndicator } from "@/components/layout/session-indicator";
 import { BottomSheet } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
-import { useNetworkStore } from "@/lib/services/network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
+import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
 
-const { width } = Dimensions.get("window");
 const WIDE_BREAKPOINT = 768;
 
 const navItems = [
@@ -87,6 +89,43 @@ const navItems = [
   },
 ];
 
+function SidebarClock({ dark }: { dark: boolean }) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const day = now.toLocaleDateString("en-US", { weekday: "long" });
+  const date = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return (
+    <View style={[styles.sidebarClock, dark ? styles.sidebarClockDark : styles.sidebarClockLight]}>
+      <Text style={[styles.sidebarClockTime, dark ? styles.sidebarClockTimeDark : styles.sidebarClockTimeLight]}>{time}</Text>
+      <Text style={[styles.sidebarClockDay, dark ? styles.sidebarClockDayDark : styles.sidebarClockDayLight]}>{day}</Text>
+      <Text style={[styles.sidebarClockDate, dark ? styles.sidebarClockDateDark : styles.sidebarClockDateLight]}>{date}</Text>
+    </View>
+  );
+}
+
+function HeaderDateTime({ dark }: { dark: boolean }) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const day = now.toLocaleDateString("en-US", { weekday: "short" });
+  const date = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return (
+    <View style={[styles.headerDateTime, dark ? styles.headerDateTimeDark : styles.headerDateTimeLight]}>
+      <Ionicons name="time-outline" size={14} color={dark ? "#94a3b8" : "#64748b"} />
+      <Text style={[styles.headerDateTimeText, dark ? styles.headerDateTimeTextDark : styles.headerDateTimeTextLight]}>
+        {day}, {date} • {time}
+      </Text>
+    </View>
+  );
+}
+
 function TransferBadge({
   count,
   onPress,
@@ -103,7 +142,7 @@ function TransferBadge({
       activeOpacity={0.7}
     >
       <Ionicons
-        name="car"
+        name="bus"
         size={18}
         color={count > 0 ? "#3b82f6" : dark ? "#9ca3af" : "#6b7280"}
       />
@@ -122,25 +161,44 @@ function TransferDialog({
   visible,
   onClose,
   transfers,
+  dark,
+  onSelect,
 }: {
   visible: boolean;
   onClose: () => void;
   transfers: InventoryTransferDTO[];
+  dark: boolean;
+  onSelect: (id: string) => void;
 }) {
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
-      <Text style={styles.dialogTitle}>Pending Transfers</Text>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      style={dark ? { backgroundColor: "#11151d" } : undefined}
+    >
+      <Text style={[styles.dialogTitle, dark && { color: "#f8fafc" }]}>Pending Transfers</Text>
       {transfers.length === 0 ? (
-        <Text style={styles.dialogEmpty}>No pending transfers</Text>
+        <Text style={[styles.dialogEmpty, dark && { color: "#94a3b8" }]}>No pending transfers</Text>
       ) : (
         <ScrollView style={styles.dialogScroll} bounces={false}>
           {transfers.map((t) => (
-            <View key={t.id} style={styles.dialogItem}>
+            <TouchableOpacity
+              key={t.id}
+              style={[
+                styles.dialogItem,
+                dark ? { borderColor: "#28303d", backgroundColor: "#0f1729" } : null,
+              ]}
+              onPress={() => {
+                onClose();
+                onSelect(t.id);
+              }}
+              activeOpacity={0.7}
+            >
               <View style={styles.dialogItemContent}>
-                <Text style={styles.dialogItemLabel} numberOfLines={1}>
+                <Text style={[styles.dialogItemLabel, dark && { color: "#e2e8f0" }]} numberOfLines={1}>
                   {t.transferNumber}
                 </Text>
-                <Text style={styles.dialogItemMeta}>
+                <Text style={[styles.dialogItemMeta, dark && { color: "#94a3b8" }]}>
                   {t.items?.length ?? 0} item
                   {(t.items?.length ?? 0) !== 1 ? "s" : ""} ·{" "}
                   {new Date(t.createdAt).toLocaleDateString()}
@@ -151,7 +209,7 @@ function TransferDialog({
                 color={t.status === "IN_TRANSIT" ? "#3b82f6" : "#6b7280"}
                 textColor="#ffffff"
               />
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       )}
@@ -167,6 +225,7 @@ function POSHeader({
   isWide,
   sidebarOpen,
   onToggleSidebar,
+  onAccountPress,
 }: {
   transferCount: number;
   transfers: InventoryTransferDTO[];
@@ -175,12 +234,57 @@ function POSHeader({
   isWide: boolean;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  onAccountPress: () => void;
 }) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
-  const isOnline = useNetworkStore((s) => s.isOnline);
+  const omsStatus = useOmsConnectionStore((state) => state.status);
   const pendingCount = useSyncStore((s) => s.pendingCount);
   const isSyncing = useSyncStore((s) => s.isSyncing);
+  const [showUserTag, setShowUserTag] = useState(true);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const showUserTagRef = useRef(showUserTag);
+  useEffect(() => {
+    showUserTagRef.current = showUserTag;
+  }, [showUserTag]);
 
+  useEffect(() => {
+    if (isWide) setShowUserTag(true);
+  }, [isWide]);
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: showUserTag ? 0 : 1,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [showUserTag, slideAnim]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onPanResponderRelease: (_evt, gesture) => {
+        const dx = gesture.dx;
+        const showingUser = showUserTagRef.current;
+        // endless swipe: left->date/time, right->user tag, allow infinite toggle
+        if (showingUser && dx < -25) {
+          setShowUserTag(false);
+        } else if (!showingUser && dx > 25) {
+          setShowUserTag(true);
+        } else if (Math.abs(dx) > 25) {
+          // fallback toggle for any strong swipe
+          setShowUserTag((prev) => !prev);
+        }
+      },
+    })
+  ).current;
+
+  const translateX = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -165],
+  });
+
+  const router = useRouter();
   const handleBadgePress = () => {
     setTransferDialogOpen(true);
     onTransferPress();
@@ -218,33 +322,61 @@ function POSHeader({
             dark={dark}
           />
         </View>
-        <Text
-          style={[
-            styles.headerTitle,
-            dark ? styles.headerTitleDark : styles.headerTitleLight,
-          ]}
-        >
-          NCT Seafoods POS System
-        </Text>
-        <View style={styles.headerRight}>
-          <View style={styles.syncIndicator}>
-            <View style={[styles.syncDot, { backgroundColor: isOnline ? "#28a745" : "#dc3545" }]} />
-            <Text style={[styles.syncText, dark ? styles.syncTextDark : styles.syncTextLight]}>
-              {isSyncing ? "Syncing..." : isOnline ? "Online" : "Offline"}
-            </Text>
-            {pendingCount > 0 && (
-              <View style={styles.pendingBadge}>
-                <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
-              </View>
-            )}
-          </View>
-          <SessionIndicator dark={dark} />
+        <View style={styles.headerBrand} pointerEvents="none">
+          <Image
+            source={require("../../../assets/nct-seafoods-logo.png")}
+            style={styles.headerLogo}
+            resizeMode="contain"
+            accessibilityLabel="NCT Seafoods"
+          />
+          <Text
+            style={[
+              styles.headerTitle,
+              dark ? styles.headerTitleDark : styles.headerTitleLight,
+            ]}
+            numberOfLines={1}
+          >
+            NCT Seafoods POS System
+          </Text>
+        </View>
+        <View style={styles.headerRight} {...(!isWide ? panResponder.panHandlers : {})}>
+          {isWide ? (
+            <SessionIndicator
+              dark={dark}
+              onPress={onAccountPress}
+              statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
+              statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
+              pendingCount={pendingCount}
+            />
+          ) : (
+            <View style={styles.headerSliderClip}>
+              <Animated.View style={[styles.headerSliderTrack, { transform: [{ translateX }] }]}>
+                <View style={styles.headerSliderItem}>
+                  <SessionIndicator
+                    dark={dark}
+                    onPress={onAccountPress}
+                    statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
+                    statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
+                    pendingCount={pendingCount}
+                  />
+                </View>
+                <View style={styles.headerSliderItem}>
+                  <HeaderDateTime dark={dark} />
+                </View>
+              </Animated.View>
+            </View>
+          )}
         </View>
       </View>
       <TransferDialog
         visible={transferDialogOpen}
         onClose={() => setTransferDialogOpen(false)}
         transfers={transfers}
+        dark={dark}
+        onSelect={(id) => {
+          setTransferDialogOpen(false);
+          router.push(`/(pos)/transfers?highlight=${id}` as any);
+        }}
       />
     </>
   );
@@ -296,11 +428,12 @@ function BottomNavigation({
 export default function POSLayout() {
   const pathname = usePathname();
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
 
   const cashier = useAuthStore((s) => s.cashier);
   const authHydrated = useAuthStore((s) => s.hydrated);
   const navigationMode = useUiStore((s) => s.navigationMode);
-  const themeMode = useUiStore((s) => s.themeMode);
+  const uiScale = useUiStore((s) => s.uiScale);
   const uiHydrated = useUiStore((s) => s.hydrated);
   const session = useCashierStore((s) => s.session);
   const cashierHydrated = useCashierStore((s) => s.hydrated);
@@ -312,6 +445,7 @@ export default function POSLayout() {
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const sidebarAnim = useRef(new Animated.Value(1)).current;
 
   const toggleSidebar = () => {
@@ -325,16 +459,39 @@ export default function POSLayout() {
     setSidebarOpen(!sidebarOpen);
   };
 
-  const dark = themeMode === "dark";
+  const closeSidebar = () => {
+    if (!sidebarOpen) return;
+    Animated.spring(sidebarAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 11,
+    }).start();
+    setSidebarOpen(false);
+  };
+
+  const dark = useIsDarkTheme();
+  const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
+
+  const handleLogout = async () => {
+    if (session?.sessionId) {
+      await CashierService.logout(session.sessionId);
+    } else {
+      useCashierStore.getState().clearSession();
+      useAuthStore.getState().signOut();
+    }
+    router.replace("/(auth)");
+  };
 
   // Refresh pending sync count on mount
   useEffect(() => {
     useSyncStore.getState().refreshPendingCount();
-  }, []);
+    checkOmsConnection();
+  }, [checkOmsConnection]);
 
   const isWide =
     navigationMode === "sidebar" ||
-    (navigationMode === "auto" && width >= WIDE_BREAKPOINT);
+    (navigationMode === "auto" && windowWidth >= WIDE_BREAKPOINT);
 
   // 1. Hydration safety — force hydrated after 3s
   useEffect(() => {
@@ -453,6 +610,7 @@ export default function POSLayout() {
           isWide={false}
           sidebarOpen={true}
           onToggleSidebar={() => {}}
+          onAccountPress={() => router.push("/(pos)/user" as any)}
         />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#17386b" />
@@ -463,11 +621,25 @@ export default function POSLayout() {
 
   return (
     <View
-      style={[
-        styles.container,
-        dark ? styles.bgDark : styles.bgLight,
-      ]}
+      style={[styles.viewport, dark ? styles.bgDark : styles.bgLight]}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setViewportSize((current) => current.width === width && current.height === height ? current : { width, height });
+      }}
     >
+      <View
+        style={[
+          styles.container,
+          dark ? styles.bgDark : styles.bgLight,
+          viewportSize.width > 0 && viewportSize.height > 0 ? {
+            flex: 0,
+            width: viewportSize.width / uiScale,
+            height: viewportSize.height / uiScale,
+            transform: [{ scale: uiScale }],
+            transformOrigin: "top left",
+          } : null,
+        ]}
+      >
       <POSHeader
         transferCount={transferCount}
         transfers={transfers}
@@ -476,6 +648,7 @@ export default function POSLayout() {
         isWide={isWide}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        onAccountPress={() => router.push("/(pos)/user" as any)}
       />
 
       <View style={styles.body}>
@@ -491,7 +664,8 @@ export default function POSLayout() {
               <TouchableOpacity
                 style={styles.sidebarBackdrop}
                 activeOpacity={1}
-                onPress={toggleSidebar}
+                onPress={closeSidebar}
+                accessibilityLabel="Close navigation"
               />
             )}
             <Animated.View
@@ -509,13 +683,7 @@ export default function POSLayout() {
               ]}
               pointerEvents={sidebarOpen ? "auto" : "none"}
             >
-              <View style={styles.sidebarLogoSection}>
-                <View style={[styles.sidebarLogoIcon, dark ? styles.sidebarLogoIconDark : styles.sidebarLogoIconLight]}>
-                  <Ionicons name="fish" size={22} color={dark ? "#60a5fa" : "#17386b"} />
-                </View>
-                <Text style={[styles.sidebarLogoText, dark ? styles.sidebarLogoTextDark : styles.sidebarLogoTextLight]}>NCT POS</Text>
-              </View>
-
+              <SidebarClock dark={dark} />
               <View style={styles.sidebarNavItems}>
                 {visibleNavItems.map((item) => {
                   const active = pathname === item.href;
@@ -556,7 +724,10 @@ export default function POSLayout() {
               </View>
 
               <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight]}>
-                <SessionIndicator dark={dark} />
+                <TouchableOpacity style={styles.sidebarLogoutBtn} onPress={handleLogout} activeOpacity={0.75}>
+                  <Ionicons name="log-out-outline" size={19} color="#dc3545" />
+                  <Text style={styles.sidebarLogoutText}>Log out</Text>
+                </TouchableOpacity>
               </View>
             </Animated.View>
           </>
@@ -573,11 +744,16 @@ export default function POSLayout() {
           dark={dark}
         />
       )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  viewport: {
+    flex: 1,
+    overflow: "hidden",
+  },
   container: {
     flex: 1,
   },
@@ -594,7 +770,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingTop: 48,
     borderBottomWidth: 1,
     zIndex: 30,
@@ -630,11 +806,29 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
     textAlign: "center",
-    letterSpacing: 0.5,
+    letterSpacing: 0,
     flexShrink: 1,
+  },
+  headerBrand: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 48,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    flexShrink: 1,
+    paddingHorizontal: 12,
+  },
+  headerLogo: {
+    width: 46,
+    height: 46,
+    flexShrink: 0,
   },
   headerTitleLight: {
     color: "#4169E1",
@@ -643,11 +837,28 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   headerRight: {
-    alignItems: "flex-end",
+    width: 165,
+    height: 34,
+    marginLeft: "auto",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerSliderClip: {
+    width: 165,
+    height: 34,
+    overflow: "hidden",
+    justifyContent: "center",
+  },
+  headerSliderTrack: {
+    width: 330,
+    height: 34,
     flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 8,
-    minWidth: 100,
+  },
+  headerSliderItem: {
+    width: 165,
+    height: 34,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   // Sync indicator
@@ -767,9 +978,14 @@ const styles = StyleSheet.create({
 
   // Sidebar — overlays on top of main, does not push content
   sidebarBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: "rgba(0,0,0,0.25)",
     zIndex: 49,
+    elevation: 11,
   },
   sidebar: {
     position: "absolute",
@@ -789,44 +1005,15 @@ const styles = StyleSheet.create({
   },
   sidebarLight: {
     backgroundColor: "#ffffff",
-    borderRightColor: "#e8edf3",
+    borderRightColor: "#dde3ea",
   },
   sidebarDark: {
-    backgroundColor: "#091227",
-    borderRightColor: "rgba(255,255,255,0.1)",
-  },
-  sidebarLogoSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  sidebarLogoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  sidebarLogoIconLight: {
-    backgroundColor: "#f0f4ff",
-  },
-  sidebarLogoIconDark: {
-    backgroundColor: "#1e293b",
-  },
-  sidebarLogoText: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  sidebarLogoTextLight: {
-    color: "#17386b",
-  },
-  sidebarLogoTextDark: {
-    color: "#e2e8f0",
+    backgroundColor: "#11151d",
+    borderRightColor: "#28303d",
   },
   sidebarNavItems: {
     flex: 1,
+    paddingTop: 18,
   },
   sidebarNavItem: {
     flexDirection: "row",
@@ -840,7 +1027,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f4ff",
   },
   sidebarNavItemActiveDark: {
-    backgroundColor: "#1e293b",
+    backgroundColor: "#202733",
   },
   sidebarNavLabel: {
     fontSize: 14,
@@ -886,6 +1073,100 @@ const styles = StyleSheet.create({
   },
   sidebarFooterDark: {
     borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  sidebarLogoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(220,53,69,0.10)",
+  },
+  sidebarLogoutText: {
+    color: "#dc3545",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  sidebarClock: {
+    marginHorizontal: 12,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  sidebarClockLight: {
+    backgroundColor: "#f0f4ff",
+    borderColor: "#e0e7ff",
+  },
+  sidebarClockDark: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  sidebarClockTime: {
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  sidebarClockTimeLight: {
+    color: "#17386b",
+  },
+  sidebarClockTimeDark: {
+    color: "#f8fafc",
+  },
+  sidebarClockDay: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  sidebarClockDayLight: {
+    color: "#1e3a5f",
+  },
+  sidebarClockDayDark: {
+    color: "#cbd5e1",
+  },
+  sidebarClockDate: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  sidebarClockDateLight: {
+    color: "#6b7b8d",
+  },
+  sidebarClockDateDark: {
+    color: "#94a3b8",
+  },
+  headerDateTime: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+  },
+  headerDateTimeLight: {
+    backgroundColor: "#f0f4ff",
+    borderColor: "#e0e7ff",
+  },
+  headerDateTimeDark: {
+    backgroundColor: "#1e293b",
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  headerDateTimeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  headerDateTimeTextLight: {
+    color: "#17386b",
+  },
+  headerDateTimeTextDark: {
+    color: "#e2e8f0",
+  },
+  headerDateTimeTouchable: {
+    borderRadius: 20,
   },
 
   // Bottom navigation — fixed at exact bottom, full-width flat bar, not floating

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
+  Image,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
@@ -10,6 +11,7 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
+  useColorScheme,
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -34,17 +36,46 @@ export default function SignInScreen() {
   const router = useRouter();
   const signIn = useAuthStore((s) => s.signIn);
   const device = useDeviceStore((s) => s.device);
+  const dark = useColorScheme() === "dark";
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const isTablet = Math.min(winW, winH) >= 600;
+  const compactLandscape = isLandscape && winH < 500;
+
+  const screenBackground = dark ? "#0f1b33" : "#f4f6f8";
+  const primaryTextColor = dark ? "#ffffff" : "#17386b";
+  const bodyTextColor = dark ? "#ffffff" : "#17202b";
+  const secondaryTextColor = dark ? "#d7e0ec" : "#667085";
+  const keyBackground = dark ? "rgba(255,255,255,0.10)" : "#ffffff";
+  const keyBorder = dark ? "rgba(255,255,255,0.20)" : "#d7dee8";
+  const placeholderColor = dark ? "rgba(255,255,255,0.55)" : "#98a2b3";
 
   // responsive keypad sizing — recomputes on rotate/resize
-  const GAP = isTablet ? 14 : 12;
+  const GAP = isLandscape ? 8 : isTablet ? 14 : 12;
   const PAD_MAX = isTablet ? 380 : 320;
   const PAD_H_PAD = isLandscape ? 32 : 48;
-  const padWidth = Math.min(winW - PAD_H_PAD * 2, PAD_MAX);
-  const keySize = Math.max(56, Math.min(isTablet ? 84 : 72, Math.floor((padWidth - GAP * 2) / 3)));
+  const availablePadWidth = Math.min(winW - PAD_H_PAD * 2, PAD_MAX);
+  const maxKeySize = isLandscape
+    ? compactLandscape
+      ? 54
+      : isTablet
+        ? 68
+        : 62
+    : isTablet
+      ? 84
+      : 72;
+  const keySize = Math.max(48, Math.min(maxKeySize, Math.floor((availablePadWidth - GAP * 2) / 3)));
+  const padWidth = keySize * 3 + GAP * 2;
   const keyRadius = keySize / 2;
+  const logoSize = isLandscape
+    ? compactLandscape
+      ? 104
+      : isTablet
+        ? 260
+        : 196
+    : isTablet
+      ? 220
+      : 180;
 
   const handleDigit = useCallback(
     (digit: string) => {
@@ -113,11 +144,12 @@ export default function SignInScreen() {
         key={index}
         style={[
           styles.dot,
-          filled && styles.dotFilled,
+          { borderColor: dark ? "rgba(255,255,255,0.40)" : "#aeb8c6" },
+          filled && { borderColor: primaryTextColor },
           error ? styles.dotError : null,
         ]}
       >
-        {filled && <View style={styles.dotInner} />}
+        {filled && <View style={[styles.dotInner, { backgroundColor: primaryTextColor }]} />}
       </View>
     );
   };
@@ -125,12 +157,22 @@ export default function SignInScreen() {
   const renderKey = (digit: string) => (
     <TouchableOpacity
       key={digit}
-      style={[styles.key, { width: keySize, height: keySize, borderRadius: keyRadius }]}
+      style={[
+        styles.key,
+        {
+          width: keySize,
+          height: keySize,
+          borderRadius: keyRadius,
+          backgroundColor: keyBackground,
+          borderColor: keyBorder,
+          shadowColor: primaryTextColor,
+        },
+      ]}
       onPress={() => handleDigit(digit)}
       activeOpacity={0.6}
       disabled={loading}
     >
-      <Text style={[styles.keyText, isTablet && styles.keyTextTablet]}>{digit}</Text>
+      <Text style={[styles.keyText, isTablet && styles.keyTextTablet, { color: primaryTextColor }]}>{digit}</Text>
     </TouchableOpacity>
   );
 
@@ -170,32 +212,55 @@ export default function SignInScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#f8fbff" }}
+      style={{ flex: 1, backgroundColor: screenBackground }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+      <StatusBar
+        barStyle={dark ? "light-content" : "dark-content"}
+        backgroundColor={screenBackground}
+      />
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
           isLandscape && styles.scrollContentLandscape,
           isTablet && styles.scrollContentTablet,
+          { backgroundColor: screenBackground },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-        <View style={[styles.header, isLandscape && styles.headerLandscape, isTablet && styles.headerTablet]}>
-          <View style={[styles.logoCircle, isTablet && styles.logoCircleTablet]}>
-            <Ionicons name="fish" size={isTablet ? 54 : 44} color="#17386b" />
+        <View style={[styles.loginContent, isLandscape && styles.loginContentLandscape]}>
+          <View
+            style={[
+              styles.header,
+              isLandscape && styles.headerLandscape,
+              isTablet && !isLandscape && styles.headerTablet,
+              isLandscape && { width: Math.min(290, winW * 0.30) },
+            ]}
+          >
+            <Image
+              source={require("../../../assets/nct-seafoods-logo.png")}
+              style={{ width: logoSize, height: logoSize }}
+              resizeMode="contain"
+              accessibilityLabel="NCT Seafoods"
+            />
+            <Text style={[styles.landscapeBrandTitle, !isLandscape && styles.portraitBrandTitle, { color: primaryTextColor }]}>NCT Seafoods</Text>
+            <Text style={[styles.landscapeBrandSubtitle, !isLandscape && styles.portraitBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
           </View>
-          <Text style={[styles.title, isTablet && styles.titleTablet]}>NCT Seafoods</Text>
-          <Text style={styles.subtitle}>POS System</Text>
-        </View>
 
         {mode === "pin" ? (
-          <View style={styles.pinBlock}>
-            <Text style={styles.modeTitle}>Enter PIN</Text>
-            <View style={styles.dotsRow}>
+          <View style={[styles.pinBlock, isLandscape && { width: Math.min(380, winW * 0.42) }]}>
+            <Text
+              style={[
+                styles.modeTitle,
+                isLandscape && styles.modeTitleLandscape,
+                { color: bodyTextColor },
+              ]}
+            >
+              Enter PIN
+            </Text>
+            <View style={[styles.dotsRow, isLandscape && styles.dotsRowLandscape]}>
               {Array.from({ length: PIN_LENGTH }).map((_, i) => renderDot(i))}
             </View>
 
@@ -206,44 +271,83 @@ export default function SignInScreen() {
             )}
 
             {loading && (
-              <ActivityIndicator size="small" color="#17386b" style={{ marginBottom: 8 }} />
+              <ActivityIndicator size="small" color={primaryTextColor} style={{ marginBottom: 8 }} />
             )}
 
-            <View style={[styles.pad, { width: padWidth, gap: GAP }]}>
+            <View
+              style={[
+                styles.pad,
+                isLandscape && styles.padLandscape,
+                { width: padWidth, gap: GAP },
+              ]}
+            >
               {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
+            </View>
+            <View
+              style={[
+                styles.padBottomRow,
+                isLandscape && styles.padBottomRowLandscape,
+                { width: padWidth, gap: GAP },
+              ]}
+            >
               <View style={{ width: keySize, height: keySize }} />
               {renderKey("0")}
               <TouchableOpacity
-                style={[styles.key, { width: keySize, height: keySize, borderRadius: keyRadius }]}
+                style={[
+                  styles.key,
+                  {
+                    width: keySize,
+                    height: keySize,
+                    borderRadius: keyRadius,
+                    backgroundColor: keyBackground,
+                    borderColor: keyBorder,
+                    shadowColor: primaryTextColor,
+                  },
+                ]}
                 onPress={handleBackspace}
                 activeOpacity={0.6}
                 disabled={loading}
               >
-                <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color="#17386b" />
+                <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color={primaryTextColor} />
               </TouchableOpacity>
             </View>
 
             <TouchableOpacity
-              style={styles.modeToggle}
+              style={[styles.modeToggle, isLandscape && styles.modeToggleLandscape]}
               onPress={() => { setMode("password"); setError(""); }}
             >
-              <Text style={styles.modeToggleText}>Sign in with password instead</Text>
+              <Text style={[styles.modeToggleText, { color: secondaryTextColor }]}>Sign in with password instead</Text>
             </TouchableOpacity>
+
+            {isLandscape && (
+              <TouchableOpacity
+                style={styles.landscapeReRegisterLink}
+                onPress={handleReRegister}
+              >
+                <Text style={[styles.reRegisterText, { color: secondaryTextColor }]}>Re-register device</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
-          <View style={[styles.passwordBlock, isTablet && { maxWidth: 420, width: "100%" }]}>
-            <Text style={styles.modeTitle}>Sign In</Text>
+          <View
+            style={[
+              styles.passwordBlock,
+              isTablet && !isLandscape && { maxWidth: 420 },
+              isLandscape && { width: Math.min(360, winW * 0.52) },
+            ]}
+          >
+            <Text style={[styles.modeTitle, { color: bodyTextColor }]}>Sign In</Text>
 
             {error ? (
               <Text style={styles.errorText}>{error}</Text>
             ) : null}
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Username</Text>
+              <Text style={[styles.label, { color: bodyTextColor }]}>Username</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: keyBackground, borderColor: keyBorder, color: bodyTextColor }]}
                 placeholder="Enter username"
-                placeholderTextColor="#b0b8c1"
+                placeholderTextColor={placeholderColor}
                 value={username}
                 onChangeText={setUsername}
                 autoCapitalize="none"
@@ -252,11 +356,11 @@ export default function SignInScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
+              <Text style={[styles.label, { color: bodyTextColor }]}>Password</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: keyBackground, borderColor: keyBorder, color: bodyTextColor }]}
                 placeholder="Enter password"
-                placeholderTextColor="#b0b8c1"
+                placeholderTextColor={placeholderColor}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
@@ -282,17 +386,29 @@ export default function SignInScreen() {
               style={styles.modeToggle}
               onPress={() => { setMode("pin"); setError(""); }}
             >
-              <Text style={styles.modeToggleText}>Sign in with PIN instead</Text>
+              <Text style={[styles.modeToggleText, { color: secondaryTextColor }]}>Sign in with PIN instead</Text>
             </TouchableOpacity>
+
+            {isLandscape && (
+              <TouchableOpacity
+                style={styles.landscapeReRegisterLink}
+                onPress={handleReRegister}
+              >
+                <Text style={[styles.reRegisterText, { color: secondaryTextColor }]}>Re-register device</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
+        </View>
 
-        <TouchableOpacity
-          style={styles.reRegisterLink}
-          onPress={handleReRegister}
-        >
-          <Text style={styles.reRegisterText}>Re-register device</Text>
-        </TouchableOpacity>
+        {!isLandscape && (
+          <TouchableOpacity
+            style={styles.reRegisterLink}
+            onPress={handleReRegister}
+          >
+            <Text style={[styles.reRegisterText, { color: secondaryTextColor }]}>Re-register device</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -308,7 +424,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fbff",
   },
   scrollContentLandscape: {
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   scrollContentTablet: {
     paddingHorizontal: 32,
@@ -416,7 +532,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   headerLandscape: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   headerTablet: {
     marginBottom: 28,
@@ -513,6 +629,58 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 16,
   },
+  loginContent: {
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "center",
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  loginContentLandscape: {
+    maxWidth: 800,
+    flexDirection: "row",
+    gap: 72,
+  },
+  landscapeBrandTitle: {
+    color: "#ffffff",
+    fontSize: 32,
+    fontWeight: "800",
+    marginTop: 20,
+    textAlign: "center",
+  },
+  landscapeBrandSubtitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  portraitBrandTitle: {
+    fontSize: 28,
+    marginTop: 16,
+  },
+  portraitBrandSubtitle: {
+    fontSize: 16,
+    marginTop: 4,
+  },
+  modeTitleLandscape: {
+    fontSize: 20,
+    marginBottom: 8,
+  },
+  dotsRowLandscape: {
+    marginBottom: 4,
+  },
+  padLandscape: {
+    marginTop: 8,
+  },
+  padBottomRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  padBottomRowLandscape: {
+    marginTop: 8,
+  },
   key: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
@@ -536,6 +704,9 @@ const styles = StyleSheet.create({
   modeToggle: {
     marginTop: 18,
     paddingVertical: 4,
+  },
+  modeToggleLandscape: {
+    marginTop: 10,
   },
   modeToggleText: {
     fontSize: 13,
@@ -587,6 +758,10 @@ const styles = StyleSheet.create({
   reRegisterLink: {
     marginTop: 24,
     paddingVertical: 8,
+  },
+  landscapeReRegisterLink: {
+    marginTop: 10,
+    paddingVertical: 4,
   },
   reRegisterText: {
     fontSize: 12,

@@ -5,7 +5,7 @@ export interface ProductImageRow {
   id: string;
   fileName: string | null;
   mimeType: string;
-  data: Buffer | null;
+  data: Uint8Array | null;
   checksum: string | null;
   createdAt: string;
   updatedAt: string;
@@ -22,7 +22,7 @@ export const ProductImageRepository = {
   async create(data: {
     fileName?: string;
     mimeType?: string;
-    data?: Buffer;
+    data?: Uint8Array;
     checksum?: string;
   }): Promise<ProductImageRow> {
     const id = uuid();
@@ -39,6 +39,24 @@ export const ProductImageRepository = {
         now,
         now,
       ]
+    );
+    return queryFirst<ProductImageRow>(
+      "SELECT * FROM ProductImage WHERE id = ?",
+      [id]
+    ) as Promise<ProductImageRow>;
+  },
+
+  async upsertRemote(id: string, imageLocation: string, sourceUrl = imageLocation): Promise<ProductImageRow> {
+    const now = new Date().toISOString();
+    await execute(
+      `INSERT INTO ProductImage (id, fileName, mimeType, data, checksum, createdAt, updatedAt)
+       VALUES (?, ?, 'remote/url', NULL, NULL, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET fileName = excluded.fileName, mimeType = excluded.mimeType, updatedAt = excluded.updatedAt`,
+      [id, imageLocation, now, now]
+    );
+    await execute(
+      "UPDATE ProductImage SET checksum = ? WHERE id = ?",
+      [sourceUrl, id]
     );
     return queryFirst<ProductImageRow>(
       "SELECT * FROM ProductImage WHERE id = ?",

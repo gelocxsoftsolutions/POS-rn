@@ -4,7 +4,8 @@ import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
 import { api } from "@/lib/api/http";
 import { useDeviceStore } from "@/lib/stores/device-store";
-import { execute } from "@/lib/db/connection";
+import { execute, queryFirst } from "@/lib/db/connection";
+import { v4 as uuid } from "uuid";
 import type { InventoryTransferDTO, PaginatedResult } from "@/lib/types/inventory";
 import type { TransferFilter } from "@/lib/repositories/transfer.repository";
 
@@ -40,7 +41,8 @@ export const TransferService = {
   async receive(
     id: string,
     itemsOrName: string | Array<{ itemId: string; actualQty: number; notes?: string }>,
-    maybeName?: string
+    maybeName?: string,
+    omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
     try {
       const transfer = await TransferRepository.findById(id);
@@ -66,35 +68,67 @@ export const TransferService = {
         const notes = override?.notes?.trim() || undefined;
         const discrepancy = actualQty !== item.allocatedQty;
 
-        const inv = await InventoryRepository.findByProduct(item.productId);
+        // Resolve productId: item.productId may be a stale variationId string (e.g. "123") instead of Product.id uuid → resolve via sku, create placeholder if needed to avoid FK violation
+        let resolvedProductId = item.productId;
+        try {
+          const direct = await queryFirst<{ id: string }>(`SELECT id FROM Product WHERE id = ?`, [item.productId]);
+          if (direct?.id) {
+            resolvedProductId = direct.id;
+          } else {
+            const bySku = await queryFirst<{ id: string }>(`SELECT id FROM Product WHERE sku = ?`, [String(item.productId)]);
+            if (bySku?.id) {
+              resolvedProductId = bySku.id;
+              // Fix the transfer item to point to the real Product.id for future receives
+              try { await execute(`UPDATE InventoryTransferItem SET productId = ? WHERE id = ?`, [resolvedProductId, item.id]); } catch {}
+            } else {
+              // Create placeholder product so FK constraints pass and inventory can be created
+              const placeholderId = uuid();
+              const placeholderSku = String(item.productId);
+              const placeholderName = item.productName ?? `Product ${placeholderSku}`;
+              try {
+                await execute(`INSERT INTO Product (id, sku, productCode, name, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))`, [placeholderId, placeholderSku, placeholderSku, placeholderName]);
+                resolvedProductId = placeholderId;
+                await execute(`UPDATE InventoryTransferItem SET productId = ? WHERE id = ?`, [resolvedProductId, item.id]);
+              } catch (e) { console.warn("[Transfer] placeholder product create failed", e); }
+            }
+          }
+        } catch (e) { console.warn("[Transfer] resolve product failed", e); }
+
+        const inv = await InventoryRepository.findByProduct(resolvedProductId);
         const balanceBefore = inv?.availableQty ?? 0;
 
-        // Additive — stock only added once here (sync no longer touches inventory)
-        if (!inv) {
-          await InventoryRepository.upsert(item.productId, { availableQty: actualQty });
-        } else {
-          await InventoryRepository.updateQuantities(item.productId, { availableQty: actualQty });
-        }
+        try {
+          // Additive — stock only added once here (sync no longer touches inventory)
+          if (!inv) {
+            await InventoryRepository.upsert(resolvedProductId, { availableQty: actualQty });
+          } else {
+            await InventoryRepository.updateQuantities(resolvedProductId, { availableQty: actualQty });
+          }
+        } catch (e) { console.warn("[Transfer] inventory update failed for", resolvedProductId, e); }
 
-        await InventoryLedgerRepository.create({
-          movementType: "TRANSFER_IN",
-          referenceNumber: id,
-          productId: item.productId,
-          quantity: actualQty,
-          balanceBefore,
-          balanceAfter: balanceBefore + actualQty,
-          createdByName: receivedByName,
-        });
+        try {
+          await InventoryLedgerRepository.create({
+            movementType: "TRANSFER_IN",
+            referenceNumber: id,
+            productId: resolvedProductId,
+            quantity: actualQty,
+            balanceBefore,
+            balanceAfter: balanceBefore + actualQty,
+            createdByName: receivedByName,
+          });
+        } catch (e) { console.warn("[Transfer] ledger create failed", e); }
 
         // Record received qty and discrepancy notes
-        await TransferItemRepository.updateReceivedQty(item.id, actualQty);
-        if (discrepancy && notes) {
-          await execute(`UPDATE InventoryTransferItem SET remarks = ? WHERE id = ?`, [notes, item.id]);
-        } else if (discrepancy && !notes) {
-          // Caller should have validated; still store generic reason
-          await execute(`UPDATE InventoryTransferItem SET remarks = ? WHERE id = ?`, ["Quantity discrepancy", item.id]);
-        }
-        // If no discrepancy, keep original remarks or clear
+        try {
+          await TransferItemRepository.updateReceivedQty(item.id, actualQty);
+        } catch (e) { console.warn("[Transfer] updateReceivedQty failed", e); }
+        try {
+          if (discrepancy && notes) {
+            await execute(`UPDATE InventoryTransferItem SET remarks = ? WHERE id = ?`, [notes, item.id]);
+          } else if (discrepancy && !notes) {
+            await execute(`UPDATE InventoryTransferItem SET remarks = ? WHERE id = ?`, ["Quantity discrepancy", item.id]);
+          }
+        } catch (e) { console.warn("[Transfer] remarks update failed", e); }
       }
 
       // If any discrepancy, append to transfer notes for audit trail
@@ -120,18 +154,23 @@ export const TransferService = {
 
       const result = await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
 
-      // Notify OMS in background (best-effort) — extract numeric transferId from transferNumber if possible
+      // Notify OMS in background (best-effort) — prefer explicit omsTransferId from QR, fallback to transferNumber parsing
+      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
+      let derivedOmsId: number | undefined;
       const transferNumber = transfer.transferNumber;
       if (transferNumber) {
         const raw = transferNumber.replace(/\D/g, "");
-        const omsTransferId = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
-        if (!isNaN(omsTransferId) && omsTransferId > 0) {
-          this.confirmReceipt(omsTransferId).catch(() => {});
-        }
+        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
+        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
+      }
+      const finalOmsId = explicitId ?? derivedOmsId;
+      if (finalOmsId) {
+        this.confirmReceipt(finalOmsId).catch((e) => console.warn("[Transfer] confirmReceipt failed", e));
       }
 
       return result;
-    } catch {
+    } catch (e: any) {
+      console.error("[Transfer] receive failed", e?.message ?? e, e);
       return null;
     }
   },

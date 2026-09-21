@@ -40,6 +40,7 @@ const config: ExpoConfig = {
     "expo-secure-store",
     "expo-sharing",
     "expo-status-bar",
+    "expo-system-ui",
     [
       "expo-camera",
       {

@@ -4,7 +4,11 @@ import type { StoreSettingsRow, UpsertSettingsInput } from "@/lib/repositories/s
 export const SettingsService = {
   async get(): Promise<StoreSettingsRow> {
     try {
-      return await SettingsRepository.get();
+      const settings = await SettingsRepository.get();
+      if (settings.taxRate > 1 && settings.taxRate <= 100) {
+        return await SettingsRepository.upsert({ taxRate: settings.taxRate / 100 });
+      }
+      return settings;
     } catch {
       return {
         id: "default",

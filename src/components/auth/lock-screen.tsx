@@ -7,6 +7,7 @@ import {
   StatusBar,
   ActivityIndicator,
   ScrollView,
+  useColorScheme,
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,13 +26,20 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const [loading, setLoading] = useState(false);
   const session = useCashierStore((s) => s.session);
   const unlock = useCashierStore((s) => s.unlock);
+  const dark = useColorScheme() === "dark";
+  const background = dark ? "#0f1b33" : "#f4f6f8";
+  const foreground = dark ? "#ffffff" : "#17386b";
+  const muted = dark ? "#a3b8d6" : "#667085";
+  const keyBackground = dark ? "rgba(255,255,255,0.12)" : "#ffffff";
+  const keyBorder = dark ? "rgba(255,255,255,0.18)" : "#d7dee8";
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const isTablet = Math.min(winW, winH) >= 600;
   const GAP = isTablet ? 14 : 12;
   const PAD_MAX = isTablet ? 360 : 300;
-  const padWidth = Math.min(winW - 40 * 2, PAD_MAX);
-  const keySize = Math.max(56, Math.min(isTablet ? 80 : 68, Math.floor((padWidth - GAP * 2) / 3)));
+  const availablePadWidth = Math.min(winW - 40 * 2, PAD_MAX);
+  const keySize = Math.max(56, Math.min(isTablet ? 80 : 68, Math.floor((availablePadWidth - GAP * 2) / 3)));
+  const padWidth = keySize * 3 + GAP * 2;
 
   const handleDigit = useCallback(
     (digit: string) => {
@@ -89,7 +97,8 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
         key={index}
         style={[
           styles.dot,
-          filled && styles.dotFilled,
+          { borderColor: dark ? "rgba(255,255,255,0.4)" : "#aeb8c6" },
+          filled && { backgroundColor: foreground, borderColor: foreground },
           error && styles.dotError,
         ]}
       />
@@ -99,18 +108,18 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const renderKey = (digit: string) => (
     <TouchableOpacity
       key={digit}
-      style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2 }]}
+      style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2, backgroundColor: keyBackground, borderColor: keyBorder }]}
       onPress={() => handleDigit(digit)}
       activeOpacity={0.6}
       disabled={loading}
     >
-      <Text style={[styles.keyText, isTablet && { fontSize: 26 }]}>{digit}</Text>
+      <Text style={[styles.keyText, isTablet && { fontSize: 26 }, { color: foreground }]}>{digit}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#17386b" />
+    <View style={[styles.container, { backgroundColor: background }]}>
+      <StatusBar barStyle={dark ? "light-content" : "dark-content"} backgroundColor={background} />
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
@@ -120,14 +129,14 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
         bounces={false}
       >
         <View style={[styles.header, isLandscape && { marginBottom: 12 }]}>
-          <Ionicons name="fish" size={isTablet ? 56 : 48} color="#ffffff" />
-          <Text style={[styles.title, isTablet && { fontSize: 24 }]}>NCT Seafoods POS System</Text>
-          <Text style={styles.subtitle}>Enter PIN to unlock</Text>
+          <Ionicons name="fish" size={isTablet ? 56 : 48} color={foreground} />
+          <Text style={[styles.title, isTablet && { fontSize: 24 }, { color: foreground }]}>NCT Seafoods POS System</Text>
+          <Text style={[styles.subtitle, { color: muted }]}>Enter PIN to unlock</Text>
         </View>
 
-        <View style={styles.cashierInfo}>
-          <Ionicons name="person-circle" size={20} color="#ffffff" />
-          <Text style={styles.cashierName}>{session?.cashierName ?? "Cashier"}</Text>
+        <View style={[styles.cashierInfo, { backgroundColor: keyBackground, borderColor: keyBorder }]}>
+          <Ionicons name="person-circle" size={20} color={foreground} />
+          <Text style={[styles.cashierName, { color: foreground }]}>{session?.cashierName ?? "Cashier"}</Text>
         </View>
 
         <View style={styles.dotsRow}>
@@ -137,15 +146,17 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
         {error && <Text style={styles.errorText}>Incorrect PIN. Try again.</Text>}
 
         {loading && (
-          <ActivityIndicator size="small" color="#ffffff" style={{ marginBottom: 8 }} />
+          <ActivityIndicator size="small" color={foreground} style={{ marginBottom: 8 }} />
         )}
 
         <View style={[styles.pad, { width: padWidth, gap: GAP }]}>
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(renderKey)}
+        </View>
+        <View style={[styles.padBottomRow, { width: padWidth, gap: GAP }]}>
           <View style={{ width: keySize, height: keySize }} />
           {renderKey("0")}
-          <TouchableOpacity style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2 }]} onPress={handleBackspace} activeOpacity={0.6} disabled={loading}>
-            <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color="#ffffff" />
+          <TouchableOpacity style={[styles.key, { width: keySize, height: keySize, borderRadius: keySize / 2, backgroundColor: keyBackground, borderColor: keyBorder }]} onPress={handleBackspace} activeOpacity={0.6} disabled={loading}>
+            <Ionicons name="backspace-outline" size={isTablet ? 26 : 22} color={foreground} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -230,6 +241,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
     marginTop: 16,
+  },
+  padBottomRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 12,
   },
   key: {
     backgroundColor: "rgba(255,255,255,0.12)",

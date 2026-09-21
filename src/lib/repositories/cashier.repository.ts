@@ -38,6 +38,7 @@ export interface UpdateCashierInput {
   active?: boolean;
   pinLoginEnabled?: boolean;
   passwordLoginEnabled?: boolean;
+  lastLogin?: string;
 }
 
 export const CashierRepository = {
@@ -102,6 +103,7 @@ export const CashierRepository = {
     if (input.active !== undefined) { fields.push("active = ?"); values.push(input.active ? 1 : 0); }
     if (input.pinLoginEnabled !== undefined) { fields.push("pinLoginEnabled = ?"); values.push(input.pinLoginEnabled ? 1 : 0); }
     if (input.passwordLoginEnabled !== undefined) { fields.push("passwordLoginEnabled = ?"); values.push(input.passwordLoginEnabled ? 1 : 0); }
+    if (input.lastLogin !== undefined) { fields.push("lastLogin = ?"); values.push(input.lastLogin); }
 
     if (fields.length === 0) return this.findById(id);
 

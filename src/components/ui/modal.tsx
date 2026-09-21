@@ -5,6 +5,7 @@ import {
   TouchableWithoutFeedback,
   StyleSheet,
   Dimensions,
+  type StyleProp,
   type ViewStyle,
 } from "react-native";
 
@@ -12,7 +13,7 @@ interface ModalProps {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 const { height } = Dimensions.get("window");

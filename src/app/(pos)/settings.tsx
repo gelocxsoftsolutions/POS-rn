@@ -9,18 +9,19 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { api, getApiConfig, setApiConfig } from "@/lib/api/http";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
@@ -39,6 +40,34 @@ const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 const AUDIT_FILTERS = ["ALL", "SALE_CREATED", "LOGIN_SUCCESS", "LOGIN_FAILED", "TRANSFER"] as const;
+const APPLICATION_SIZES = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
+
+function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onChange: (value: number) => void; dark: boolean }) {
+  return (
+    <View style={styles.sizeOptions}>
+      {APPLICATION_SIZES.map((size) => {
+        const selected = Math.round(value * 100) === size;
+        return (
+          <TouchableOpacity
+            key={size}
+            style={[
+              styles.sizeOption,
+              { backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: dark ? "#334155" : "#dbe3ec" },
+              selected && styles.sizeOptionSelected,
+            ]}
+            onPress={() => onChange(size / 100)}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+          >
+            <Text style={[styles.sizeOptionText, { color: dark ? "#cbd5e1" : "#475569" }, selected && styles.sizeOptionTextSelected]}>
+              {size}%
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 interface CashierRow {
   id: string;
@@ -64,8 +93,10 @@ export default function SettingsScreen() {
   const session = useCashierStore((s) => s.session);
   const clearSession = useCashierStore((s) => s.clearSession);
   const signOut = useAuthStore((s) => s.signOut);
-  const { themeMode, setThemeMode, navigationMode, setNavigationMode } = useUiStore();
-  const dark = themeMode === "dark";
+  const { themeMode, setThemeMode, navigationMode, setNavigationMode, uiScale, setUiScale } = useUiStore();
+  const dark = useIsDarkTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const isWideColumns = windowWidth >= 900;
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -80,7 +111,9 @@ export default function SettingsScreen() {
   const [omsApiKey, setOmsApiKey] = useState("");
   const [connectPending, setConnectPending] = useState(false);
   const [syncPending, setSyncPending] = useState(false);
-  const [liveStatus, setLiveStatus] = useState<"idle" | "connecting" | "connected" | "offline">("idle");
+  const liveStatus = useOmsConnectionStore((state) => state.status);
+  const setLiveStatus = useOmsConnectionStore((state) => state.setStatus);
+  const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
@@ -90,6 +123,11 @@ export default function SettingsScreen() {
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanning, setQrScanning] = useState(false);
+
+  useEffect(() => {
+    const normalizedScale = Math.min(1.5, Math.max(0.5, Math.round(uiScale * 10) / 10));
+    if (normalizedScale !== uiScale) setUiScale(normalizedScale);
+  }, [setUiScale, uiScale]);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const loadSettings = useCallback(async () => {
@@ -108,15 +146,8 @@ export default function SettingsScreen() {
 
   const verifyLiveConnection = useCallback(async (url: string, key: string) => {
     if (!url) { setLiveStatus("idle"); return; }
-    const cfg = getApiConfig();
-    setApiConfig({ baseUrl: url, apiKey: key || cfg.apiKey, accessToken: cfg.accessToken });
-    try {
-      const res = await api.get("/api/pos/health");
-      setLiveStatus(res.ok ? "connected" : "offline");
-    } catch {
-      setLiveStatus("offline");
-    }
-  }, []);
+    await checkOmsConnection(url, key);
+  }, [checkOmsConnection, setLiveStatus]);
 
   const loadOmsSettings = useCallback(async () => {
     try {
@@ -392,8 +423,8 @@ export default function SettingsScreen() {
       : auditLogs.filter((l) => l.eventType === auditFilter);
 
   // Dark-aware helpers
-  const cardBg = dark ? "#0f1729" : "#ffffff";
-  const cardBorder = dark ? "#1e293b" : "#e8edf3";
+  const cardBg = dark ? "#141922" : "#ffffff";
+  const cardBorder = dark ? "#28303d" : "#dde3ea";
   const sectionTitleColor = dark ? "#e2e8f0" : "#1a202c";
   const sectionDescColor = dark ? "#94a3b8" : "#6b7b8d";
   const fieldLabelColor = dark ? "#94a3b8" : "#6b7b8d";
@@ -415,11 +446,13 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Settings</Text>
+    <ScrollView style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.screenTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Settings</Text>
+      <Text style={[styles.screenSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Store, appearance, connections, and device preferences</Text>
 
-      {/* Store Details Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <View style={[styles.twoColRow, isWideColumns && styles.twoColRowWide]}>
+        {/* Store Details Card */}
+        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Store Details</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Manage your store information and preferences.</Text>
 
@@ -472,11 +505,12 @@ export default function SettingsScreen() {
             <Text style={[styles.pickerButtonText, { color: pickerTextColor }]}>{currencyCode}</Text>
             <Ionicons name="chevron-down" size={16} color={dark ? "#94a3b8" : "#6b7b8d"} />
           </TouchableOpacity>
+
         </View>
       </Card>
 
-      {/* Tax Profile Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        {/* Tax Profile Card */}
+        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Tax Profile</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure tax settings and receipt footer.</Text>
 
@@ -524,7 +558,8 @@ export default function SettingsScreen() {
           icon="checkmark-circle-outline"
           style={styles.saveBtn}
         />
-      </Card>
+        </Card>
+      </View>
 
       {/* Users Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
@@ -774,7 +809,32 @@ export default function SettingsScreen() {
               Low-light friendly
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.themeCard,
+              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              themeMode === "system" && styles.themeCardActive,
+            ]}
+            onPress={() => setThemeMode("system")}
+          >
+            <View style={[styles.themeIconWrap, themeMode === "system" && styles.themeIconWrapActive]}>
+              <Ionicons name="contrast-outline" size={22} color={themeMode === "system" ? "#fff" : "#0ea5e9"} />
+            </View>
+            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "system" && styles.themeLabelActive]}>
+              Auto
+            </Text>
+            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "system" && styles.themeDescActive]}>
+              Follow system appearance
+            </Text>
+          </TouchableOpacity>
         </View>
+      </Card>
+
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Application Size</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose the size of text, images, controls, and navigation.</Text>
+        <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
       {/* Device Card */}
@@ -837,7 +897,7 @@ export default function SettingsScreen() {
       <Modal visible={showQrScanner} animationType="slide" onRequestClose={() => setShowQrScanner(false)}>
         <View style={{ flex: 1, backgroundColor: "#000" }}>
           <CameraView
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             onBarcodeScanned={qrScanning ? undefined : ({ data }: { data: string }) => handleScanQr(data)}
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
           />
@@ -871,14 +931,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   screenTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#1a202c",
+    color: "#151a22",
+  },
+  screenSubtitle: {
+    fontSize: 12,
+    marginTop: 3,
     marginBottom: 16,
+  },
+  twoColRow: {
+    flexDirection: "column",
+  },
+  twoColRowWide: {
+    flexDirection: "row",
+    gap: 16,
+    alignItems: "flex-start",
+  },
+  twoColCard: {
+    flex: 1,
   },
   section: {
     padding: 20,
     marginBottom: 16,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   sectionTitle: {
     fontSize: 16,
@@ -1211,6 +1288,32 @@ const styles = StyleSheet.create({
   },
   themeDescActive: {
     color: "rgba(255,255,255,0.7)",
+  },
+  sizeOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  sizeOption: {
+    minWidth: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  sizeOptionSelected: {
+    backgroundColor: "#17386b",
+    borderColor: "#17386b",
+  },
+  sizeOptionText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  sizeOptionTextSelected: {
+    color: "#ffffff",
+    fontWeight: "700",
   },
   dangerBtn: {
     marginTop: 16,

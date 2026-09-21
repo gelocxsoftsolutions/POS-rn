@@ -63,8 +63,8 @@ export const InventoryRepository = {
 
     const id = uuid();
     await execute(
-      `INSERT INTO PosInventory (id, productId, allocatedQty, availableQty, reservedQty, soldQty, damagedQty, adjustmentQty, minimumStock, maximumStock, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO PosInventory (id, productId, allocatedQty, availableQty, reservedQty, soldQty, damagedQty, adjustmentQty, minimumStock, maximumStock, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         productId,
@@ -76,7 +76,6 @@ export const InventoryRepository = {
         data.adjustmentQty ?? 0,
         data.minimumStock ?? 0,
         data.maximumStock ?? 0,
-        now,
         now,
       ]
     );
