@@ -97,6 +97,7 @@ export default function SettingsScreen() {
   const dark = useIsDarkTheme();
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
+  const [settingsSearch, setSettingsSearch] = useState("");
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -421,6 +422,9 @@ export default function SettingsScreen() {
     auditFilter === "ALL"
       ? auditLogs
       : auditLogs.filter((l) => l.eventType === auditFilter);
+  const normalizedSettingsSearch = settingsSearch.trim().toLowerCase();
+  const showSettingsSection = (...keywords: string[]) =>
+    !normalizedSettingsSearch || keywords.some((keyword) => keyword.toLowerCase().includes(normalizedSettingsSearch));
 
   // Dark-aware helpers
   const cardBg = dark ? "#141922" : "#ffffff";
@@ -449,10 +453,25 @@ export default function SettingsScreen() {
     <ScrollView style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
       <Text style={[styles.screenTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Settings</Text>
       <Text style={[styles.screenSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Store, appearance, connections, and device preferences</Text>
+      <View style={[styles.settingsSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+        <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+        <TextInput
+          style={[styles.settingsSearchInput, { color: inputColor }]}
+          placeholder="Search settings..."
+          placeholderTextColor={dark ? "#64748b" : "#9aa4b2"}
+          value={settingsSearch}
+          onChangeText={setSettingsSearch}
+        />
+        {settingsSearch.length > 0 && (
+          <TouchableOpacity onPress={() => setSettingsSearch("")} accessibilityLabel="Clear settings search">
+            <Ionicons name="close-circle" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       <View style={[styles.twoColRow, isWideColumns && styles.twoColRowWide]}>
         {/* Store Details Card */}
-        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("store details name address currency device code registration") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Store Details</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Manage your store information and preferences.</Text>
 
@@ -510,7 +529,7 @@ export default function SettingsScreen() {
       </Card>
 
         {/* Tax Profile Card */}
-        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+        <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("tax profile vat rate receipt footer") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Tax Profile</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure tax settings and receipt footer.</Text>
 
@@ -562,7 +581,7 @@ export default function SettingsScreen() {
       </View>
 
       {/* Users Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("users cashiers roles") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
           <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users
         </Text>
@@ -600,7 +619,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Audit Logs Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("audit logs activity events") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
           <Ionicons name="document-text-outline" size={18} color={sectionTitleColor} /> Audit Logs
         </Text>
@@ -651,7 +670,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* OMS Connection Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("oms connection server api key sync qr") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>OMS Connection</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>
           Connect this device to the NCT OMS server.
@@ -733,7 +752,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Navigation Style Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("navigation style sidebar bottom auto") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Navigation Style</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose how you navigate the app.</Text>
 
@@ -767,7 +786,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Theme Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("theme appearance light dark auto system") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Theme</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select your preferred appearance.</Text>
 
@@ -831,14 +850,14 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("application size zoom scale text images controls") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Application Size</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose the size of text, images, controls, and navigation.</Text>
         <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
       {/* Device Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("device session sign out reset registration") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Device</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Session and device management.</Text>
 
@@ -939,6 +958,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 3,
     marginBottom: 16,
+  },
+  settingsSearch: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  settingsSearchInput: {
+    flex: 1,
+    paddingVertical: 9,
+    fontSize: 14,
+  },
+  hidden: {
+    display: "none",
   },
   twoColRow: {
     flexDirection: "column",

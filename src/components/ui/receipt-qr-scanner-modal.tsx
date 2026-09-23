@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -19,6 +20,8 @@ type Props = {
 };
 
 export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props) {
+  const { width, height } = useWindowDimensions();
+  const cameraSize = Math.max(160, Math.min(360, width - 48, height - 220));
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
 
@@ -70,7 +73,17 @@ export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props)
 
         <View style={styles.content}>
           {permission?.granted ? (
-            <View style={[styles.cameraCard, { borderColor: dark ? "#334155" : "#c7d2fe", shadowColor: dark ? "#000" : "#17386b" }]}>
+            <View
+              style={[
+                styles.cameraCard,
+                {
+                  width: cameraSize,
+                  height: cameraSize,
+                  borderColor: dark ? "#334155" : "#c7d2fe",
+                  shadowColor: dark ? "#000" : "#17386b",
+                },
+              ]}
+            >
               <CameraView
                 key={visible ? "receipt-qr-mounted" : "receipt-qr-unmounted"}
                 style={StyleSheet.absoluteFill}
@@ -83,9 +96,6 @@ export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props)
               <View style={[styles.corner, styles.cornerTopRight, { borderColor: "#14b8a6" }]} />
               <View style={[styles.corner, styles.cornerBottomLeft, { borderColor: "#14b8a6" }]} />
               <View style={[styles.corner, styles.cornerBottomRight, { borderColor: "#14b8a6" }]} />
-              <View style={styles.centerBox} />
-              <View style={styles.scanLineVertical} />
-              <View style={styles.scanLineHorizontal} />
             </View>
           ) : (
             <View style={[styles.permissionCard, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#c7d2fe" }]}>
@@ -140,9 +150,6 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 38 },
   content: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
   cameraCard: {
-    width: "100%",
-    maxWidth: 360,
-    aspectRatio: 1,
     borderRadius: 16,
     borderWidth: 2,
     overflow: "hidden",
@@ -157,19 +164,6 @@ const styles = StyleSheet.create({
   cornerTopRight: { top: 16, right: 16, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 12 },
   cornerBottomLeft: { bottom: 16, left: 16, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 12 },
   cornerBottomRight: { bottom: 16, right: 16, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 12 },
-  centerBox: {
-    position: "absolute",
-    top: "22%",
-    left: "22%",
-    right: "22%",
-    bottom: "22%",
-    borderWidth: 1,
-    borderColor: "rgba(20,184,166,0.35)",
-    borderRadius: 8,
-    borderStyle: "dashed",
-  },
-  scanLineVertical: { position: "absolute", left: "50%", top: 24, bottom: 24, width: 1, backgroundColor: "rgba(20,184,166,0.6)" },
-  scanLineHorizontal: { position: "absolute", top: "50%", left: 24, right: 24, height: 1, backgroundColor: "rgba(20,184,166,0.6)" },
   permissionCard: {
     width: "100%",
     maxWidth: 360,

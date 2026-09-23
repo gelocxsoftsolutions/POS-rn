@@ -18,7 +18,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TransferService } from "@/lib/services/transfer.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { api } from "@/lib/api/http";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
@@ -67,6 +68,8 @@ type ReceiveDraftItem = {
 
 export default function TransfersScreen() {
   const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTransfer, setSelectedTransfer] = useState<InventoryTransferDTO | null>(null);
@@ -74,6 +77,8 @@ export default function TransfersScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const pageSize = useUiStore((state) => state.pageSizes?.transfers ?? 5);
+  const setPageSize = useUiStore((state) => state.setPageSize);
   const [permission, requestPermission] = useCameraPermissions();
   const session = useCashierStore((s) => s.session);
   const dark = useIsDarkTheme();
@@ -102,7 +107,7 @@ export default function TransfersScreen() {
 
   const loadTransfers = useCallback(async () => {
     try {
-      const result = await TransferService.list({ page: 1, pageSize: 50 });
+      const result = await TransferService.list({ page: 1, pageSize: 500 });
       setTransfers(result.items);
     } catch {
       // keep empty
@@ -117,9 +122,26 @@ export default function TransfersScreen() {
     })();
   }, [loadTransfers]);
 
-  const filtered = filter === "All"
-    ? transfers
-    : transfers.filter((t) => t.status === filter);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = transfers.filter((transfer) => {
+    const matchesStatus = filter === "All" || transfer.status === filter;
+    const matchesSearch = !normalizedSearch || [
+      transfer.transferNumber,
+      transfer.sourceWarehouse,
+      transfer.destinationPos,
+      transfer.status,
+    ].some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch));
+    return matchesStatus && matchesSearch;
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pagedTransfers = filtered.slice(
+    (page - 1) * pageSize,
+    page * pageSize,
+  );
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   const statusColor = (status: string) => {
     switch (status) {
@@ -736,6 +758,24 @@ export default function TransfersScreen() {
           <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{filtered.length} records</Text>
         </View>
       </View>
+      <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
+        <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+        <TextInput
+          style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+          placeholder="Search transfers..."
+          placeholderTextColor={dark ? "#64748b" : "#9aa4b2"}
+          value={search}
+          onChangeText={(value) => {
+            setSearch(value);
+            setPage(1);
+          }}
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }} accessibilityLabel="Clear transfer search">
+            <Ionicons name="close-circle" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+          </TouchableOpacity>
+        )}
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -753,12 +793,15 @@ export default function TransfersScreen() {
                   ? styles.filterChipActive
                   : { backgroundColor: dark ? "#101928" : "#f0f4ff", borderColor: dark ? "#1e2a3a" : "#e2e8f0" },
               ]}
-              onPress={() => setFilter(sf)}
+              onPress={() => {
+                setFilter(sf);
+                setPage(1);
+              }}
             >
               <Text
                 style={[
                   styles.filterText,
-                  active ? styles.filterTextActive : { color: dark ? "#c1c9d4" : "#6b7b8d" },
+                  { color: active ? "#ffffff" : dark ? "#e2e8f0" : "#526174" },
                 ]}
               >
                 {sf === "All" ? "All" : statusLabel(sf)}
@@ -769,7 +812,8 @@ export default function TransfersScreen() {
       </ScrollView>
 
       <FlatList
-        data={filtered}
+        style={styles.transferList}
+        data={pagedTransfers}
         renderItem={({ item }) => {
           const isHighlighted = highlightedId === item.id;
           return (
@@ -813,6 +857,18 @@ export default function TransfersScreen() {
             <Text style={styles.emptyText}>No transfers found</Text>
           </View>
         }
+      />
+
+      <PaginationControls
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize("transfers", size);
+          setPage(1);
+        }}
+        dark={dark}
       />
 
       <Modal visible={showScanner} animationType="slide" onRequestClose={() => { setScanning(false); setShowScanner(false); }} statusBarTranslucent>
@@ -1027,6 +1083,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 3,
   },
+  searchBar: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
   countBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1051,7 +1123,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   filterRow: {
-    maxHeight: 50,
+    flexGrow: 0,
   },
   filterContent: {
     paddingHorizontal: 16,
@@ -1060,11 +1132,13 @@ const styles = StyleSheet.create({
   },
   filterChip: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    minHeight: 38,
     borderRadius: 20,
     backgroundColor: "#f0f4ff",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterChipActive: {
     backgroundColor: "#17386b",
@@ -1072,15 +1146,17 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 13,
-    fontWeight: "500",
-    color: "#6b7b8d",
-  },
-  filterTextActive: {
-    color: "#ffffff",
+    fontWeight: "600",
+    lineHeight: 18,
+    opacity: 1,
+    includeFontPadding: false,
   },
   list: {
     padding: 16,
     paddingTop: 4,
+  },
+  transferList: {
+    flex: 1,
   },
   transferCard: {
     padding: 16,

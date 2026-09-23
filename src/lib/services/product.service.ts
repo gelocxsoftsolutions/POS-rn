@@ -73,4 +73,12 @@ export const ProductService = {
       return 0;
     }
   },
+
+  async getInventorySummary() {
+    try {
+      return await ProductRepository.inventorySummary();
+    } catch {
+      return { totalProducts: 0, totalAvailable: 0, lowStock: 0, outOfStock: 0 };
+    }
+  },
 };

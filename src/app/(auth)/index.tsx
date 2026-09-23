@@ -165,7 +165,6 @@ export default function SignInScreen() {
           borderRadius: keyRadius,
           backgroundColor: keyBackground,
           borderColor: keyBorder,
-          shadowColor: primaryTextColor,
         },
       ]}
       onPress={() => handleDigit(digit)}
@@ -301,7 +300,6 @@ export default function SignInScreen() {
                     borderRadius: keyRadius,
                     backgroundColor: keyBackground,
                     borderColor: keyBorder,
-                    shadowColor: primaryTextColor,
                   },
                 ]}
                 onPress={handleBackspace}
@@ -687,11 +685,7 @@ const styles = StyleSheet.create({
     borderColor: "#e8edf3",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#17386b",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    overflow: "hidden",
   },
   keyText: {
     fontSize: 24,

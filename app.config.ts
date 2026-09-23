@@ -41,6 +41,7 @@ const config: ExpoConfig = {
     "expo-sharing",
     "expo-status-bar",
     "expo-system-ui",
+    "@react-native-community/datetimepicker",
     [
       "expo-camera",
       {
