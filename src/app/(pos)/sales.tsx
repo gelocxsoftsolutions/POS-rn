@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BottomSheet } from "@/components/ui/modal";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -32,12 +33,11 @@ import { SaleService } from "@/lib/services/sale.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { InventoryService } from "@/lib/services/inventory.service";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 
-const GRID_COLUMNS = 3;
-const PRODUCTS_PER_PAGE = 12;
+const GRID_COLUMNS = 5;
 const RECEIPT_WIDTH_MM = 58;
 const RECEIPT_WIDTH_POINTS = Math.round((RECEIPT_WIDTH_MM / 25.4) * 72);
 const RECEIPT_PREVIEW_WIDTH = Math.round((RECEIPT_WIDTH_MM / 25.4) * 160);
@@ -99,6 +99,7 @@ export default function SalesScreen() {
   const [printing, setPrinting] = useState(false);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [productPage, setProductPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [productSectionWidth, setProductSectionWidth] = useState(0);
   const [quantityItem, setQuantityItem] = useState<PosCartItem | null>(null);
   const [quantityInput, setQuantityInput] = useState("");
@@ -108,6 +109,8 @@ export default function SalesScreen() {
   const cashier = useAuthStore((s) => s.cashier);
   const device = useDeviceStore((s) => s.device);
   const dark = useIsDarkTheme();
+  const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
+  const setPageSize = useUiStore((state) => state.setPageSize);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
@@ -196,12 +199,14 @@ export default function SalesScreen() {
     );
   }, [products, search, sort]);
 
-  const productTotalPages = Math.max(1, Math.ceil(sortedProducts.length / PRODUCTS_PER_PAGE));
-  const productCardWidth = productSectionWidth > 0 ? (productSectionWidth - 24) / GRID_COLUMNS : undefined;
+  const productTotalPages = Math.max(1, Math.ceil(sortedProducts.length / productPageSize));
+  const productCardWidth = productSectionWidth > 0
+    ? (productSectionWidth - (GRID_COLUMNS - 1) * 12) / GRID_COLUMNS
+    : undefined;
   const productImageSize = Math.min(160, Math.max(72, (productCardWidth ?? 184) - 24));
   const pagedProducts = useMemo(
-    () => sortedProducts.slice((productPage - 1) * PRODUCTS_PER_PAGE, productPage * PRODUCTS_PER_PAGE),
-    [sortedProducts, productPage]
+    () => sortedProducts.slice((productPage - 1) * productPageSize, productPage * productPageSize),
+    [sortedProducts, productPage, productPageSize]
   );
   const checkoutSubtotal = cart.total();
   const checkoutTaxRate = settings?.taxRate ?? 0.12;
@@ -568,6 +573,49 @@ export default function SalesScreen() {
     );
   };
 
+  const renderProductListItem = ({ item }: { item: PosCartItem }) => {
+    const stock = stockMap.get(item.productId) ?? item.maxQuantity;
+    const effective = effectiveStock(item.productId, stock);
+    const inCart = cart.items.find((cartItem) => cartItem.productId === item.productId);
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.productCard,
+          styles.productCardList,
+          effective <= 0 && styles.productCardDisabled,
+          {
+            backgroundColor: dark ? "#141922" : "#ffffff",
+            borderColor: dark ? "#28303d" : "#dde3ea",
+          },
+        ]}
+        onPress={() => handleAddToCart(item)}
+        activeOpacity={0.7}
+        disabled={effective <= 0}
+      >
+        <View style={[styles.productImage, styles.productImageList]}>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
+          ) : (
+            <Ionicons name="fish" size={30} color="#17386b" />
+          )}
+        </View>
+        <View style={styles.productListDetails}>
+          <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
+          <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+          <View style={styles.productFooter}>
+            <Badge
+              label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
+              color={effective > 0 ? "#28a745" : "#dc3545"}
+              size="sm"
+            />
+            {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
       <View style={[styles.layout, { flexDirection: isPortrait ? "column" : isWideLayout ? "row" : "column" }]}>
@@ -576,8 +624,26 @@ export default function SalesScreen() {
           onLayout={(event) => setProductSectionWidth(event.nativeEvent.layout.width)}
         >
           <View style={styles.pageHeading}>
-            <Text style={[styles.pageTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>New Sale</Text>
-            <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Select products and review the cart</Text>
+            <View>
+              <Text style={[styles.pageTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>New Sale</Text>
+              <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Select products and review the cart</Text>
+            </View>
+            <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+              <TouchableOpacity
+                style={[styles.viewToggleButton, viewMode === "grid" && styles.viewToggleButtonActive]}
+                onPress={() => setViewMode("grid")}
+                accessibilityLabel="Grid view"
+              >
+                <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.viewToggleButton, viewMode === "list" && styles.viewToggleButtonActive]}
+                onPress={() => setViewMode("list")}
+                accessibilityLabel="List view"
+              >
+                <Ionicons name="list" size={19} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={styles.searchTools}>
             <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
@@ -634,13 +700,13 @@ export default function SalesScreen() {
           ) : (
             <>
             <FlatList
-              key="sales-products-3-column"
+              key={`sales-products-${viewMode}`}
               style={styles.productGrid}
               data={pagedProducts}
-              renderItem={renderProduct}
+              renderItem={viewMode === "grid" ? renderProduct : renderProductListItem}
               keyExtractor={(item) => item.productId}
-              numColumns={GRID_COLUMNS}
-              columnWrapperStyle={styles.productRow}
+              numColumns={viewMode === "grid" ? GRID_COLUMNS : 1}
+              columnWrapperStyle={viewMode === "grid" ? styles.productRow : undefined}
               contentContainerStyle={styles.productList}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
@@ -649,29 +715,17 @@ export default function SalesScreen() {
                 </View>
               }
             />
-            {productTotalPages > 1 && (
-              <View style={styles.productPagination}>
-                <TouchableOpacity
-                  style={[styles.productPageBtn, productPage === 1 && styles.productPageBtnDisabled]}
-                  onPress={() => setProductPage((page) => Math.max(1, page - 1))}
-                  disabled={productPage === 1}
-                  accessibilityLabel="Previous product page"
-                >
-                  <Ionicons name="chevron-back" size={18} color="#17386b" />
-                </TouchableOpacity>
-                <Text style={[styles.productPageText, { color: dark ? "#cbd5e1" : "#475569" }]}>
-                  Page {productPage} of {productTotalPages}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.productPageBtn, productPage === productTotalPages && styles.productPageBtnDisabled]}
-                  onPress={() => setProductPage((page) => Math.min(productTotalPages, page + 1))}
-                  disabled={productPage === productTotalPages}
-                  accessibilityLabel="Next product page"
-                >
-                  <Ionicons name="chevron-forward" size={18} color="#17386b" />
-                </TouchableOpacity>
-              </View>
-            )}
+            <PaginationControls
+              page={productPage}
+              totalPages={productTotalPages}
+              pageSize={productPageSize}
+              onPageChange={setProductPage}
+              onPageSizeChange={(size) => {
+                setPageSize("sales", size);
+                setProductPage(1);
+              }}
+              dark={dark}
+            />
             </>
           )}
         </View>
@@ -1019,7 +1073,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fbff",
   },
   pageHeading: {
+    minHeight: 54,
     paddingBottom: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   pageTitle: {
     fontSize: 22,
@@ -1028,6 +1087,23 @@ const styles = StyleSheet.create({
   pageSubtitle: {
     fontSize: 12,
     marginTop: 3,
+  },
+  viewToggle: {
+    width: 78,
+    height: 38,
+    padding: 3,
+    borderRadius: 8,
+    flexDirection: "row",
+    flexShrink: 0,
+  },
+  viewToggleButton: {
+    flex: 1,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewToggleButtonActive: {
+    backgroundColor: "#17386b",
   },
   loadingContainer: {
     flex: 1,
@@ -1130,6 +1206,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
   },
+  productCardList: {
+    width: "100%",
+    minHeight: 112,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   productCardDisabled: {
     opacity: 0.5,
   },
@@ -1141,6 +1224,18 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: "hidden",
     alignSelf: "center",
+  },
+  productImageList: {
+    width: 88,
+    height: 88,
+    marginBottom: 0,
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  productListDetails: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "center",
   },
   catalogImage: {
     width: "100%",

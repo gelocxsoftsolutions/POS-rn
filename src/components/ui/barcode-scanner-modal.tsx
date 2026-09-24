@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -19,6 +20,12 @@ type Props = {
 };
 
 export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
+  const { width, height } = useWindowDimensions();
+  const cameraWidth = Math.max(
+    240,
+    Math.min(680, width - 64, Math.max(240, height - 260) * 1.9),
+  );
+  const cameraHeight = cameraWidth / 1.9;
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
 
@@ -67,7 +74,16 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
 
         <View style={styles.content}>
           {permission?.granted ? (
-            <View style={[styles.cameraCard, { borderColor: dark ? "#28303d" : "#e8edf3" }]}>
+            <View
+              style={[
+                styles.cameraCard,
+                {
+                  width: cameraWidth,
+                  height: cameraHeight,
+                  borderColor: dark ? "#28303d" : "#e8edf3",
+                },
+              ]}
+            >
               <CameraView
                 key={visible ? "barcode-camera-mounted" : "barcode-camera-unmounted"}
                 style={StyleSheet.absoluteFill}
@@ -123,9 +139,6 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 40 },
   content: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   cameraCard: {
-    width: "100%",
-    maxWidth: 1000,
-    aspectRatio: 1.75,
     borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",

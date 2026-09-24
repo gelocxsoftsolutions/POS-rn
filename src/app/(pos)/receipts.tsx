@@ -20,16 +20,18 @@ import { Badge } from "@/components/ui/badge";
 import { SaleService } from "@/lib/services/sale.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { SaleDTO } from "@/lib/types/sales";
 import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import QRCode from "react-native-qrcode-svg";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
 export default function ReceiptsScreen() {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<SaleDTO | null>(null);
   const [receipts, setReceipts] = useState<SaleDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,10 +39,12 @@ export default function ReceiptsScreen() {
   const [receiptSettings, setReceiptSettings] = useState<StoreSettingsRow | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const dark = useIsDarkTheme();
+  const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
+  const setPageSize = useUiStore((state) => state.setPageSize);
 
   const loadReceipts = useCallback(async () => {
     try {
-      const result = await SaleService.list({ page: 1, pageSize: 50 });
+      const result = await SaleService.list({ page: 1, pageSize: 500 });
       setReceipts(result.items);
     } catch {
       // keep empty
@@ -137,6 +141,12 @@ export default function ReceiptsScreen() {
     },
     [handleScanReceipt]
   );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pagedReceipts = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   const renderReceipt = ({ item }: { item: SaleDTO }) => (
     <TouchableOpacity
@@ -192,10 +202,10 @@ export default function ReceiptsScreen() {
             placeholder="Search receipts..."
             placeholderTextColor={dark ? "#6b7b8d" : "#b0b8c1"}
             value={search}
-            onChangeText={setSearch}
+            onChangeText={(value) => { setSearch(value); setPage(1); }}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch("")}>
+            <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
               <Ionicons name="close-circle" size={18} color="#8e99a4" />
             </TouchableOpacity>
           )}
@@ -205,7 +215,8 @@ export default function ReceiptsScreen() {
         </TouchableOpacity>
       </View>
       <FlatList
-        data={filtered}
+        style={styles.receiptList}
+        data={pagedReceipts}
         renderItem={renderReceipt}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
@@ -215,6 +226,17 @@ export default function ReceiptsScreen() {
             <Text style={styles.emptyText}>No receipts found</Text>
           </View>
         }
+      />
+      <PaginationControls
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize("receipts", size);
+          setPage(1);
+        }}
+        dark={dark}
       />
       {selected && (
         <Modal
@@ -337,6 +359,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
+  },
+  receiptList: {
+    flex: 1,
   },
   pageHeading: {
     flexDirection: "row",

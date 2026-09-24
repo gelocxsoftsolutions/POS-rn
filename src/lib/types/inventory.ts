@@ -79,6 +79,15 @@ export interface ProductDTO {
   imageId: string | null;
   imageUrl?: string | null;
   retailPrice: number | null;
+  allocatedQty?: number;
+  availableQty?: number;
+  reservedQty?: number;
+  soldQty?: number;
+  damagedQty?: number;
+  adjustmentQty?: number;
+  minimumStock?: number;
+  maximumStock?: number;
+  inventoryUpdatedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,11 +103,18 @@ export interface ProductFilter {
   categoryId?: string;
   brandId?: string;
   status?: string;
-  stockStatus?: string;
+  stockStatus?: "IN_STOCK" | "LOW" | "OUT_OF_STOCK";
   minPrice?: number;
   maxPrice?: number;
   page?: number;
   pageSize?: number;
+}
+
+export interface ProductInventorySummary {
+  totalProducts: number;
+  totalAvailable: number;
+  lowStock: number;
+  outOfStock: number;
 }
 
 export interface InventoryDTO {

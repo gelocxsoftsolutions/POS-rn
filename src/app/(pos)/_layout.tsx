@@ -61,15 +61,15 @@ const navItems = [
     icon: "cube-outline" as const,
     activeIcon: "cube" as const,
     href: "/(pos)/products",
-    requiredPermission: "POS_PRODUCTS",
+    requiredPermissions: ["POS_PRODUCTS", "POS_INVENTORY"],
   },
   {
-    name: "stock",
-    label: "Stock",
-    icon: "archive-outline" as const,
-    activeIcon: "archive" as const,
-    href: "/(pos)/stock",
-    requiredPermission: "POS_INVENTORY",
+    name: "reports",
+    label: "Reports",
+    icon: "bar-chart-outline" as const,
+    activeIcon: "bar-chart" as const,
+    href: "/(pos)/reports",
+    requiredPermission: "DASHBOARD",
   },
   {
     name: "transfers",
@@ -88,6 +88,15 @@ const navItems = [
     requiredPermission: "POS_SETTINGS",
   },
 ];
+
+function hasAnyRequiredPermission(item: (typeof navItems)[number], grantedPermissions: string[]) {
+  const required = "requiredPermissions" in item && item.requiredPermissions
+    ? item.requiredPermissions
+    : "requiredPermission" in item && item.requiredPermission
+      ? [item.requiredPermission]
+      : [];
+  return required.some((permission) => grantedPermissions.includes(permission));
+}
 
 function SidebarClock({ dark }: { dark: boolean }) {
   const [now, setNow] = useState(new Date());
@@ -119,7 +128,10 @@ function HeaderDateTime({ dark }: { dark: boolean }) {
   return (
     <View style={[styles.headerDateTime, dark ? styles.headerDateTimeDark : styles.headerDateTimeLight]}>
       <Ionicons name="time-outline" size={14} color={dark ? "#94a3b8" : "#64748b"} />
-      <Text style={[styles.headerDateTimeText, dark ? styles.headerDateTimeTextDark : styles.headerDateTimeTextLight]}>
+      <Text
+        style={[styles.headerDateTimeText, dark ? styles.headerDateTimeTextDark : styles.headerDateTimeTextLight]}
+        numberOfLines={1}
+      >
         {day}, {date} • {time}
       </Text>
     </View>
@@ -248,41 +260,33 @@ function POSHeader({
   }, [showUserTag]);
 
   useEffect(() => {
-    if (isWide) setShowUserTag(true);
-  }, [isWide]);
-
-  useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: showUserTag ? 0 : 1,
-      duration: 260,
-      useNativeDriver: true,
-    }).start();
-  }, [showUserTag, slideAnim]);
+    if (isWide) {
+      showUserTagRef.current = true;
+      setShowUserTag(true);
+      slideAnim.setValue(0);
+    }
+  }, [isWide, slideAnim]);
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 10 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_evt, gesture) => gesture.dx > 10 && gesture.dx > Math.abs(gesture.dy),
       onPanResponderRelease: (_evt, gesture) => {
-        const dx = gesture.dx;
-        const showingUser = showUserTagRef.current;
-        // endless swipe: left->date/time, right->user tag, allow infinite toggle
-        if (showingUser && dx < -25) {
-          setShowUserTag(false);
-        } else if (!showingUser && dx > 25) {
-          setShowUserTag(true);
-        } else if (Math.abs(dx) > 25) {
-          // fallback toggle for any strong swipe
-          setShowUserTag((prev) => !prev);
-        }
+        if (gesture.dx <= 25) return;
+        const nextShowUserTag = !showUserTagRef.current;
+        showUserTagRef.current = nextShowUserTag;
+        slideAnim.setValue(240);
+        setShowUserTag(nextShowUserTag);
+        requestAnimationFrame(() => {
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 260,
+            useNativeDriver: true,
+          }).start();
+        });
       },
     })
   ).current;
-
-  const translateX = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -165],
-  });
 
   const router = useRouter();
   const handleBadgePress = () => {
@@ -350,8 +354,8 @@ function POSHeader({
             />
           ) : (
             <View style={styles.headerSliderClip}>
-              <Animated.View style={[styles.headerSliderTrack, { transform: [{ translateX }] }]}>
-                <View style={styles.headerSliderItem}>
+              <Animated.View style={[styles.headerSliderItem, { transform: [{ translateX: slideAnim }] }]}>
+                {showUserTag ? (
                   <SessionIndicator
                     dark={dark}
                     onPress={onAccountPress}
@@ -359,10 +363,9 @@ function POSHeader({
                     statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
                     pendingCount={pendingCount}
                   />
-                </View>
-                <View style={styles.headerSliderItem}>
+                ) : (
                   <HeaderDateTime dark={dark} />
-                </View>
+                )}
               </Animated.View>
             </View>
           )}
@@ -515,7 +518,7 @@ export default function POSLayout() {
   const visibleNavItems = navItems.filter(
     (item) =>
       grantedPermissions.length === 0 ||
-      grantedPermissions.includes(item.requiredPermission)
+      hasAnyRequiredPermission(item, grantedPermissions)
   );
 
   // 3. Auth redirect guard
@@ -593,7 +596,7 @@ export default function POSLayout() {
       const itemPath = item.href.replace("(pos)", "").replace("//", "/") || "/";
       return pathname === item.href || pathname === itemPath;
     });
-    if (currentItem && !grantedPermissions.includes(currentItem.requiredPermission)) {
+    if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
       router.replace("/(pos)");
     }
   }, [pathname, grantedPermissions, router]);
@@ -837,28 +840,24 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   headerRight: {
-    width: 165,
+    width: 240,
     height: 34,
     marginLeft: "auto",
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "flex-end",
   },
   headerSliderClip: {
-    width: 165,
+    width: 240,
     height: 34,
     overflow: "hidden",
     justifyContent: "center",
-  },
-  headerSliderTrack: {
-    width: 330,
-    height: 34,
-    flexDirection: "row",
+    alignItems: "flex-end",
   },
   headerSliderItem: {
-    width: 165,
+    width: 240,
     height: 34,
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "flex-end",
   },
 
   // Sync indicator

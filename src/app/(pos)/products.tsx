@@ -18,12 +18,18 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
-import type { ProductDTO, ProductDetailDTO, CategoryDTO, BarcodeDTO } from "@/lib/types/inventory";
-
-const GRID_COLUMNS = 5;
+import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import type {
+  ProductDTO,
+  ProductDetailDTO,
+  CategoryDTO,
+  BarcodeDTO,
+  ProductFilter,
+  ProductInventorySummary,
+} from "@/lib/types/inventory";
 
 const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 type ViewMode = "grid" | "list";
@@ -38,32 +44,37 @@ export default function ProductsScreen() {
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [inventorySummary, setInventorySummary] = useState<ProductInventorySummary>({
+    totalProducts: 0,
+    totalAvailable: 0,
+    lowStock: 0,
+    outOfStock: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [detailProduct, setDetailProduct] = useState<ProductDetailDTO | null>(null);
   const [detailBarcodes, setDetailBarcodes] = useState<BarcodeDTO[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
-  const pageSize = 20;
+  const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
+  const setPageSize = useUiStore((state) => state.setPageSize);
   const dark = useIsDarkTheme();
   const { width, height } = useWindowDimensions();
-  const gridCardWidth = (width - 32 - (GRID_COLUMNS - 1) * 12) / GRID_COLUMNS;
+  const gridColumns = width < 700 ? 2 : 5;
+  const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
   const gridImageSize = Math.min(160, gridCardWidth - 24);
   const detailImageSize = Math.min(320, width * 0.32, height * 0.34);
 
   const loadProducts = useCallback(async () => {
     try {
-      const filters: any = { page, pageSize };
+      const filters: ProductFilter = { page, pageSize };
       if (search) filters.search = search;
       if (selectedCategoryId) filters.categoryId = selectedCategoryId;
+      if (stockFilter === "In Stock") filters.stockStatus = "IN_STOCK";
+      if (stockFilter === "Low") filters.stockStatus = "LOW";
+      if (stockFilter === "Out of Stock") filters.stockStatus = "OUT_OF_STOCK";
 
       const result = await ProductService.search(filters);
-      let items = result.items;
-
-      if (stockFilter === "In Stock") items = items.filter((p: any) => (p.availableQty ?? 0) > 0);
-      else if (stockFilter === "Low") items = items.filter((p: any) => (p.availableQty ?? 0) > 0 && (p.availableQty ?? 0) <= (p.minimumStock ?? 0));
-      else if (stockFilter === "Out of Stock") items = items.filter((p: any) => (p.availableQty ?? 0) <= 0);
-
-      setProducts(Array.from(new Map(items.map((item) => [item.id, item])).values()));
+      setProducts(Array.from(new Map<string, ProductDTO>(result.items.map((item) => [item.id, item])).values()));
       setTotalPages(result.totalPages || 1);
       setTotal(result.total);
     } catch {
@@ -80,21 +91,25 @@ export default function ProductsScreen() {
     }
   }, []);
 
+  const loadInventorySummary = useCallback(async () => {
+    try {
+      setInventorySummary(await ProductService.getInventorySummary());
+    } catch {
+      // Keep the zero summary when local inventory is unavailable.
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadProducts(), loadCategories()]);
+      await Promise.all([loadProducts(), loadCategories(), loadInventorySummary()]);
       setLoading(false);
     })();
-  }, [loadProducts, loadCategories]);
+  }, [loadProducts, loadCategories, loadInventorySummary]);
 
   useEffect(() => {
     setPage(1);
   }, [search, selectedCategoryId, stockFilter]);
-
-  useEffect(() => {
-    loadProducts();
-  }, [page, loadProducts]);
 
   const openDetail = useCallback(async (product: ProductDTO) => {
     setDetailLoading(true);
@@ -106,7 +121,7 @@ export default function ProductsScreen() {
         setDetailProduct(full as ProductDetailDTO);
         try {
           const barcodes = await BarcodeRepository.findByProduct(product.id);
-          setDetailBarcodes(Array.from(new Map(barcodes.map((barcode) => [barcode.barcode, barcode])).values()));
+          setDetailBarcodes(Array.from(new Map<string, BarcodeDTO>(barcodes.map((barcode) => [barcode.barcode, barcode])).values()));
         } catch { /* no barcodes */ }
       }
     } catch { /* use partial */ }
@@ -149,6 +164,7 @@ export default function ProductsScreen() {
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
           <Text style={styles.gridProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
       </TouchableOpacity>
@@ -178,6 +194,12 @@ export default function ProductsScreen() {
               {item.categoryName && (
                 <Text style={styles.listCategory}>{item.categoryName}</Text>
               )}
+              <View style={styles.inventoryInlineRow}>
+                <Text style={[styles.inventoryInlineText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available {item.availableQty ?? 0}</Text>
+                <Text style={[styles.inventoryInlineText, { color: dark ? "#94a3b8" : "#64748b" }]}>Min {item.minimumStock ?? 0}</Text>
+                <Text style={[styles.inventoryInlineText, { color: dark ? "#94a3b8" : "#64748b" }]}>Allocated {item.allocatedQty ?? 0}</Text>
+                <Text style={[styles.inventoryInlineText, { color: dark ? "#94a3b8" : "#64748b" }]}>Sold {item.soldQty ?? 0}</Text>
+              </View>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#d1d9e6" />
           </View>
@@ -255,7 +277,7 @@ export default function ProductsScreen() {
           <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
         </View>
         <View style={[styles.countBadge, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
-          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{products.length} shown</Text>
+          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{total} products</Text>
         </View>
       </View>
       <View style={styles.searchTools}>
@@ -280,17 +302,19 @@ export default function ProductsScreen() {
       </View>
 
       <View style={styles.toggleRow}>
+        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Category</Text>
         <View style={styles.filterPills}>
           <FlatList
             data={allCategories}
             horizontal
             showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryFilterContent}
             renderItem={({ item: cat }) => (
               <TouchableOpacity
                 style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, selectedCategoryId === cat.id && styles.filterChipActive]}
                 onPress={() => { setSelectedCategoryId(cat.id); setPage(1); }}
               >
-                <Text style={[styles.filterText, { color: dark ? "#8e99a4" : "#6b7b8d" }, selectedCategoryId === cat.id && styles.filterTextActive]}>
+                <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, selectedCategoryId === cat.id && styles.filterTextActive]}>
                   {cat.name}
                 </Text>
               </TouchableOpacity>
@@ -298,40 +322,68 @@ export default function ProductsScreen() {
             keyExtractor={(item) => item.id ?? "all"}
           />
         </View>
-        <View style={styles.viewToggle}>
+        <View
+          style={[
+            styles.viewToggle,
+            {
+              backgroundColor: dark ? "#141922" : "#eef2f7",
+              borderColor: dark ? "#334155" : "#d8e0ea",
+            },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]}
             onPress={() => setViewMode("grid")}
           >
-            <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : "#6b7b8d"} />
+            <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]}
             onPress={() => setViewMode("list")}
           >
-            <Ionicons name="list" size={18} color={viewMode === "list" ? "#ffffff" : "#6b7b8d"} />
+            <Ionicons name="list" size={18} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <FlatList
-        data={STOCK_FILTERS}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.stockFilterRow}
-        contentContainerStyle={styles.stockFilterContent}
-        renderItem={({ item: sf }) => (
-          <TouchableOpacity
-            style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, stockFilter === sf && styles.filterChipActive]}
-            onPress={() => { setStockFilter(sf); setPage(1); }}
-          >
-            <Text style={[styles.filterText, { color: dark ? "#8e99a4" : "#6b7b8d" }, stockFilter === sf && styles.filterTextActive]}>
-              {sf}
-            </Text>
-          </TouchableOpacity>
-        )}
-        keyExtractor={(item) => item}
-      />
+      <View style={styles.stockFilterLine}>
+        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Stock</Text>
+        <FlatList
+          data={STOCK_FILTERS}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.stockFilterRow}
+          contentContainerStyle={styles.stockFilterContent}
+          renderItem={({ item: sf }) => (
+            <TouchableOpacity
+              style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, stockFilter === sf && styles.filterChipActive]}
+              onPress={() => { setStockFilter(sf); setPage(1); }}
+            >
+              <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, stockFilter === sf && styles.filterTextActive]}>
+                {sf}
+              </Text>
+            </TouchableOpacity>
+          )}
+          keyExtractor={(item) => item}
+        />
+      </View>
+
+      <View style={styles.summaryRow}>
+        {[
+          { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
+          { label: "Available Units", value: inventorySummary.totalAvailable, icon: "layers-outline", color: "#16a34a" },
+          { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
+          { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
+        ].map((metric) => (
+          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
+            <Ionicons name={metric.icon as any} size={18} color={metric.color} />
+            <View>
+              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
+              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -339,11 +391,11 @@ export default function ProductsScreen() {
         </View>
       ) : viewMode === "grid" ? (
         <FlatList
-          key="grid"
+          key={`grid-${gridColumns}`}
           data={products}
           renderItem={renderGridItem}
           keyExtractor={(item) => item.id}
-          numColumns={GRID_COLUMNS}
+          numColumns={gridColumns}
           contentContainerStyle={styles.gridList}
           columnWrapperStyle={styles.gridRow}
           ListEmptyComponent={
@@ -370,7 +422,17 @@ export default function ProductsScreen() {
         />
       )}
 
-      {totalPages > 1 && renderPageNumbers()}
+      <PaginationControls
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize("products", size);
+          setPage(1);
+        }}
+        dark={dark}
+      />
 
       <BarcodeScannerModal
         visible={scannerVisible}
@@ -465,10 +527,6 @@ export default function ProductsScreen() {
                   <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Price</Text>
                   <Text style={[styles.detailInfoValueBold]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
                 </View>
-                <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                  <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Stock Level</Text>
-                  <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{(detailProduct as any).availableQty ?? 0}</Text>
-                </View>
                 {detailProduct.description && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                     <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Description</Text>
@@ -477,6 +535,25 @@ export default function ProductsScreen() {
                     </Text>
                   </View>
                 )}
+                </View>
+
+                <Text style={[styles.detailColumnTitle, styles.inventoryTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Inventory</Text>
+                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+                  {[
+                    ["Available", detailProduct.availableQty ?? 0],
+                    ["Minimum", detailProduct.minimumStock ?? 0],
+                    ["Allocated", detailProduct.allocatedQty ?? 0],
+                    ["Reserved", detailProduct.reservedQty ?? 0],
+                    ["Sold", detailProduct.soldQty ?? 0],
+                    ["Damaged", detailProduct.damagedQty ?? 0],
+                    ["Adjustments", detailProduct.adjustmentQty ?? 0],
+                    ["Maximum", detailProduct.maximumStock ?? 0],
+                  ].map(([label, value]) => (
+                    <View key={String(label)} style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+                      <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{label}</Text>
+                      <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{value}</Text>
+                    </View>
+                  ))}
                 </View>
               </ScrollView>
             </View>
@@ -567,20 +644,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    marginBottom: 4,
+    minHeight: 38,
+    marginBottom: 6,
+    gap: 8,
+  },
+  filterLabel: {
+    width: 58,
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
   },
   filterPills: {
     flex: 1,
+    minWidth: 0,
+  },
+  categoryFilterContent: {
+    alignItems: "center",
+    gap: 8,
   },
   viewToggle: {
     flexDirection: "row",
-    backgroundColor: "#f0f4ff",
+    width: 76,
+    height: 36,
+    padding: 3,
     borderRadius: 8,
-    marginLeft: 8,
+    borderWidth: 1,
+    flexShrink: 0,
   },
   viewToggleBtn: {
-    padding: 8,
-    borderRadius: 8,
+    flex: 1,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
   viewToggleBtnActive: {
     backgroundColor: "#17386b",
@@ -589,20 +685,30 @@ const styles = StyleSheet.create({
     maxHeight: 44,
   },
   stockFilterRow: {
-    maxHeight: 44,
-    marginBottom: 4,
+    flex: 1,
+    flexGrow: 0,
+  },
+  stockFilterLine: {
+    minHeight: 38,
+    marginBottom: 6,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   stockFilterContent: {
-    paddingHorizontal: 16,
     gap: 8,
+    alignItems: "center",
   },
   filterChip: {
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    minHeight: 32,
     borderRadius: 16,
     backgroundColor: "#f0f4ff",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterChipActive: {
     backgroundColor: "#17386b",
@@ -610,11 +716,39 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontWeight: "600",
+    lineHeight: 16,
     color: "#6b7b8d",
+    includeFontPadding: false,
   },
   filterTextActive: {
     color: "#ffffff",
+  },
+  summaryRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  summaryItem: {
+    flex: 1,
+    minWidth: 140,
+    minHeight: 52,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  summaryValue: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  summaryLabel: {
+    fontSize: 10,
+    marginTop: 1,
   },
   gridList: {
     padding: 12,
@@ -651,6 +785,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#17386b",
+    marginTop: 4,
+  },
+  gridStockText: {
+    fontSize: 11,
     marginTop: 4,
   },
   list: {
@@ -703,6 +841,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#6b7b8d",
     marginTop: 4,
+  },
+  inventoryInlineRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 5,
+  },
+  inventoryInlineText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
   paginationRow: {
     flexDirection: "row",
@@ -848,6 +996,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 1,
+  },
+  inventoryTitle: {
+    marginTop: 2,
   },
   detailInfoRow: {
     flexDirection: "row",

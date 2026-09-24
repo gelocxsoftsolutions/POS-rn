@@ -1,6 +1,6 @@
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import type { ProductDTO, ProductFilter, PaginatedResult } from "@/lib/types/inventory";
+import type { ProductDTO, ProductFilter, PaginatedResult, ProductInventorySummary } from "@/lib/types/inventory";
 
 export interface CreateProductInput {
   sku: string;
@@ -37,13 +37,23 @@ export const ProductRepository = {
         tg.name as taxGroupName,
         tg.rate as taxRate,
         (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
-        pi.fileName as imageUrl
+        pi.fileName as imageUrl,
+        COALESCE(inv.allocatedQty, 0) as allocatedQty,
+        COALESCE(inv.availableQty, 0) as availableQty,
+        COALESCE(inv.reservedQty, 0) as reservedQty,
+        COALESCE(inv.soldQty, 0) as soldQty,
+        COALESCE(inv.damagedQty, 0) as damagedQty,
+        COALESCE(inv.adjustmentQty, 0) as adjustmentQty,
+        COALESCE(inv.minimumStock, 0) as minimumStock,
+        COALESCE(inv.maximumStock, 0) as maximumStock,
+        inv.updatedAt as inventoryUpdatedAt
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
       LEFT JOIN ProductImage pi ON p.imageId = pi.id
+      LEFT JOIN PosInventory inv ON inv.productId = p.id
       WHERE p.id = ?`,
       [id]
     );
@@ -58,13 +68,23 @@ export const ProductRepository = {
         tg.name as taxGroupName,
         tg.rate as taxRate,
         (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
-        pi.fileName as imageUrl
+        pi.fileName as imageUrl,
+        COALESCE(inv.allocatedQty, 0) as allocatedQty,
+        COALESCE(inv.availableQty, 0) as availableQty,
+        COALESCE(inv.reservedQty, 0) as reservedQty,
+        COALESCE(inv.soldQty, 0) as soldQty,
+        COALESCE(inv.damagedQty, 0) as damagedQty,
+        COALESCE(inv.adjustmentQty, 0) as adjustmentQty,
+        COALESCE(inv.minimumStock, 0) as minimumStock,
+        COALESCE(inv.maximumStock, 0) as maximumStock,
+        inv.updatedAt as inventoryUpdatedAt
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
       LEFT JOIN ProductImage pi ON p.imageId = pi.id
+      LEFT JOIN PosInventory inv ON inv.productId = p.id
       WHERE p.sku = ?`,
       [sku]
     );
@@ -94,10 +114,18 @@ export const ProductRepository = {
       params.push(filter.brandId);
     }
 
+    if (filter.stockStatus === "IN_STOCK") {
+      conditions.push("COALESCE(inv.availableQty, 0) > 0");
+    } else if (filter.stockStatus === "LOW") {
+      conditions.push("COALESCE(inv.availableQty, 0) > 0 AND COALESCE(inv.availableQty, 0) <= COALESCE(inv.minimumStock, 0)");
+    } else if (filter.stockStatus === "OUT_OF_STOCK") {
+      conditions.push("COALESCE(inv.availableQty, 0) <= 0");
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const countResult = await queryFirst<{ c: number }>(
-      `SELECT COUNT(*) as c FROM Product p ${where}`,
+      `SELECT COUNT(*) as c FROM Product p LEFT JOIN PosInventory inv ON inv.productId = p.id ${where}`,
       params
     );
     const total = countResult?.c ?? 0;
@@ -110,13 +138,23 @@ export const ProductRepository = {
         tg.name as taxGroupName,
         tg.rate as taxRate,
         (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
-        pi.fileName as imageUrl
+        pi.fileName as imageUrl,
+        COALESCE(inv.allocatedQty, 0) as allocatedQty,
+        COALESCE(inv.availableQty, 0) as availableQty,
+        COALESCE(inv.reservedQty, 0) as reservedQty,
+        COALESCE(inv.soldQty, 0) as soldQty,
+        COALESCE(inv.damagedQty, 0) as damagedQty,
+        COALESCE(inv.adjustmentQty, 0) as adjustmentQty,
+        COALESCE(inv.minimumStock, 0) as minimumStock,
+        COALESCE(inv.maximumStock, 0) as maximumStock,
+        inv.updatedAt as inventoryUpdatedAt
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
       LEFT JOIN ProductImage pi ON p.imageId = pi.id
+      LEFT JOIN PosInventory inv ON inv.productId = p.id
       ${where}
       ORDER BY p.name ASC
       LIMIT ? OFFSET ?`,
@@ -141,13 +179,23 @@ export const ProductRepository = {
         tg.name as taxGroupName,
         tg.rate as taxRate,
         (SELECT pp.price FROM ProductPrice pp WHERE pp.productId = p.id AND pp.priceList = 'retail' AND pp.active = 1 ORDER BY pp.updatedAt DESC LIMIT 1) as retailPrice,
-        pi.fileName as imageUrl
+        pi.fileName as imageUrl,
+        COALESCE(inv.allocatedQty, 0) as allocatedQty,
+        COALESCE(inv.availableQty, 0) as availableQty,
+        COALESCE(inv.reservedQty, 0) as reservedQty,
+        COALESCE(inv.soldQty, 0) as soldQty,
+        COALESCE(inv.damagedQty, 0) as damagedQty,
+        COALESCE(inv.adjustmentQty, 0) as adjustmentQty,
+        COALESCE(inv.minimumStock, 0) as minimumStock,
+        COALESCE(inv.maximumStock, 0) as maximumStock,
+        inv.updatedAt as inventoryUpdatedAt
       FROM Product p
       LEFT JOIN Category c ON p.categoryId = c.id
       LEFT JOIN Brand b ON p.brandId = b.id
       LEFT JOIN Unit u ON p.unitId = u.id
       LEFT JOIN TaxGroup tg ON p.taxGroupId = tg.id
       LEFT JOIN ProductImage pi ON p.imageId = pi.id
+      LEFT JOIN PosInventory inv ON inv.productId = p.id
       WHERE p.status = 'ACTIVE'
       ORDER BY p.name ASC`
     );
@@ -158,6 +206,20 @@ export const ProductRepository = {
       "SELECT COUNT(*) as c FROM Product WHERE status = 'ACTIVE'"
     );
     return result?.c ?? 0;
+  },
+
+  async inventorySummary(): Promise<ProductInventorySummary> {
+    const result = await queryFirst<ProductInventorySummary>(
+      `SELECT
+        COUNT(p.id) as totalProducts,
+        COALESCE(SUM(COALESCE(inv.availableQty, 0)), 0) as totalAvailable,
+        COALESCE(SUM(CASE WHEN COALESCE(inv.availableQty, 0) > 0 AND COALESCE(inv.availableQty, 0) <= COALESCE(inv.minimumStock, 0) THEN 1 ELSE 0 END), 0) as lowStock,
+        COALESCE(SUM(CASE WHEN COALESCE(inv.availableQty, 0) <= 0 THEN 1 ELSE 0 END), 0) as outOfStock
+       FROM Product p
+       LEFT JOIN PosInventory inv ON inv.productId = p.id
+       WHERE p.status = 'ACTIVE'`
+    );
+    return result ?? { totalProducts: 0, totalAvailable: 0, lowStock: 0, outOfStock: 0 };
   },
 
   async create(input: CreateProductInput): Promise<ProductDTO> {
