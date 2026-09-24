@@ -14,6 +14,9 @@ import {
   Modal,
   ScrollView,
 } from "react-native";
+import * as Print from "expo-print";
+import { File } from "expo-file-system";
+import QRCodeLib from "qrcode";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,11 +26,22 @@ import { SettingsService } from "@/lib/services/settings.service";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { SaleDTO } from "@/lib/types/sales";
 import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
-import QRCode from "react-native-qrcode-svg";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
+import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
+
+const RECEIPT_WIDTH_MM = 58;
+const RECEIPT_WIDTH_POINTS = Math.round((RECEIPT_WIDTH_MM / 25.4) * 72);
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 export default function ReceiptsScreen() {
   const [search, setSearch] = useState("");
@@ -38,6 +52,7 @@ export default function ReceiptsScreen() {
   const [printPreviewVisible, setPrintPreviewVisible] = useState(false);
   const [receiptSettings, setReceiptSettings] = useState<StoreSettingsRow | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const dark = useIsDarkTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
@@ -85,33 +100,119 @@ export default function ReceiptsScreen() {
   };
 
   const handlePrintReceipt = useCallback(async () => {
-    if (!selected) return;
+    if (!selected || printing) return;
+    setPrinting(true);
     try {
-      if (Platform.OS === "web") {
-        window.print();
-        return;
+      const logoSource = Image.resolveAssetSource(require("../../../assets/thermal-printer-logo.jpg"));
+      let logoUri = Platform.OS === "web" ? logoSource.uri : "";
+      if (Platform.OS !== "web") {
+        try {
+          const logoBase64 = await new File(logoSource.uri).base64();
+          logoUri = `data:image/jpeg;base64,${logoBase64}`;
+        } catch {
+          logoUri = "";
+        }
       }
 
-      const settings = await SettingsService.get();
-      const receiptText = ReceiptService.generateReceiptText(
-        selected,
-        selected.items ?? [],
-        {
-          storeName: settings.storeName || "NCT Seafoods",
-          storeCode: settings.storeCode,
-          address: settings.address,
-          phone: settings.supportPhone,
-          receiptFooter: settings.receiptFooter,
-        }
-      );
-      await Share.share({
-        title: `Receipt ${selected.receiptNumber}`,
-        message: receiptText,
+      let qrSvg = "";
+      try {
+        qrSvg = await QRCodeLib.toString(String(selected.receiptNumber), { type: "svg", margin: 1, width: 160 });
+        qrSvg = qrSvg.replace('<svg ', '<svg style="width:28mm;height:28mm;display:block;margin:0 auto;" ');
+      } catch {
+        qrSvg = "";
+      }
+
+      const receiptHeightMm = Math.max(150, 138 + (selected.items?.length ?? 0) * 11);
+      const receiptHeightPoints = Math.round((receiptHeightMm / 25.4) * 72);
+      const itemRows = (selected.items ?? [])
+        .map(
+          (item) => `
+        <div class="item">
+          <div class="item-copy">
+            <strong>${escapeHtml(item.productName)}</strong>
+            <span>${item.quantity} x &#8369;${item.unitPrice.toFixed(2)}</span>
+          </div>
+          <strong>&#8369;${item.lineTotal.toFixed(2)}</strong>
+        </div>
+      `
+        )
+        .join("");
+
+      const html = `<!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <style>
+              @page { size: ${RECEIPT_WIDTH_MM}mm ${receiptHeightMm}mm; margin: 0; }
+              * { box-sizing: border-box; }
+              html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
+              body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
+              .center { text-align: center; }
+              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 1.5mm; display: block; }
+              h1 { font-size: 12pt; margin: 0 0 1mm; }
+              .meta { font-size: 7.5pt; line-height: 1.35; margin: 0; }
+              .receipt-number { margin-top: 2mm; font-weight: 700; }
+              .rule { border-top: 0.25mm dashed #000; margin: 2.5mm 0; }
+              .item, .total-row { display: flex; justify-content: space-between; gap: 2mm; margin-bottom: 1.5mm; }
+              .item-copy { min-width: 0; flex: 1; }
+              .item-copy strong, .item-copy span { display: block; overflow-wrap: anywhere; }
+              .item-copy span { font-size: 7.5pt; margin-top: 0.5mm; }
+              .total { font-size: 11pt; font-weight: 700; margin-top: 2mm; }
+              .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
+              .qr { margin: 4mm 0 2mm; text-align: center; }
+              .qr svg { width: 28mm; height: 28mm; }
+              .qr-caption { font-size: 6.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
+            </style>
+          </head>
+          <body>
+            ${logoUri ? `<img class="logo" src="${logoUri}" />` : ""}
+            <div class="center">
+              <h1>${escapeHtml(receiptSettings?.storeName || "NCT Seafoods")}</h1>
+              ${receiptSettings?.address ? `<p class="meta">${escapeHtml(receiptSettings.address)}</p>` : ""}
+              ${receiptSettings?.supportPhone ? `<p class="meta">${escapeHtml(receiptSettings.supportPhone)}</p>` : ""}
+              <p class="meta receipt-number">${escapeHtml(selected.receiptNumber)}</p>
+              <p class="meta">${escapeHtml(new Date(selected.createdAt).toLocaleString())}</p>
+            </div>
+            <div class="rule"></div>
+            ${selected.customerName ? `<p class="meta">Customer: ${escapeHtml(selected.customerName)}</p>` : ""}
+            <p class="meta">Cashier: ${escapeHtml(selected.cashierName)}</p>
+            <div class="rule"></div>
+            ${itemRows}
+            <div class="rule"></div>
+            <div class="total-row"><span>Subtotal</span><strong>&#8369;${selected.subtotal.toFixed(2)}</strong></div>
+            ${selected.discount > 0 ? `<div class="total-row"><span>Discount</span><strong>-&#8369;${selected.discount.toFixed(2)}</strong></div>` : ""}
+            <div class="total-row"><span>Tax</span><strong>&#8369;${selected.tax.toFixed(2)}</strong></div>
+            <div class="total-row total"><span>Total</span><span>&#8369;${selected.total.toFixed(2)}</span></div>
+            <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(selected.paymentMethod))})</span><span>&#8369;${selected.paidAmount.toFixed(2)}</span></div>
+            <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
+            <div class="rule"></div>
+            <p class="footer">${escapeHtml(receiptSettings?.receiptFooter || "Thank you for your purchase!")}</p>
+            ${qrSvg ? `<div class="qr">${qrSvg}<div class="qr-caption">${escapeHtml(selected.receiptNumber)}</div></div>` : ""}
+          </body>
+        </html>`;
+
+      let printerUrl: string | undefined;
+      if (Platform.OS === "ios") {
+        const printer = await Print.selectPrinterAsync();
+        printerUrl = printer.url;
+      }
+
+      await Print.printAsync({
+        html,
+        printerUrl,
+        width: RECEIPT_WIDTH_POINTS,
+        height: receiptHeightPoints,
+        margins: Platform.OS === "ios" ? { top: 0, right: 0, bottom: 0, left: 0 } : undefined,
       });
-    } catch {
-      Alert.alert("Print Receipt", "Unable to open the print options for this receipt.");
+    } catch (error: any) {
+      const message = error?.message?.toLowerCase().includes("cancel")
+        ? "Printer selection was cancelled."
+        : "No thermal printer was selected or the print service is unavailable.";
+      Alert.alert("Print Receipt", message);
+    } finally {
+      setPrinting(false);
     }
-  }, [selected]);
+  }, [selected, receiptSettings, printing]);
 
   const handleScanReceipt = useCallback(
     (barcode: string) => {
@@ -238,113 +339,47 @@ export default function ReceiptsScreen() {
         }}
         dark={dark}
       />
-      {selected && (
-        <Modal
-          visible={printPreviewVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setPrintPreviewVisible(false);
-            setSelected(null);
-          }}
-        >
-          <View style={styles.previewOverlay}>
-            <View style={styles.previewContainer}>
-              <View style={styles.previewHeader}>
-                <Text style={styles.previewTitle}>Receipt Preview</Text>
-                <TouchableOpacity
-                  style={styles.previewCloseIcon}
-                  onPress={() => {
-                    setPrintPreviewVisible(false);
-                    setSelected(null);
-                  }}
-                  accessibilityLabel="Close receipt preview"
-                >
-                  <Ionicons name="close" size={22} color="#334155" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView contentContainerStyle={styles.previewScroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.receiptPaper}>
-                  <Image
-                    source={require("../../../assets/thermal-printer-logo.jpg")}
-                    style={styles.receiptLogo}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.paperStore}>{receiptSettings?.storeName || "NCT Seafoods"}</Text>
-                  {receiptSettings?.address ? <Text style={styles.paperMeta}>{receiptSettings.address}</Text> : null}
-                  {receiptSettings?.supportPhone ? <Text style={styles.paperMeta}>{receiptSettings.supportPhone}</Text> : null}
-                  <Text style={styles.paperReceiptNumber}>{selected.receiptNumber}</Text>
-                  <Text style={styles.paperMeta}>{formatDate(selected.createdAt)}</Text>
-                  <Text style={styles.paperMeta}>Cashier: {selected.cashierName}</Text>
-                  {selected.customerName ? <Text style={styles.paperMeta}>Customer: {selected.customerName}</Text> : null}
-
-                  <View style={styles.paperDivider} />
-                  {(selected.items ?? []).map((item) => (
-                    <View key={item.id} style={styles.paperItemRow}>
-                      <View style={styles.paperItemInfo}>
-                        <Text style={styles.paperItemName}>{item.productName}</Text>
-                        <Text style={styles.paperItemQty}>x{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
-                      </View>
-                      <Text style={styles.paperItemPrice}>₱{item.lineTotal.toFixed(2)}</Text>
-                    </View>
-                  ))}
-
-                  <View style={styles.paperDivider} />
-                  <View style={styles.paperTotalRow}>
-                    <Text style={styles.paperLabel}>Subtotal</Text>
-                    <Text style={styles.paperValue}>₱{selected.subtotal.toFixed(2)}</Text>
-                  </View>
-                  {selected.discount > 0 && (
-                    <View style={styles.paperTotalRow}>
-                      <Text style={styles.paperLabel}>Discount</Text>
-                      <Text style={styles.paperValue}>-₱{selected.discount.toFixed(2)}</Text>
-                    </View>
-                  )}
-                  <View style={styles.paperTotalRow}>
-                    <Text style={styles.paperLabel}>Tax</Text>
-                    <Text style={styles.paperValue}>₱{selected.tax.toFixed(2)}</Text>
-                  </View>
-                  <View style={[styles.paperTotalRow, styles.paperGrandTotal]}>
-                    <Text style={styles.paperGrandTotalText}>Total</Text>
-                    <Text style={styles.paperGrandTotalText}>₱{selected.total.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.paperTotalRow}>
-                    <Text style={styles.paperLabel}>Paid ({selected.paymentMethod})</Text>
-                    <Text style={styles.paperValue}>₱{selected.paidAmount.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.paperTotalRow}>
-                    <Text style={styles.paperLabel}>Change</Text>
-                    <Text style={styles.paperValue}>₱{selected.changeAmount.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.paperDivider} />
-                  <Text style={styles.paperFooter}>{receiptSettings?.receiptFooter || "Thank you for your purchase!"}</Text>
-                  <View style={styles.paperQR}>
-                    <QRCode value={String(selected.receiptNumber)} size={140} />
-                    <Text style={styles.paperQRCaption}>{selected.receiptNumber}</Text>
-                  </View>
-                </View>
-              </ScrollView>
-
-              <View style={styles.previewActions}>
-                <TouchableOpacity
-                  style={styles.previewCancelBtn}
-                  onPress={() => {
-                    setPrintPreviewVisible(false);
-                    setSelected(null);
-                  }}
-                >
-                  <Text style={styles.previewCancelText}>Close</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.previewPrintBtn} onPress={handlePrintReceipt}>
-                  <Ionicons name="print-outline" size={18} color="#ffffff" />
-                  <Text style={styles.previewPrintText}>Print Receipt</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
+      <ReceiptPreviewModal
+        visible={printPreviewVisible}
+        onClose={() => {
+          setPrintPreviewVisible(false);
+          setSelected(null);
+        }}
+        receipt={
+          selected
+            ? {
+                receiptNumber: selected.receiptNumber,
+                date: selected.createdAt,
+                customerName: selected.customerName ?? undefined,
+                cashierName: selected.cashierName,
+                items: (selected.items ?? []).map((i) => ({
+                  name: i.productName,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                })),
+                subtotal: selected.subtotal,
+                tax: selected.tax,
+                total: selected.total,
+                paidAmount: selected.paidAmount,
+                change: selected.changeAmount,
+                paymentMethod: selected.paymentMethod,
+              }
+            : null
+        }
+        settings={
+          receiptSettings
+            ? {
+                storeName: receiptSettings.storeName,
+                address: receiptSettings.address ?? undefined,
+                supportPhone: receiptSettings.supportPhone ?? undefined,
+                receiptFooter: receiptSettings.receiptFooter ?? undefined,
+                taxLabel: undefined,
+              }
+            : null
+        }
+        onPrint={handlePrintReceipt}
+        printing={printing}
+      />
       <ReceiptQrScannerModal
         visible={scannerVisible}
         dark={dark}

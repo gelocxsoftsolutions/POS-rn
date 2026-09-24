@@ -17,13 +17,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import { File } from "expo-file-system";
-import QRCode from "react-native-qrcode-svg";
 import QRCodeLib from "qrcode";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BottomSheet } from "@/components/ui/modal";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -990,79 +990,44 @@ export default function SalesScreen() {
         onScan={handleBarcodeCameraScan}
       />
 
-      <Modal visible={receiptVisible} transparent animationType="fade">
-        <View style={styles.receiptOverlay}>
-          <View style={styles.receiptContainer}>
-            {lastReceipt && (
-              <ScrollView style={styles.receiptScroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.receiptContent}>
-                  <Image
-                    source={require("../../../assets/thermal-printer-logo.jpg")}
-                    style={styles.receiptLogo}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.receiptStore}>{settings?.storeName || "Store"}</Text>
-                  {settings?.address ? <Text style={styles.receiptAddress}>{settings.address}</Text> : null}
-                  {settings?.supportPhone ? <Text style={styles.receiptPhone}>{settings.supportPhone}</Text> : null}
-                  <Text style={styles.receiptNumber}>{lastReceipt.receiptNumber}</Text>
-                  <Text style={styles.receiptDate}>{new Date(lastReceipt.date).toLocaleString()}</Text>
-                  {lastReceipt.customerName ? (
-                    <Text style={styles.receiptCustomer}>Customer: {lastReceipt.customerName}</Text>
-                  ) : null}
-                  <Text style={styles.receiptCashier}>Cashier: {lastReceipt.cashierName}</Text>
-                  <View style={styles.receiptDivider} />
-                  {lastReceipt.items.map((item: PosCartItem, idx: number) => (
-                    <View key={idx} style={styles.receiptItem}>
-                      <View style={styles.receiptItemLeft}>
-                        <Text style={styles.receiptItemName}>{item.name}</Text>
-                        <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
-                      </View>
-                      <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
-                    </View>
-                  ))}
-                  <View style={styles.receiptDivider} />
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Subtotal</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.subtotal.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>{settings?.taxLabel || "Tax"}</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.tax.toFixed(2)}</Text>
-                  </View>
-                  <View style={[styles.receiptItem, { marginTop: 8 }]}>
-                    <Text style={styles.receiptTotal}>Total</Text>
-                    <Text style={styles.receiptTotal}>₱{lastReceipt.total.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Paid ({paymentMethodLabel(lastReceipt.paymentMethod)})</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.paidAmount.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Change</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.change.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptDivider} />
-                  <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
-                  <View style={styles.receiptQR}>
-                    <QRCode value={String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt")} size={140} />
-                    <Text style={styles.receiptQRCaption}>{lastReceipt.receiptNumber}</Text>
-                  </View>
-                  <View style={styles.receiptActions}>
-                    <Button
-                      title={printing ? "Finding Printer..." : "Print Receipt"}
-                      onPress={handlePrintReceipt}
-                      icon="print-outline"
-                      loading={printing}
-                      style={styles.printReceiptButton}
-                    />
-                    <Button title="Done" onPress={() => setReceiptVisible(false)} variant="secondary" style={styles.receiptDoneButton} />
-                  </View>
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+      <ReceiptPreviewModal
+        visible={receiptVisible}
+        onClose={() => setReceiptVisible(false)}
+        receipt={
+          lastReceipt
+            ? {
+                receiptNumber: lastReceipt.receiptNumber,
+                date: lastReceipt.date,
+                customerName: lastReceipt.customerName,
+                cashierName: lastReceipt.cashierName,
+                items: lastReceipt.items.map((i) => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                })),
+                subtotal: lastReceipt.subtotal,
+                tax: lastReceipt.tax,
+                total: lastReceipt.total,
+                paidAmount: lastReceipt.paidAmount,
+                change: lastReceipt.change,
+                paymentMethod: lastReceipt.paymentMethod,
+              }
+            : null
+        }
+        settings={
+          settings
+            ? {
+                storeName: settings.storeName,
+                address: settings.address,
+                supportPhone: settings.supportPhone,
+                receiptFooter: settings.receiptFooter,
+                taxLabel: settings.taxLabel,
+              }
+            : null
+        }
+        onPrint={handlePrintReceipt}
+        printing={printing}
+      />
     </View>
   );
 }
