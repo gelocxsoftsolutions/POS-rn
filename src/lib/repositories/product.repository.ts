@@ -10,6 +10,7 @@ export interface CreateProductInput {
   categoryId?: string;
   brandId?: string;
   unitId?: string;
+  weight?: number | null;
   taxGroupId?: string;
   imageId?: string;
 }
@@ -22,6 +23,7 @@ export interface UpdateProductInput {
   categoryId?: string;
   brandId?: string;
   unitId?: string;
+  weight?: number | null;
   taxGroupId?: string;
   status?: string;
   imageId?: string;
@@ -226,8 +228,8 @@ export const ProductRepository = {
     const id = uuid();
     const now = new Date().toISOString();
     await execute(
-      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, taxGroupId, status, imageId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
       [
         id,
         input.sku,
@@ -237,6 +239,7 @@ export const ProductRepository = {
         input.categoryId ?? null,
         input.brandId ?? null,
         input.unitId ?? null,
+        input.weight ?? null,
         input.taxGroupId ?? null,
         input.imageId ?? null,
         now,
@@ -260,6 +263,7 @@ export const ProductRepository = {
     if (input.taxGroupId !== undefined) { fields.push("taxGroupId = ?"); values.push(input.taxGroupId); }
     if (input.status !== undefined) { fields.push("status = ?"); values.push(input.status); }
     if (input.imageId !== undefined) { fields.push("imageId = ?"); values.push(input.imageId); }
+    if (input.weight !== undefined) { fields.push("weight = ?"); values.push(input.weight); }
 
     if (fields.length === 0) return this.findById(id);
 

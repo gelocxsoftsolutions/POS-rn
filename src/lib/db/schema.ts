@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -174,6 +174,7 @@ export const CREATE_TABLES = [
     categoryId TEXT,
     brandId TEXT,
     unitId TEXT,
+    weight REAL DEFAULT NULL,
     taxGroupId TEXT,
     status TEXT DEFAULT 'ACTIVE',
     imageId TEXT,

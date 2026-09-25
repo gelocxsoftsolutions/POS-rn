@@ -223,6 +223,10 @@ async function upsertProductFromVariation(
     await ProductImageRepository.upsertRemote(imageId, imageLocation, imageUrl);
   }
 
+  const rawWeight = (variation as any).weight ?? (variation as any).netWeight ?? (variation as any).grossWeight;
+  const weight = rawWeight != null && String(rawWeight).trim() !== "" ? Number(String(rawWeight).replace(/[^0-9.-]/g, "")) : null;
+  const parsedWeight = weight != null && Number.isFinite(weight) && weight >= 0 ? weight : null;
+
   const existing = await queryFirst<{ id: string }>(
     "SELECT id FROM Product WHERE sku = ?", [sku]
   );
@@ -236,12 +240,13 @@ async function upsertProductFromVariation(
       unitId,
       description: variation.variationName || undefined,
       imageId,
+      weight: parsedWeight,
     });
   } else {
     productId = uuid();
     await execute(
-      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, taxGroupId, status, imageId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'ACTIVE', ?, datetime('now'), datetime('now'))`,
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, datetime('now'), datetime('now'))`,
       [
         productId,
         sku,
@@ -250,6 +255,7 @@ async function upsertProductFromVariation(
         variation.variationName || null,
         categoryId ?? null,
         unitId ?? null,
+        parsedWeight,
         imageId ?? null,
       ]
     );

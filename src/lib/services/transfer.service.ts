@@ -126,17 +126,11 @@ export const TransferService = {
                       v.prices?.[0]?.price, v.prices?.[0]?.amount
                     ];
                     let newPrice: number | undefined;
-                    for (const cand of candidates) {
-                      if (cand == null) continue;
-                      const p = Number(String(cand).replace(/[^0-9.-]/g, ""));
-                      if (Number.isFinite(p) && p >= 0) { newPrice = p; break; }
-                    }
                     let zeroFallback: number | undefined;
                     for (const cand of candidates) {
                       if (cand == null) continue;
                       const p = Number(String(cand).replace(/[^0-9.-]/g, ""));
                       if (!Number.isFinite(p) || p < 0) continue;
-                      // posPrice defaults to 0 in OMS; don't let it shadow the real price.
                       if (p > 0) { newPrice = p; break; }
                       if (zeroFallback === undefined) zeroFallback = p;
                     }
@@ -145,6 +139,31 @@ export const TransferService = {
                       const { ProductPriceRepository } = await import("@/lib/repositories/product-price.repository");
                       await ProductPriceRepository.upsert({ productId: resolvedProductId, priceList: "retail", price: newPrice, currency: "PHP" });
                       console.log("[Transfer] updated price for", variationSku, "to", newPrice);
+                    }
+                    // Weight
+                    const rawWeight = (v as any).weight ?? (v as any).netWeight ?? (v as any).grossWeight ?? (v as any).weightValue;
+                    if (rawWeight != null && String(rawWeight).trim() !== "") {
+                      const w = Number(String(rawWeight).replace(/[^0-9.-]/g, ""));
+                      if (Number.isFinite(w) && w >= 0) {
+                        await execute(`UPDATE Product SET weight = ? WHERE id = ?`, [w, resolvedProductId]);
+                      }
+                    }
+                    // Unit
+                    const rawUnit = (v as any).unit ?? (v as any).unitName ?? (v as any).uom;
+                    if (rawUnit && String(rawUnit).trim() !== "") {
+                      const unitName = String(rawUnit).trim();
+                      const existingUnit = await queryFirst<{ id: string }>(`SELECT id FROM Unit WHERE name = ?`, [unitName]);
+                      let unitId: string | undefined = existingUnit?.id;
+                      if (!unitId) {
+                        const newUnitId = uuid();
+                        try {
+                          await execute(`INSERT INTO Unit (id, name, active, createdAt, updatedAt) VALUES (?, ?, 1, datetime('now'), datetime('now'))`, [newUnitId, unitName]);
+                          unitId = newUnitId;
+                        } catch {}
+                      }
+                      if (unitId) {
+                        await execute(`UPDATE Product SET unitId = ? WHERE id = ?`, [unitId, resolvedProductId]);
+                      }
                     }
                   }
                 }

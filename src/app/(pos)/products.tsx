@@ -525,6 +525,15 @@ export default function ProductsScreen() {
                     <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.categoryName}</Text>
                   </View>
                 )}
+                {detailProduct.weight != null && (
+                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Weight</Text>
+                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>
+                      {detailProduct.weight}
+                      {detailProduct.unitName ? ` ${detailProduct.unitName}` : ""}
+                    </Text>
+                  </View>
+                )}
                 {detailProduct.brandName && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                     <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Brand</Text>
