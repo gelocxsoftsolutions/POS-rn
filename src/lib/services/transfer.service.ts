@@ -126,11 +126,16 @@ export const TransferService = {
                       v.prices?.[0]?.price, v.prices?.[0]?.amount
                     ];
                     let newPrice: number | undefined;
+                    let zeroFallback: number | undefined;
                     for (const cand of candidates) {
                       if (cand == null) continue;
                       const p = Number(String(cand).replace(/[^0-9.-]/g, ""));
-                      if (Number.isFinite(p) && p >= 0) { newPrice = p; break; }
+                      if (!Number.isFinite(p) || p < 0) continue;
+                      // posPrice defaults to 0 in OMS; don't let it shadow the real price.
+                      if (p > 0) { newPrice = p; break; }
+                      if (zeroFallback === undefined) zeroFallback = p;
                     }
+                    if (newPrice === undefined) newPrice = zeroFallback;
                     if (newPrice !== undefined) {
                       const { ProductPriceRepository } = await import("@/lib/repositories/product-price.repository");
                       await ProductPriceRepository.upsert({ productId: resolvedProductId, priceList: "retail", price: newPrice, currency: "PHP" });
