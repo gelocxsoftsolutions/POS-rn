@@ -654,7 +654,7 @@ export default function SalesScreen() {
           )}
         </View>
         <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
         <View style={styles.productFooter}>
           <Badge
             label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -698,7 +698,7 @@ export default function SalesScreen() {
         </View>
         <View style={styles.productListDetails}>
           <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+          <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
           <View style={styles.productFooter}>
             <Badge
               label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -760,7 +760,7 @@ export default function SalesScreen() {
                 {group.map((g) => `${g.sku}${g.weight ? ` • ${g.weight}${g.unitName ?? ""}` : ""}`).join(" • ")}
               </Text>
             )}
-            <Text style={styles.productPrice}>{priceText}</Text>
+            <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
             <View style={styles.productFooter}>
               <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
               {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
@@ -794,7 +794,7 @@ export default function SalesScreen() {
           {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
         </View>
         {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ alignSelf: "flex-start", marginBottom: 4 }} />}
-        <Text style={styles.productPrice}>{priceText}</Text>
+        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
         <View style={styles.productFooter}>
           <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
           {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
@@ -976,7 +976,7 @@ export default function SalesScreen() {
                         <Ionicons name="add" size={14} color="#17386b" />
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.cartItemTotal}>
+                    <Text style={[styles.cartItemTotal, { color: dark ? "#ffffff" : "#17386b" }]}>
                       ₱{(item.unitPrice * item.quantity).toFixed(2)}
                     </Text>
                     <TouchableOpacity
@@ -1001,7 +1001,7 @@ export default function SalesScreen() {
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={[styles.totalLabel, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Total</Text>
-                <Text style={styles.totalValue}>₱{checkoutTotalAmount.toFixed(2)}</Text>
+                <Text style={[styles.totalValue, { color: dark ? "#ffffff" : "#17386b" }]}>₱{checkoutTotalAmount.toFixed(2)}</Text>
               </View>
             </View>
 
@@ -1098,7 +1098,7 @@ export default function SalesScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={styles.variationPrice}>₱{variant.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{variant.unitPrice.toFixed(2)}</Text>
                       <Text style={[styles.variationStock, { color: effective > 0 ? "#16a34a" : "#dc2626" }]}>Stock: {effective}</Text>
                     </View>
                     <View style={styles.variationAdd}>

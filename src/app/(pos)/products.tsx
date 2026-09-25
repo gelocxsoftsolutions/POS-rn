@@ -178,7 +178,7 @@ export default function ProductsScreen() {
             )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={styles.gridProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
@@ -203,7 +203,7 @@ export default function ProductsScreen() {
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
               <View style={styles.listMeta}>
-                <Text style={styles.listProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
                 <Badge label={badge.label} color={badge.color} size="sm" />
               </View>
               {item.categoryName && (
@@ -341,7 +341,7 @@ export default function ProductsScreen() {
             {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
           </View>
           {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ marginTop: 4, alignSelf: "flex-start" }} />}
-          <Text style={styles.gridProductPrice}>{priceText}</Text>
+          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {isMulti ? totalStock : base.availableQty ?? 0}</Text>
           <Badge label={totalBadge.label} color={totalBadge.color} size="sm" style={{ marginTop: 6 }} />
           {isMulti && (
@@ -379,7 +379,7 @@ export default function ProductsScreen() {
               </View>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{base.sku}{isMulti ? ` +${group.length - 1} more` : ""}</Text>
               <View style={styles.listMeta}>
-                <Text style={styles.listProductPrice}>{priceText}</Text>
+                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
                 <Badge label={isMulti ? `Stock:${totalStock}` : stockBadge(base).label} color={isMulti ? "#6f42c1" : stockBadge(base).color} size="sm" />
               </View>
               {base.categoryName && <Text style={styles.listCategory}>{base.categoryName}</Text>}
@@ -594,7 +594,7 @@ export default function ProductsScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={styles.variationPrice}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
                       <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
                         <Badge label={badge.label} color={badge.color} size="sm" />
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
@@ -709,7 +709,7 @@ export default function ProductsScreen() {
                 )}
                 <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                   <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Price</Text>
-                  <Text style={[styles.detailInfoValueBold]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
+                  <Text style={[styles.detailInfoValueBold, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
                 </View>
                 {detailProduct.description && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
