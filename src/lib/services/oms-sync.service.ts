@@ -149,11 +149,17 @@ function resolveCustomerPrice(variation: VariationDto, assignment?: unknown): nu
     variation.price,
   ];
 
+  // OMS stores pos_price defaulting to 0.00 — a zero posPrice is NOT a real
+  // price and must not shadow the variation's actual price. Prefer the first
+  // strictly positive candidate; only fall back to 0 when nothing positive
+  // exists (genuinely free item).
+  let zeroFallback: number | undefined;
   for (const candidate of candidates) {
     const price = parsePrice(candidate);
-    if (price !== undefined) return price;
+    if (price !== undefined && price > 0) return price;
+    if (zeroFallback === undefined && price !== undefined) zeroFallback = price;
   }
-  return undefined;
+  return zeroFallback;
 }
 
 async function cacheProductImage(imageId: string, sku: string, imageUrl: string): Promise<string> {
