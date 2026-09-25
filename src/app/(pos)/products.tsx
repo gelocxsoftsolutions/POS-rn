@@ -14,6 +14,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
@@ -22,6 +23,7 @@ import { PaginationControls } from "@/components/ui/pagination-controls";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useSyncStore } from "@/lib/stores/sync-store";
 import type {
   ProductDTO,
   ProductDetailDTO,
@@ -57,6 +59,7 @@ export default function ProductsScreen() {
   const [scannerVisible, setScannerVisible] = useState(false);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
   const setPageSize = useUiStore((state) => state.setPageSize);
+  const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
   const dark = useIsDarkTheme();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
@@ -99,13 +102,24 @@ export default function ProductsScreen() {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        setLoading(true);
+        await Promise.all([loadProducts(), loadCategories(), loadInventorySummary()]);
+        if (active) setLoading(false);
+      })();
+      return () => {
+        active = false;
+      };
+    }, [loadProducts, loadCategories, loadInventorySummary])
+  );
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await Promise.all([loadProducts(), loadCategories(), loadInventorySummary()]);
-      setLoading(false);
-    })();
-  }, [loadProducts, loadCategories, loadInventorySummary]);
+    if (!lastSyncTime) return;
+    void Promise.all([loadProducts(), loadInventorySummary()]);
+  }, [lastSyncTime, loadProducts, loadInventorySummary]);
 
   useEffect(() => {
     setPage(1);

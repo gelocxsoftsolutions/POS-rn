@@ -30,6 +30,27 @@ export interface TransferFilter {
 }
 
 export const TransferRepository = {
+  async removeLegacyPendingByTransferNumber(transferNumber: string): Promise<boolean> {
+    if (!/^\d+$/.test(transferNumber)) return false;
+
+    const result = await execute(
+      `DELETE FROM InventoryTransfer
+       WHERE transferNumber = ? AND status = 'IN_TRANSIT'`,
+      [transferNumber]
+    );
+    return result.changes > 0;
+  },
+
+  async removeLegacyNumericPending(): Promise<number> {
+    const result = await execute(
+      `DELETE FROM InventoryTransfer
+       WHERE status = 'IN_TRANSIT'
+         AND transferNumber <> ''
+         AND transferNumber NOT GLOB '*[^0-9]*'`
+    );
+    return result.changes;
+  },
+
   async findByTransferNumber(transferNumber: string): Promise<InventoryTransferDTO | null> {
     const row = await queryFirst<{ id: string }>(
       "SELECT id FROM InventoryTransfer WHERE transferNumber = ?",

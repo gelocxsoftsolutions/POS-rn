@@ -164,6 +164,9 @@ export const TransferService = {
         if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
       }
       const finalOmsId = explicitId ?? derivedOmsId;
+      if (explicitId) {
+        await TransferRepository.removeLegacyPendingByTransferNumber(String(explicitId));
+      }
       if (finalOmsId) {
         this.confirmReceipt(finalOmsId).catch((e) => console.warn("[Transfer] confirmReceipt failed", e));
       }

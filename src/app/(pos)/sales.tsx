@@ -16,8 +16,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
+import { useAudioPlayer } from "expo-audio";
 import { File } from "expo-file-system";
 import QRCodeLib from "qrcode";
+import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,7 @@ import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { InventoryService } from "@/lib/services/inventory.service";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 
@@ -83,6 +86,12 @@ const toUniqueCartProducts = (items: ProductDTO[], stock: Map<string, number>): 
 };
 
 export default function SalesScreen() {
+  const checkoutSuccessPlayer = useAudioPlayer(
+    require("../../../assets/sounds/cash-register-sound.wav")
+  );
+  const soundMuted = useUiStore((state) => state.soundMuted);
+  const soundVolume = useUiStore((state) => state.soundVolume);
+  const checkoutSoundVolume = useUiStore((state) => state.soundVolumes?.checkout ?? 1);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<ProductSort>("popular");
   const [checkoutVisible, setCheckoutVisible] = useState(false);
@@ -111,9 +120,11 @@ export default function SalesScreen() {
   const dark = useIsDarkTheme();
   const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
+  const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
+  const alertShowingRef = React.useRef(false);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -167,6 +178,10 @@ export default function SalesScreen() {
     }, 300);
     return () => clearTimeout(timeout);
   }, [search, loadProducts]);
+
+  useEffect(() => {
+    if (lastSyncTime) void loadProducts();
+  }, [lastSyncTime, loadProducts]);
 
   const cartQtyByProductId = useMemo(
     () =>
@@ -335,6 +350,13 @@ export default function SalesScreen() {
 
   const removePaidAmountDigit = () => setPaidAmount((current) => current.slice(0, -1));
 
+  const playCheckoutSuccessSound = useCallback(async () => {
+    await playFeedbackSound(checkoutSuccessPlayer, {
+      muted: soundMuted,
+      volume: soundVolume * checkoutSoundVolume,
+    });
+  }, [checkoutSuccessPlayer, soundMuted, soundVolume, checkoutSoundVolume]);
+
   const handleConfirmSale = async () => {
     const total = cart.total() * (1 + (settings?.taxRate ?? 0.12));
     const paid = parseFloat(paidAmount) || total;
@@ -362,7 +384,8 @@ export default function SalesScreen() {
         branchId: device.branchId ?? undefined,
       });
 
-      if (result.success && result.sale) {
+        if (result.success && result.sale) {
+        void playCheckoutSuccessSound();
         const receiptData = {
           receiptNumber: result.sale.receiptNumber,
           items: [...cart.items],
@@ -399,8 +422,48 @@ export default function SalesScreen() {
         setCustomerName("");
         setPaidAmount("");
         setPaymentMethod("CASH");
+        await loadProducts();
       } else {
-        Alert.alert("Error", result.error ?? "Failed to create sale.");
+        const msg = result.error ?? "Failed to create sale.";
+        if (alertShowingRef.current) return;
+        if (/not enough stock|insufficient/i.test(msg)) {
+          // Auto-correct cart quantities that exceed available
+          try {
+            const availMatch = msg.match(/Available:\s*(\d+)/i);
+            const groupMatch = msg.match(/group:([a-f0-9-]+)/i);
+            if (availMatch) {
+              const available = Number(availMatch[1]);
+              if (Number.isFinite(available) && available >= 0) {
+                const groupId = groupMatch ? groupMatch[1] : null;
+                const { queryFirst } = await import("@/lib/db/connection");
+                for (const cartItem of [...cart.items]) {
+                  let shouldCap = false;
+                  if (groupId) {
+                    const prow = await queryFirst<{ productCode: string | null }>(`SELECT productCode FROM Product WHERE id = ?`, [cartItem.productId]);
+                    const code = prow?.productCode ?? cartItem.productId;
+                    if (code === groupId) shouldCap = true;
+                  } else {
+                    // No group specified, cap any item that exceeds available
+                    if (cartItem.quantity > available) shouldCap = true;
+                  }
+                  if (shouldCap) {
+                    const newQty = Math.min(cartItem.quantity, available);
+                    if (newQty > 0) cart.updateQuantity(cartItem.productId, newQty);
+                    else cart.removeItem(cartItem.productId);
+                  }
+                }
+              }
+            }
+          } catch {}
+          try {
+            await loadProducts();
+          } catch {}
+        }
+        alertShowingRef.current = true;
+        Alert.alert("Not Enough Stock", msg, [
+          { text: "OK", onPress: () => { alertShowingRef.current = false; } },
+        ]);
+        setTimeout(() => { alertShowingRef.current = false; }, 3000);
       }
     } catch {
       Alert.alert("Error", "An unexpected error occurred.");

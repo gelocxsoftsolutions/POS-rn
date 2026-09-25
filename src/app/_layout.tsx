@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Image } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { MD3DarkTheme, MD3LightTheme, PaperProvider } from "react-native-paper";
@@ -43,9 +43,11 @@ export default function RootLayout() {
   if (!ready) {
     return (
       <View style={styles.splash}>
-        <View style={styles.splashIcon}>
-          <Text style={styles.splashIconText}>🐟</Text>
-        </View>
+        <Image
+          source={require("../../assets/nct-seafoods-logo.png")}
+          style={styles.splashLogo}
+          resizeMode="contain"
+        />
         <Text style={styles.splashTitle}>NCT Seafoods POS</Text>
         <Text style={styles.splashSubtitle}>Initializing system…</Text>
         <ActivityIndicator
@@ -86,17 +88,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#17386b",
     paddingHorizontal: 40,
   },
-  splashIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
+  splashLogo: {
+    width: 148,
+    height: 148,
     marginBottom: 20,
-  },
-  splashIconText: {
-    fontSize: 40,
   },
   splashTitle: {
     fontSize: 22,

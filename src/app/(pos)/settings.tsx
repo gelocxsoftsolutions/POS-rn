@@ -9,10 +9,12 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Switch,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer, type AudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Card } from "@/components/ui/card";
@@ -20,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
@@ -28,6 +30,7 @@ import { AuditService } from "@/lib/services/audit.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { query } from "@/lib/db/connection";
+import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
 
@@ -69,6 +72,73 @@ function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onCh
   );
 }
 
+function SoundVolumeControl({
+  title,
+  icon,
+  value,
+  muted,
+  dark,
+  onChange,
+  onPreview,
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  value: number;
+  muted: boolean;
+  dark: boolean;
+  onChange: (value: number) => void;
+  onPreview: () => void;
+}) {
+  const percent = Math.round(value * 100);
+  const adjust = (delta: number) => onChange(Math.round((value + delta) * 10) / 10);
+  const buttonColor = dark ? "#cbd5e1" : "#17386b";
+
+  return (
+    <View style={[styles.soundItem, { borderBottomColor: dark ? "#1e293b" : "#edf1f5" }]}>
+      <View style={styles.soundItemHeader}>
+        <View style={[styles.soundItemIcon, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}>
+          <Ionicons name={icon} size={18} color={dark ? "#93c5fd" : "#17386b"} />
+        </View>
+        <Text style={[styles.soundItemTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{title}</Text>
+        <Text style={[styles.soundItemPercent, { color: muted ? (dark ? "#64748b" : "#94a3b8") : buttonColor }]}>{percent}%</Text>
+        <TouchableOpacity
+          style={[
+            styles.soundItemPreview,
+            { backgroundColor: dark ? "#1e293b" : "#f7f9fc", borderColor: dark ? "#334155" : "#dbe3ec" },
+            (muted || value <= 0) && styles.volumeButtonDisabled,
+          ]}
+          onPress={onPreview}
+          disabled={muted || value <= 0}
+          accessibilityLabel={`Preview ${title} sound`}
+        >
+          <Ionicons name="play" size={15} color={buttonColor} />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.volumeControl}>
+        <TouchableOpacity
+          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value <= 0 && styles.volumeButtonDisabled]}
+          onPress={() => adjust(-0.1)}
+          disabled={value <= 0}
+          accessibilityLabel={`Lower ${title} volume`}
+        >
+          <Ionicons name="remove" size={17} color={buttonColor} />
+        </TouchableOpacity>
+        <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
+          <View style={[styles.volumeFill, { width: `${percent}%`, opacity: muted ? 0.45 : 1 }]} />
+        </View>
+        <TouchableOpacity
+          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value >= 1 && styles.volumeButtonDisabled]}
+          onPress={() => adjust(0.1)}
+          disabled={value >= 1}
+          accessibilityLabel={`Raise ${title} volume`}
+        >
+          <Ionicons name="add" size={17} color={buttonColor} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 interface CashierRow {
   id: string;
   displayName: string;
@@ -88,12 +158,37 @@ const OMS_STORAGE_KEY = "nct-pos-oms";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const checkoutPreviewPlayer = useAudioPlayer(
+    require("../../../assets/sounds/cash-register-sound.wav")
+  );
+  const transferPreviewPlayer = useAudioPlayer(
+    require("../../../assets/sounds/transfer-received.wav")
+  );
+  const omsConnectedPlayer = useAudioPlayer(
+    require("../../../assets/sounds/oms-connected.wav")
+  );
+  const omsConnectionFailedPlayer = useAudioPlayer(
+    require("../../../assets/sounds/oms-connection-failed.wav")
+  );
   const device = useDeviceStore((s) => s.device);
   const clearDevice = useDeviceStore((s) => s.clearDevice);
   const session = useCashierStore((s) => s.session);
   const clearSession = useCashierStore((s) => s.clearSession);
   const signOut = useAuthStore((s) => s.signOut);
-  const { themeMode, setThemeMode, navigationMode, setNavigationMode, uiScale, setUiScale } = useUiStore();
+  const {
+    themeMode,
+    setThemeMode,
+    navigationMode,
+    setNavigationMode,
+    uiScale,
+    setUiScale,
+    soundMuted,
+    setSoundMuted,
+    soundVolume,
+    setSoundVolume,
+    soundVolumes,
+    setFeedbackSoundVolume,
+  } = useUiStore();
   const dark = useIsDarkTheme();
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
@@ -262,6 +357,24 @@ export default function SettingsScreen() {
     }
   };
 
+  const playOmsConnectionSound = useCallback(async (connected: boolean) => {
+    const player = connected ? omsConnectedPlayer : omsConnectionFailedPlayer;
+    const individualVolume = connected
+      ? soundVolumes?.omsConnected ?? 1
+      : soundVolumes?.omsConnectionFailed ?? 1;
+    await playFeedbackSound(player, {
+      muted: soundMuted,
+      volume: soundVolume * individualVolume,
+    });
+  }, [omsConnectedPlayer, omsConnectionFailedPlayer, soundMuted, soundVolume, soundVolumes]);
+
+  const playSoundPreview = useCallback(async (player: AudioPlayer, sound: FeedbackSound) => {
+    await playFeedbackSound(player, {
+      muted: soundMuted,
+      volume: soundVolume * (soundVolumes?.[sound] ?? 1),
+    });
+  }, [soundMuted, soundVolume, soundVolumes]);
+
   const handleTestConnect = async () => {
     const url = omsUrl.trim();
     if (!url) {
@@ -274,6 +387,7 @@ export default function SettingsScreen() {
     try {
       const result = await OmsSyncService.connect(url, key);
       if (result.success) {
+        void playOmsConnectionSound(true);
         setLiveStatus("connected");
         const now = new Date().toISOString();
         setLastSync(now);
@@ -288,10 +402,12 @@ export default function SettingsScreen() {
         const detail = s ? `Inventory: ${s.inventory}, Products: ${s.products}, Transfers: ${s.transfers}` : "";
         Alert.alert("Success", `Connected to OMS successfully!${detail ? "\n" + detail : ""}`);
       } else {
+        void playOmsConnectionSound(false);
         setLiveStatus("offline");
         Alert.alert("Error", result.error ?? "Connection failed.");
       }
     } catch {
+      void playOmsConnectionSound(false);
       setLiveStatus("offline");
       Alert.alert("Error", "An unexpected error occurred.");
     } finally {
@@ -425,6 +541,11 @@ export default function SettingsScreen() {
   const normalizedSettingsSearch = settingsSearch.trim().toLowerCase();
   const showSettingsSection = (...keywords: string[]) =>
     !normalizedSettingsSearch || keywords.some((keyword) => keyword.toLowerCase().includes(normalizedSettingsSearch));
+  const soundVolumePercent = Math.round(soundVolume * 100);
+  const adjustSoundVolume = (delta: number) => {
+    const next = Math.round((soundVolume + delta) * 10) / 10;
+    setSoundVolume(next);
+  };
 
   // Dark-aware helpers
   const cardBg = dark ? "#141922" : "#ffffff";
@@ -847,6 +968,100 @@ export default function SettingsScreen() {
               Follow system appearance
             </Text>
           </TouchableOpacity>
+        </View>
+      </Card>
+
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("sounds audio volume mute notifications feedback") && styles.hidden]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Sounds</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Control checkout, transfer, and connection feedback.</Text>
+
+        <View style={[styles.soundToggleRow, { borderBottomColor: borderColor }]}>
+          <View style={[styles.soundIcon, { backgroundColor: dark ? "#1e3a5f" : "#e8f0ff" }]}>
+            <Ionicons
+              name={soundMuted ? "volume-mute-outline" : "volume-high-outline"}
+              size={22}
+              color={dark ? "#93c5fd" : "#17386b"}
+            />
+          </View>
+          <View style={styles.soundToggleCopy}>
+            <Text style={[styles.soundControlTitle, { color: fieldValueColor }]}>Sound effects</Text>
+            <Text style={[styles.soundControlDesc, { color: fieldLabelColor }]}>
+              {soundMuted ? "Muted" : "Played after important actions"}
+            </Text>
+          </View>
+          <Switch
+            value={!soundMuted}
+            onValueChange={(enabled) => setSoundMuted(!enabled)}
+            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: dark ? "#315f9c" : "#8db4ed" }}
+            thumbColor={!soundMuted ? "#17386b" : dark ? "#94a3b8" : "#f8fafc"}
+            accessibilityLabel="Sound effects"
+          />
+        </View>
+
+        <View style={styles.volumeHeader}>
+          <Text style={[styles.soundControlTitle, { color: fieldValueColor }]}>Master volume</Text>
+          <Text style={[styles.volumePercent, { color: soundMuted ? fieldLabelColor : fieldValueColor }]}>{soundVolumePercent}%</Text>
+        </View>
+        <View style={styles.volumeControl}>
+          <TouchableOpacity
+            style={[styles.volumeButton, { backgroundColor: inputBg, borderColor: inputBorder }, soundVolume <= 0 && styles.volumeButtonDisabled]}
+            onPress={() => adjustSoundVolume(-0.1)}
+            disabled={soundVolume <= 0}
+            accessibilityLabel="Lower sound volume"
+          >
+            <Ionicons name="remove" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+          </TouchableOpacity>
+          <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
+            <View style={[styles.volumeFill, { width: `${soundVolumePercent}%`, opacity: soundMuted ? 0.45 : 1 }]} />
+          </View>
+          <TouchableOpacity
+            style={[styles.volumeButton, { backgroundColor: inputBg, borderColor: inputBorder }, soundVolume >= 1 && styles.volumeButtonDisabled]}
+            onPress={() => adjustSoundVolume(0.1)}
+            disabled={soundVolume >= 1}
+            accessibilityLabel="Raise sound volume"
+          >
+            <Ionicons name="add" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.individualSoundsTitle, { color: fieldLabelColor }]}>Individual sound levels</Text>
+        <View style={styles.soundItems}>
+          <SoundVolumeControl
+            title="Checkout"
+            icon="cash-outline"
+            value={soundVolumes?.checkout ?? 1}
+            muted={soundMuted || soundVolume <= 0}
+            dark={dark}
+            onChange={(value) => setFeedbackSoundVolume("checkout", value)}
+            onPreview={() => void playSoundPreview(checkoutPreviewPlayer, "checkout")}
+          />
+          <SoundVolumeControl
+            title="Transfer received"
+            icon="cube-outline"
+            value={soundVolumes?.transferReceived ?? 1}
+            muted={soundMuted || soundVolume <= 0}
+            dark={dark}
+            onChange={(value) => setFeedbackSoundVolume("transferReceived", value)}
+            onPreview={() => void playSoundPreview(transferPreviewPlayer, "transferReceived")}
+          />
+          <SoundVolumeControl
+            title="OMS connected"
+            icon="cloud-done-outline"
+            value={soundVolumes?.omsConnected ?? 1}
+            muted={soundMuted || soundVolume <= 0}
+            dark={dark}
+            onChange={(value) => setFeedbackSoundVolume("omsConnected", value)}
+            onPreview={() => void playSoundPreview(omsConnectedPlayer, "omsConnected")}
+          />
+          <SoundVolumeControl
+            title="OMS connection failed"
+            icon="cloud-offline-outline"
+            value={soundVolumes?.omsConnectionFailed ?? 1}
+            muted={soundMuted || soundVolume <= 0}
+            dark={dark}
+            onChange={(value) => setFeedbackSoundVolume("omsConnectionFailed", value)}
+            onPreview={() => void playSoundPreview(omsConnectionFailedPlayer, "omsConnectionFailed")}
+          />
         </View>
       </Card>
 
@@ -1351,6 +1566,127 @@ const styles = StyleSheet.create({
   sizeOptionTextSelected: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  soundToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingBottom: 14,
+    marginBottom: 14,
+    borderBottomWidth: 1,
+  },
+  soundIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  soundToggleCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  soundControlTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  soundControlDesc: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  volumeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  volumePercent: {
+    fontSize: 13,
+    fontWeight: "700",
+    minWidth: 42,
+    textAlign: "right",
+  },
+  volumeControl: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  volumeButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  volumeButtonDisabled: {
+    opacity: 0.4,
+  },
+  volumeTrack: {
+    flex: 1,
+    height: 10,
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  volumeFill: {
+    height: "100%",
+    borderRadius: 5,
+    backgroundColor: "#2563a6",
+  },
+  individualSoundsTitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 20,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  soundItems: {
+    width: "100%",
+  },
+  soundItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  soundItemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 9,
+  },
+  soundItemIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  soundItemTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  soundItemPercent: {
+    width: 42,
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "right",
+  },
+  soundItemPreview: {
+    width: 34,
+    height: 34,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  soundStepButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   dangerBtn: {
     marginTop: 16,

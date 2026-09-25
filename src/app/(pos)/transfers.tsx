@@ -13,6 +13,7 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import { api } from "@/lib/api/http";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
 import { useLocalSearchParams } from "expo-router";
+import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 
 const STATUS_FILTERS = ["All", "DRAFT", "APPROVED", "IN_TRANSIT", "RECEIVED"];
 
@@ -67,6 +69,12 @@ type ReceiveDraftItem = {
 };
 
 export default function TransfersScreen() {
+  const transferReceivedPlayer = useAudioPlayer(
+    require("../../../assets/sounds/transfer-received.wav")
+  );
+  const soundMuted = useUiStore((state) => state.soundMuted);
+  const soundVolume = useUiStore((state) => state.soundVolume);
+  const transferSoundVolume = useUiStore((state) => state.soundVolumes?.transferReceived ?? 1);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -252,6 +260,13 @@ export default function TransfersScreen() {
     setReceiveDraft((prev) => prev.map((r) => (r.itemId === itemId ? { ...r, notes } : r)));
   }, []);
 
+  const playTransferReceivedSound = useCallback(async () => {
+    await playFeedbackSound(transferReceivedPlayer, {
+      muted: soundMuted,
+      volume: soundVolume * transferSoundVolume,
+    });
+  }, [transferReceivedPlayer, soundMuted, soundVolume, transferSoundVolume]);
+
   const doFinalReceive = useCallback(async (omsTransferId?: number) => {
     if (!receiveTransferId) return;
     setReceiveSaving(true);
@@ -260,6 +275,7 @@ export default function TransfersScreen() {
       console.log("[Transfer] doFinalReceive", receiveTransferId, payload, "omsTransferId", omsTransferId);
       const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier", omsTransferId);
       if (result) {
+        void playTransferReceivedSound();
         setShowReceiveChecklist(false);
         setShowConfirmScanner(false);
         setReceiveTransferId(null);
@@ -277,7 +293,7 @@ export default function TransfersScreen() {
     } finally {
       setReceiveSaving(false);
     }
-  }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers]);
+  }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers, playTransferReceivedSound]);
 
   const handleConfirmReceive = useCallback(async () => {
     if (!receiveTransferId) return;

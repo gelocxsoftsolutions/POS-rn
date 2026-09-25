@@ -109,9 +109,66 @@ export const SyncQueueService = {
 
           if (res.ok) {
             await SyncQueueRepository.markSynced(item.id);
+            if (item.entityType === "Sale") {
+              try {
+                const { execute } = await import("@/lib/db/connection");
+                await execute("UPDATE Sale SET synced = 1 WHERE id = ?", [item.entityId]);
+              } catch {}
+            }
             processed++;
           } else {
-            await SyncQueueRepository.markFailed(item.id, `HTTP ${res.status}`);
+            const error = String(
+              (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`
+            );
+            const isPermanentSaleConflict =
+              item.entityType === "Sale" &&
+              res.status === 400 &&
+              /insufficient pos stock/i.test(error);
+            if (isPermanentSaleConflict) {
+              await SyncQueueRepository.markEntityFailed(item.entityType, item.entityId, error);
+              // Revert local inventory for this failed sale to keep POS consistent with OMS group stock
+              try {
+                const { execute, query } = await import("@/lib/db/connection");
+                const { InventoryRepository } = await import("@/lib/repositories/inventory.repository");
+                const items = await query<{ productId: string | null; quantity: number }>(
+                  `SELECT productId, quantity FROM SaleItem WHERE saleId = ?`,
+                  [item.entityId]
+                );
+                for (const it of items) {
+                  if (!it.productId) continue;
+                  try {
+                    await InventoryRepository.updateQuantities(it.productId, {
+                      availableQty: it.quantity,
+                      soldQty: -it.quantity,
+                    });
+                  } catch {}
+                  try {
+                    await execute(
+                      `DELETE FROM InventoryLedger WHERE referenceNumber = ? AND productId = ? AND movementType = 'SALE'`,
+                      [item.entityId, it.productId]
+                    );
+                  } catch {}
+                }
+                try {
+                  await execute(`DELETE FROM Payment WHERE saleId = ?`, [item.entityId]);
+                } catch {}
+                try {
+                  await execute(`DELETE FROM SaleItem WHERE saleId = ?`, [item.entityId]);
+                } catch {}
+                try {
+                  await execute(`DELETE FROM Sale WHERE id = ?`, [item.entityId]);
+                } catch {}
+                // Refresh inventory from OMS so next sale sees correct group stock
+                try {
+                  const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+                  const { useDeviceStore } = await import("@/lib/stores/device-store");
+                  const deviceId = useDeviceStore.getState().device?.deviceId;
+                  if (deviceId) OmsSyncService.syncInventory(deviceId).catch(() => {});
+                } catch {}
+              } catch {}
+            } else {
+              await SyncQueueRepository.markFailed(item.id, error);
+            }
             failed++;
           }
         } catch (e: any) {
