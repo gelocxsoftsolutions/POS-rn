@@ -80,6 +80,11 @@ const toUniqueCartProducts = (items: ProductDTO[], stock: Map<string, number>): 
       quantity: 0,
       maxQuantity: stock.get(product.id) ?? 0,
       imageUrl: product.imageUrl ?? undefined,
+      productCode: product.productCode ?? null,
+      description: product.description ?? null,
+      weight: product.weight ?? null,
+      unitName: product.unitName ?? null,
+      categoryName: product.categoryName ?? null,
     });
   });
   return Array.from(uniqueProducts.values());
@@ -113,6 +118,7 @@ export default function SalesScreen() {
   const [quantityItem, setQuantityItem] = useState<PosCartItem | null>(null);
   const [quantityInput, setQuantityInput] = useState("");
   const replaceQuantityOnNextKey = React.useRef(false);
+  const [variationGroup, setVariationGroup] = useState<PosCartItem[] | null>(null);
 
   const cart = useCartStore();
   const cashier = useAuthStore((s) => s.cashier);
@@ -214,14 +220,34 @@ export default function SalesScreen() {
     );
   }, [products, search, sort]);
 
-  const productTotalPages = Math.max(1, Math.ceil(sortedProducts.length / productPageSize));
+  const groupedProducts = useMemo(() => {
+    const groups = new Map<string, PosCartItem[]>();
+    for (const p of sortedProducts) {
+      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
+      const arr = groups.get(key);
+      if (arr) arr.push(p);
+      else groups.set(key, [p]);
+    }
+    const grouped = Array.from(groups.values()).map((group) => {
+      group.sort((a, b) => a.name.localeCompare(b.name) || a.unitPrice - b.unitPrice);
+      return group;
+    });
+    grouped.sort((a, b) => a[0].name.localeCompare(b[0].name));
+    // Apply sort that is not name - for price/stock sort, sort groups by min/max of that
+    if (sort === "priceAsc") grouped.sort((a, b) => Math.min(...a.map((x) => x.unitPrice)) - Math.min(...b.map((x) => x.unitPrice)));
+    if (sort === "priceDesc") grouped.sort((a, b) => Math.max(...b.map((x) => x.unitPrice)) - Math.max(...a.map((x) => x.unitPrice)));
+    if (sort === "stockDesc") grouped.sort((a, b) => Math.max(...b.map((x) => x.maxQuantity ?? 0)) - Math.max(...a.map((x) => x.maxQuantity ?? 0)));
+    return grouped;
+  }, [sortedProducts, sort]);
+
+  const productTotalPages = Math.max(1, Math.ceil(groupedProducts.length / productPageSize));
   const productCardWidth = productSectionWidth > 0
     ? (productSectionWidth - (GRID_COLUMNS - 1) * 12) / GRID_COLUMNS
     : undefined;
   const productImageSize = Math.min(160, Math.max(72, (productCardWidth ?? 184) - 24));
-  const pagedProducts = useMemo(
-    () => sortedProducts.slice((productPage - 1) * productPageSize, productPage * productPageSize),
-    [sortedProducts, productPage, productPageSize]
+  const pagedGroups = useMemo(
+    () => groupedProducts.slice((productPage - 1) * productPageSize, productPage * productPageSize),
+    [groupedProducts, productPage, productPageSize]
   );
   const checkoutSubtotal = cart.total();
   const checkoutTaxRate = settings?.taxRate ?? 0.12;
@@ -313,6 +339,11 @@ export default function SalesScreen() {
           quantity: 0,
           maxQuantity: stockMap.get(product.id) ?? 0,
           imageUrl: product.imageUrl ?? undefined,
+          productCode: product.productCode ?? null,
+          description: product.description ?? null,
+          weight: product.weight ?? null,
+          unitName: product.unitName ?? null,
+          categoryName: product.categoryName ?? null,
         };
 
         if (handleAddToCart(item)) {
@@ -679,6 +710,97 @@ export default function SalesScreen() {
     );
   };
 
+  const handleGroupPress = useCallback((group: PosCartItem[]) => {
+    if (group.length === 1) {
+      handleAddToCart(group[0]);
+    } else {
+      setVariationGroup(group);
+    }
+  }, [handleAddToCart]);
+
+  const renderGroup = ({ item: group }: { item: PosCartItem[] }) => {
+    const isMulti = group.length > 1;
+    const base = group[0];
+    const minPrice = Math.min(...group.map((g) => g.unitPrice));
+    const maxPrice = Math.max(...group.map((g) => g.unitPrice));
+    const totalStock = group.reduce((sum, g) => sum + (stockMap.get(g.productId) ?? g.maxQuantity), 0);
+    const effectiveTotal = group.reduce((sum, g) => sum + effectiveStock(g.productId, stockMap.get(g.productId) ?? g.maxQuantity), 0);
+    const cartCount = group.reduce((sum, g) => sum + (cart.items.find((i) => i.productId === g.productId)?.quantity ?? 0), 0);
+    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${base.unitPrice.toFixed(2)}`;
+
+    if (viewMode === "list") {
+      return (
+        <TouchableOpacity
+          style={[
+            styles.productCard,
+            styles.productCardList,
+            effectiveTotal <= 0 && styles.productCardDisabled,
+            { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+          ]}
+          onPress={() => handleGroupPress(group)}
+          activeOpacity={0.7}
+          disabled={effectiveTotal <= 0 && !isMulti}
+        >
+          <View style={[styles.productImage, styles.productImageList]}>
+            {base.imageUrl ? (
+              <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
+            ) : (
+              <Ionicons name="fish" size={30} color="#17386b" />
+            )}
+          </View>
+          <View style={styles.productListDetails}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{base.name}</Text>
+              {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" />}
+            </View>
+            {isMulti && (
+              <Text style={[styles.productVariationSubtext, { color: dark ? "#94a3b8" : "#6b7b8d" }]} numberOfLines={1}>
+                {group.map((g) => `${g.sku}${g.weight ? ` • ${g.weight}${g.unitName ?? ""}` : ""}`).join(" • ")}
+              </Text>
+            )}
+            <Text style={styles.productPrice}>{priceText}</Text>
+            <View style={styles.productFooter}>
+              <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
+              {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
+            </View>
+          </View>
+          {isMulti && <Ionicons name="chevron-forward" size={16} color="#8e99a4" style={{ marginLeft: 8 }} />}
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.productCard,
+          effectiveTotal <= 0 && styles.productCardDisabled,
+          { width: productCardWidth, backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+        ]}
+        onPress={() => handleGroupPress(group)}
+        activeOpacity={0.7}
+        disabled={effectiveTotal <= 0 && !isMulti}
+      >
+        <View style={[styles.productImage, { width: productImageSize, height: productImageSize }]}>
+          {base.imageUrl ? (
+            <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
+          ) : (
+            <Ionicons name="fish" size={32} color="#17386b" />
+          )}
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
+          <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c", flex: 1 }]} numberOfLines={1}>{base.name}</Text>
+          {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
+        </View>
+        {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ alignSelf: "flex-start", marginBottom: 4 }} />}
+        <Text style={styles.productPrice}>{priceText}</Text>
+        <View style={styles.productFooter}>
+          <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
+          {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
       <View style={[styles.layout, { flexDirection: isPortrait ? "column" : isWideLayout ? "row" : "column" }]}>
@@ -765,9 +887,9 @@ export default function SalesScreen() {
             <FlatList
               key={`sales-products-${viewMode}`}
               style={styles.productGrid}
-              data={pagedProducts}
-              renderItem={viewMode === "grid" ? renderProduct : renderProductListItem}
-              keyExtractor={(item) => item.productId}
+              data={pagedGroups}
+              renderItem={renderGroup}
+              keyExtractor={(item: PosCartItem[]) => item[0].productId}
               numColumns={viewMode === "grid" ? GRID_COLUMNS : 1}
               columnWrapperStyle={viewMode === "grid" ? styles.productRow : undefined}
               contentContainerStyle={styles.productList}
@@ -921,6 +1043,63 @@ export default function SalesScreen() {
               <Ionicons name="checkmark" size={20} color="#ffffff" />
               <Text style={styles.quantityApplyText}>Apply quantity</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
+        <View style={styles.variationModalOverlay}>
+          <View style={[styles.variationModal, { backgroundColor: dark ? "#141922" : "#ffffff" }]}>
+            <View style={styles.variationModalHeader}>
+              <View style={styles.variationModalHeading}>
+                <Text style={[styles.variationModalTitle, { color: dark ? "#f8fafc" : "#17202b" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
+                <Text style={[styles.variationModalSubtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{variationGroup?.length} variations</Text>
+              </View>
+              <TouchableOpacity style={styles.variationCloseBtn} onPress={() => setVariationGroup(null)}>
+                <Ionicons name="close" size={20} color={dark ? "#cbd5e1" : "#475569"} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.variationList} showsVerticalScrollIndicator={false}>
+              {variationGroup?.map((variant) => {
+                const stock = stockMap.get(variant.productId) ?? variant.maxQuantity;
+                const effective = effectiveStock(variant.productId, stock);
+                const inCart = cart.items.find((i) => i.productId === variant.productId);
+                return (
+                  <TouchableOpacity
+                    key={variant.productId}
+                    style={[styles.variationRow, { backgroundColor: dark ? "#0f1729" : "#f8fafc", borderColor: dark ? "#1e293b" : "#e2e8f0" }, effective <= 0 && { opacity: 0.5 }]}
+                    onPress={() => {
+                      if (effective <= 0) return;
+                      handleAddToCart(variant);
+                      setVariationGroup(null);
+                    }}
+                    disabled={effective <= 0}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.variationImageWrap}>
+                      {variant.imageUrl ? (
+                        <Image source={{ uri: variant.imageUrl }} style={styles.variationImage} resizeMode="contain" />
+                      ) : (
+                        <Ionicons name="fish" size={24} color="#17386b" />
+                      )}
+                    </View>
+                    <View style={styles.variationInfo}>
+                      <Text style={[styles.variationName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>
+                        {variant.sku}
+                        {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
+                        {variant.description ? ` • ${variant.description}` : ""}
+                      </Text>
+                      <Text style={styles.variationPrice}>₱{variant.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.variationStock, { color: effective > 0 ? "#16a34a" : "#dc2626" }]}>Stock: {effective}</Text>
+                    </View>
+                    <View style={styles.variationAdd}>
+                      <Ionicons name="add-circle" size={28} color={effective > 0 ? "#17386b" : "#9ca3af"} />
+                      {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1975,5 +2154,91 @@ const styles = StyleSheet.create({
   receiptDoneButton: {
     width: "100%",
     marginTop: 8,
+  },
+  productVariationSubtext: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  variationModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+  },
+  variationModal: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "80%",
+    borderRadius: 12,
+    padding: 16,
+  },
+  variationModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  variationModalHeading: {
+    flex: 1,
+    marginRight: 12,
+  },
+  variationModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  variationModalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  variationCloseBtn: {
+    padding: 4,
+  },
+  variationList: {
+    marginTop: 12,
+    maxHeight: 400,
+  },
+  variationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 12,
+  },
+  variationImageWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#f0f4ff",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  variationImage: {
+    width: "100%",
+    height: "100%",
+  },
+  variationInfo: {
+    flex: 1,
+  },
+  variationName: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  variationPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#17386b",
+    marginTop: 2,
+  },
+  variationStock: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  variationAdd: {
+    alignItems: "center",
+    gap: 4,
   },
 });
