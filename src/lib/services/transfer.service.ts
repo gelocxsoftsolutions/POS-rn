@@ -97,6 +97,7 @@ export const TransferService = {
         const inv = await InventoryRepository.findByProduct(resolvedProductId);
         const balanceBefore = inv?.availableQty ?? 0;
 
+        const hadExistingStock = !!inv && (inv.availableQty > 0 || inv.allocatedQty > 0 || inv.soldQty > 0);
         try {
           // Additive — stock only added once here (sync no longer touches inventory)
           if (!inv) {
@@ -105,6 +106,42 @@ export const TransferService = {
             await InventoryRepository.updateQuantities(resolvedProductId, { availableQty: actualQty });
           }
         } catch (e) { console.warn("[Transfer] inventory update failed for", resolvedProductId, e); }
+
+        // Update price for existing stock if same variation was transferred
+        if (hadExistingStock) {
+          try {
+            const skuRow = await queryFirst<{ sku: string }>(`SELECT sku FROM Product WHERE id = ?`, [resolvedProductId]);
+            const variationSku = skuRow?.sku;
+            if (variationSku) {
+              const deviceId = useDeviceStore.getState().device?.deviceId ?? "";
+              if (deviceId) {
+                const priceRes = await api.get<{ data: Array<{ variation: any }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
+                if (priceRes.ok && Array.isArray((priceRes.data as any)?.data)) {
+                  const found = (priceRes.data as any).data.find((it: any) => String(it.variation?.id) === variationSku);
+                  if (found?.variation) {
+                    const v = found.variation as any;
+                    const candidates = [
+                      v.posPrice, v.price, v.retailPrice, v.sellingPrice, v.customerPrice, v.priceForCustomer,
+                      v.pricing?.price, v.pricing?.amount, v.pricing?.priceForCustomer,
+                      v.prices?.[0]?.price, v.prices?.[0]?.amount
+                    ];
+                    let newPrice: number | undefined;
+                    for (const cand of candidates) {
+                      if (cand == null) continue;
+                      const p = Number(String(cand).replace(/[^0-9.-]/g, ""));
+                      if (Number.isFinite(p) && p >= 0) { newPrice = p; break; }
+                    }
+                    if (newPrice !== undefined) {
+                      const { ProductPriceRepository } = await import("@/lib/repositories/product-price.repository");
+                      await ProductPriceRepository.upsert({ productId: resolvedProductId, priceList: "retail", price: newPrice, currency: "PHP" });
+                      console.log("[Transfer] updated price for", variationSku, "to", newPrice);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) { console.warn("[Transfer] price update failed", e); }
+        }
 
         try {
           await InventoryLedgerRepository.create({

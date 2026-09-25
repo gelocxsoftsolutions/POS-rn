@@ -66,6 +66,25 @@ export const SaleService = {
         };
       });
 
+      // Per-variation stock check (e.g., var:757 Available 13 Requested 29)
+      for (const it of saleItems) {
+        if (!it.productId) continue;
+        const inv = await InventoryRepository.findByProduct(it.productId);
+        if (inv && inv.availableQty < it.quantity) {
+          try {
+            const deviceId = input.deviceId;
+            if (deviceId) {
+              const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+              OmsSyncService.syncInventory(deviceId).catch(() => {});
+            }
+          } catch {}
+          return {
+            success: false as const,
+            error: `Not enough stock for ${it.productName}. Available: ${inv.availableQty}, requested: ${it.quantity}. Please reduce quantity.`,
+          };
+        }
+      }
+
       // Pre-check group stock to avoid OMS 400 spam (group: productCode)
       const groupRequested = new Map<string, number>();
       const productCodeCache = new Map<string, string | null>();
@@ -107,22 +126,39 @@ export const SaleService = {
         }
       }
 
-      // Fresh OMS check to catch stale local stock (e.g., POS shows 15 but OMS group has 9)
+      // Fresh OMS check to catch stale local stock (e.g., POS shows 15 but OMS group has 9, or var 13 vs 29)
       try {
         const deviceId = input.deviceId;
         if (deviceId) {
-          const res = await api.get<{ data: Array<{ groupKey: string; qty: number }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
+          const res = await api.get<{ data: Array<{ groupKey: string; qty: number; variation: { id: string } }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
           if (res.ok && Array.isArray((res.data as any)?.data)) {
             const omsGroupMap = new Map<string, number>();
-            for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number }>) {
+            const omsVarMap = new Map<string, number>();
+            for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
               if (it.groupKey) omsGroupMap.set(it.groupKey, Number(it.qty ?? 0));
+              if (it.variation?.id) omsVarMap.set(String(it.variation.id), Number(it.qty ?? 0));
             }
+            // Group check
             for (const [groupKey, requested] of groupRequested) {
               const omsAvail = omsGroupMap.get(groupKey);
               if (omsAvail !== undefined && omsAvail < requested) {
                 return {
                   success: false as const,
                   error: `Not enough stock for this product group (OMS). Available: ${omsAvail}, requested: ${requested}. Please sync inventory and reduce quantity.`,
+                };
+              }
+            }
+            // Per-variation OMS check
+            for (const it of saleItems) {
+              if (!it.productId) continue;
+              const prow = await queryFirst<{ sku: string | null }>(`SELECT sku FROM Product WHERE id = ?`, [it.productId]);
+              const sku = prow?.sku ? String(prow.sku) : null;
+              if (!sku) continue;
+              const omsVarAvail = omsVarMap.get(sku);
+              if (omsVarAvail !== undefined && omsVarAvail < it.quantity) {
+                return {
+                  success: false as const,
+                  error: `Not enough stock for ${it.productName} (var:${sku}). Available: ${omsVarAvail}, requested: ${it.quantity}. Please sync inventory and reduce quantity.`,
                 };
               }
             }
@@ -222,10 +258,11 @@ export const SaleService = {
         if (isInsufficient) {
           const availMatch = errMsg.match(/Available:\s*(\d+)/i);
           const reqMatch = errMsg.match(/Requested:\s*(\d+)/i);
-          const groupMatch = errMsg.match(/group:([a-f0-9-]+)/i);
+          const groupMatch = errMsg.match(/(?:group|var):([^\s,\]]+)/i);
           const available = availMatch ? availMatch[1] : "?";
           const requested = reqMatch ? reqMatch[1] : String(itemCount);
-          const group = groupMatch ? groupMatch[1].substring(0, 8) + "…" : "this product group";
+          const isVar = /for var:/i.test(errMsg);
+          const group = groupMatch ? (isVar ? `var:${groupMatch[1]}` : `group:${groupMatch[1].substring(0, 8)}…`) : isVar ? "this variation" : "this product group";
 
           // Rollback local sale and inventory to keep POS consistent with OMS
           await this._rollbackSale(saleId, saleItems);
