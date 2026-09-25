@@ -63,6 +63,7 @@ export const SaleService = {
           tax: 0,
           lineTotal,
           unit: item.unit,
+          weight: item.weight ?? null,
         };
       });
 
@@ -197,8 +198,8 @@ export const SaleService = {
       for (const item of saleItems) {
         const itemId = uuid();
         await execute(
-          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit, weight)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             itemId,
             saleId,
@@ -212,6 +213,7 @@ export const SaleService = {
             item.tax,
             item.lineTotal,
             item.unit ?? null,
+            (item as any).weight ?? null,
           ]
         );
 

@@ -14,6 +14,10 @@ export type ReceiptPreviewItem = {
   name: string;
   quantity: number;
   unitPrice: number;
+  sku?: string;
+  weight?: number | null;
+  unitName?: string | null;
+  description?: string | null;
 };
 
 export type ReceiptPreviewData = {
@@ -85,6 +89,13 @@ export function ReceiptPreviewModal({
                 <View key={idx} style={styles.receiptItem}>
                   <View style={styles.receiptItemLeft}>
                     <Text style={styles.receiptItemName}>{item.name}</Text>
+                    {(item.sku || item.weight != null || item.unitName || item.description) && (
+                      <Text style={styles.receiptItemVariation} numberOfLines={1}>
+                        {item.sku ? item.sku : ""}
+                        {item.weight != null ? ` • ${item.weight}${item.unitName ?? ""}` : item.unitName ? ` • ${item.unitName}` : ""}
+                        {item.description ? ` • ${item.description}` : ""}
+                      </Text>
+                    )}
                     <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
                   </View>
                   <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
@@ -227,6 +238,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#6b7b8d",
     marginTop: 2,
+  },
+  receiptItemVariation: {
+    fontSize: 10,
+    color: "#6b7b8d",
+    marginTop: 1,
   },
   receiptItemPrice: {
     fontSize: 13,

@@ -409,6 +409,8 @@ export default function SalesScreen() {
           barcode: i.barcode,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
+          unit: i.unitName ?? undefined,
+          weight: i.weight ?? null,
         })),
         paidAmount: paid,
         deviceId: device.deviceId ?? undefined,
@@ -944,6 +946,13 @@ export default function SalesScreen() {
                     </View>
                     <View style={styles.cartItemInfo}>
                       <Text style={[styles.cartItemName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
+                      {(item.sku || item.weight != null || item.unitName || item.description) && (
+                        <Text style={[styles.cartItemVariation, { color: dark ? "#94a3b8" : "#6b7b8d" }]} numberOfLines={1}>
+                          {item.sku ? `${item.sku}` : ""}
+                          {item.weight != null ? ` • ${item.weight}${item.unitName ?? ""}` : item.unitName ? ` • ${item.unitName}` : ""}
+                          {item.description ? ` • ${item.description}` : ""}
+                        </Text>
+                      )}
                       <Text style={[styles.cartItemPrice, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>₱{item.unitPrice.toFixed(2)}</Text>
                     </View>
                     <View style={styles.cartItemActions}>
@@ -1242,10 +1251,14 @@ export default function SalesScreen() {
                 date: lastReceipt.date,
                 customerName: lastReceipt.customerName,
                 cashierName: lastReceipt.cashierName,
-                items: lastReceipt.items.map((i) => ({
+                items: lastReceipt.items.map((i: any) => ({
                   name: i.name,
                   quantity: i.quantity,
                   unitPrice: i.unitPrice,
+                  sku: i.sku,
+                  weight: i.weight,
+                  unitName: i.unitName,
+                  description: i.description,
                 })),
                 subtotal: lastReceipt.subtotal,
                 tax: lastReceipt.tax,
@@ -1559,6 +1572,11 @@ const styles = StyleSheet.create({
   },
   cartItemPrice: {
     fontSize: 11,
+    color: "#6b7b8d",
+    marginTop: 2,
+  },
+  cartItemVariation: {
+    fontSize: 10,
     color: "#6b7b8d",
     marginTop: 2,
   },

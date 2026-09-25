@@ -36,6 +36,7 @@ export interface SaleItemDTO {
   tax: number;
   lineTotal: number;
   unit: string | null;
+  weight: number | null;
 }
 
 export interface PaymentDTO {
@@ -61,6 +62,7 @@ export interface CreateSaleInput {
     quantity: number;
     unitPrice: number;
     unit?: string;
+    weight?: number | null;
   }>;
   discountCode?: string;
   paidAmount?: number;

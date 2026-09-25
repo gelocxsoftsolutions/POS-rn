@@ -30,6 +30,13 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
     // column already exists
   }
 
+  // Migration to v5: add weight column to SaleItem if missing
+  try {
+    await database.execAsync("ALTER TABLE SaleItem ADD COLUMN weight REAL DEFAULT NULL");
+  } catch {
+    // column already exists
+  }
+
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
   await database.runAsync(

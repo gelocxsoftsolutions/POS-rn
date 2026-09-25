@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -308,6 +308,7 @@ export const CREATE_TABLES = [
     tax REAL DEFAULT 0,
     lineTotal REAL DEFAULT 0,
     unit TEXT,
+    weight REAL DEFAULT NULL,
     FOREIGN KEY (saleId) REFERENCES Sale(id) ON DELETE CASCADE
   )`,
 
