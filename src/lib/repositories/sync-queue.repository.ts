@@ -33,6 +33,16 @@ export interface SyncStats {
 
 export const SyncQueueRepository = {
   async enqueue(input: EnqueueInput): Promise<SyncQueueRow> {
+    const existing = await queryFirst<SyncQueueRow>(
+      `SELECT * FROM SyncQueue
+       WHERE entityType = ? AND entityId = ? AND operation = ?
+         AND status IN ('PENDING', 'PROCESSING', 'FAILED')
+       ORDER BY createdAt DESC
+       LIMIT 1`,
+      [input.entityType, input.entityId, input.operation]
+    );
+    if (existing) return existing;
+
     const id = uuid();
     const now = new Date().toISOString();
     await execute(
@@ -84,8 +94,23 @@ export const SyncQueueRepository = {
   async markFailed(id: string, error: string): Promise<void> {
     const now = new Date().toISOString();
     await execute(
-      `UPDATE SyncQueue SET status = 'FAILED', error = ?, retryCount = retryCount + 1, updatedAt = ? WHERE id = ?`,
+      `UPDATE SyncQueue
+       SET status = CASE WHEN retryCount + 1 >= maxRetries THEN 'FAILED' ELSE 'PENDING' END,
+           error = ?,
+           retryCount = retryCount + 1,
+           updatedAt = ?
+       WHERE id = ?`,
       [error, now, id]
+    );
+  },
+
+  async markEntityFailed(entityType: string, entityId: string, error: string): Promise<void> {
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE SyncQueue
+       SET status = 'FAILED', error = ?, retryCount = maxRetries, updatedAt = ?
+       WHERE entityType = ? AND entityId = ? AND status <> 'SYNCED'`,
+      [error, now, entityType, entityId]
     );
   },
 

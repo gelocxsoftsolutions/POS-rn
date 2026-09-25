@@ -16,14 +16,16 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
+import { useAudioPlayer } from "expo-audio";
 import { File } from "expo-file-system";
-import QRCode from "react-native-qrcode-svg";
 import QRCodeLib from "qrcode";
+import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BottomSheet } from "@/components/ui/modal";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useCartStore } from "@/lib/stores/cart-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -34,6 +36,7 @@ import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { InventoryService } from "@/lib/services/inventory.service";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 
@@ -83,6 +86,12 @@ const toUniqueCartProducts = (items: ProductDTO[], stock: Map<string, number>): 
 };
 
 export default function SalesScreen() {
+  const checkoutSuccessPlayer = useAudioPlayer(
+    require("../../../assets/sounds/cash-register-sound.wav")
+  );
+  const soundMuted = useUiStore((state) => state.soundMuted);
+  const soundVolume = useUiStore((state) => state.soundVolume);
+  const checkoutSoundVolume = useUiStore((state) => state.soundVolumes?.checkout ?? 1);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<ProductSort>("popular");
   const [checkoutVisible, setCheckoutVisible] = useState(false);
@@ -111,9 +120,11 @@ export default function SalesScreen() {
   const dark = useIsDarkTheme();
   const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
+  const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
+  const alertShowingRef = React.useRef(false);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -167,6 +178,10 @@ export default function SalesScreen() {
     }, 300);
     return () => clearTimeout(timeout);
   }, [search, loadProducts]);
+
+  useEffect(() => {
+    if (lastSyncTime) void loadProducts();
+  }, [lastSyncTime, loadProducts]);
 
   const cartQtyByProductId = useMemo(
     () =>
@@ -335,6 +350,13 @@ export default function SalesScreen() {
 
   const removePaidAmountDigit = () => setPaidAmount((current) => current.slice(0, -1));
 
+  const playCheckoutSuccessSound = useCallback(async () => {
+    await playFeedbackSound(checkoutSuccessPlayer, {
+      muted: soundMuted,
+      volume: soundVolume * checkoutSoundVolume,
+    });
+  }, [checkoutSuccessPlayer, soundMuted, soundVolume, checkoutSoundVolume]);
+
   const handleConfirmSale = async () => {
     const total = cart.total() * (1 + (settings?.taxRate ?? 0.12));
     const paid = parseFloat(paidAmount) || total;
@@ -362,7 +384,8 @@ export default function SalesScreen() {
         branchId: device.branchId ?? undefined,
       });
 
-      if (result.success && result.sale) {
+        if (result.success && result.sale) {
+        void playCheckoutSuccessSound();
         const receiptData = {
           receiptNumber: result.sale.receiptNumber,
           items: [...cart.items],
@@ -399,8 +422,48 @@ export default function SalesScreen() {
         setCustomerName("");
         setPaidAmount("");
         setPaymentMethod("CASH");
+        await loadProducts();
       } else {
-        Alert.alert("Error", result.error ?? "Failed to create sale.");
+        const msg = result.error ?? "Failed to create sale.";
+        if (alertShowingRef.current) return;
+        if (/not enough stock|insufficient/i.test(msg)) {
+          // Auto-correct cart quantities that exceed available
+          try {
+            const availMatch = msg.match(/Available:\s*(\d+)/i);
+            const groupMatch = msg.match(/group:([a-f0-9-]+)/i);
+            if (availMatch) {
+              const available = Number(availMatch[1]);
+              if (Number.isFinite(available) && available >= 0) {
+                const groupId = groupMatch ? groupMatch[1] : null;
+                const { queryFirst } = await import("@/lib/db/connection");
+                for (const cartItem of [...cart.items]) {
+                  let shouldCap = false;
+                  if (groupId) {
+                    const prow = await queryFirst<{ productCode: string | null }>(`SELECT productCode FROM Product WHERE id = ?`, [cartItem.productId]);
+                    const code = prow?.productCode ?? cartItem.productId;
+                    if (code === groupId) shouldCap = true;
+                  } else {
+                    // No group specified, cap any item that exceeds available
+                    if (cartItem.quantity > available) shouldCap = true;
+                  }
+                  if (shouldCap) {
+                    const newQty = Math.min(cartItem.quantity, available);
+                    if (newQty > 0) cart.updateQuantity(cartItem.productId, newQty);
+                    else cart.removeItem(cartItem.productId);
+                  }
+                }
+              }
+            }
+          } catch {}
+          try {
+            await loadProducts();
+          } catch {}
+        }
+        alertShowingRef.current = true;
+        Alert.alert("Not Enough Stock", msg, [
+          { text: "OK", onPress: () => { alertShowingRef.current = false; } },
+        ]);
+        setTimeout(() => { alertShowingRef.current = false; }, 3000);
       }
     } catch {
       Alert.alert("Error", "An unexpected error occurred.");
@@ -990,79 +1053,44 @@ export default function SalesScreen() {
         onScan={handleBarcodeCameraScan}
       />
 
-      <Modal visible={receiptVisible} transparent animationType="fade">
-        <View style={styles.receiptOverlay}>
-          <View style={styles.receiptContainer}>
-            {lastReceipt && (
-              <ScrollView style={styles.receiptScroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.receiptContent}>
-                  <Image
-                    source={require("../../../assets/thermal-printer-logo.jpg")}
-                    style={styles.receiptLogo}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.receiptStore}>{settings?.storeName || "Store"}</Text>
-                  {settings?.address ? <Text style={styles.receiptAddress}>{settings.address}</Text> : null}
-                  {settings?.supportPhone ? <Text style={styles.receiptPhone}>{settings.supportPhone}</Text> : null}
-                  <Text style={styles.receiptNumber}>{lastReceipt.receiptNumber}</Text>
-                  <Text style={styles.receiptDate}>{new Date(lastReceipt.date).toLocaleString()}</Text>
-                  {lastReceipt.customerName ? (
-                    <Text style={styles.receiptCustomer}>Customer: {lastReceipt.customerName}</Text>
-                  ) : null}
-                  <Text style={styles.receiptCashier}>Cashier: {lastReceipt.cashierName}</Text>
-                  <View style={styles.receiptDivider} />
-                  {lastReceipt.items.map((item: PosCartItem, idx: number) => (
-                    <View key={idx} style={styles.receiptItem}>
-                      <View style={styles.receiptItemLeft}>
-                        <Text style={styles.receiptItemName}>{item.name}</Text>
-                        <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
-                      </View>
-                      <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
-                    </View>
-                  ))}
-                  <View style={styles.receiptDivider} />
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Subtotal</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.subtotal.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>{settings?.taxLabel || "Tax"}</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.tax.toFixed(2)}</Text>
-                  </View>
-                  <View style={[styles.receiptItem, { marginTop: 8 }]}>
-                    <Text style={styles.receiptTotal}>Total</Text>
-                    <Text style={styles.receiptTotal}>₱{lastReceipt.total.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Paid ({paymentMethodLabel(lastReceipt.paymentMethod)})</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.paidAmount.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptItem}>
-                    <Text style={styles.receiptItemName}>Change</Text>
-                    <Text style={styles.receiptItemPrice}>₱{lastReceipt.change.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.receiptDivider} />
-                  <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
-                  <View style={styles.receiptQR}>
-                    <QRCode value={String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt")} size={140} />
-                    <Text style={styles.receiptQRCaption}>{lastReceipt.receiptNumber}</Text>
-                  </View>
-                  <View style={styles.receiptActions}>
-                    <Button
-                      title={printing ? "Finding Printer..." : "Print Receipt"}
-                      onPress={handlePrintReceipt}
-                      icon="print-outline"
-                      loading={printing}
-                      style={styles.printReceiptButton}
-                    />
-                    <Button title="Done" onPress={() => setReceiptVisible(false)} variant="secondary" style={styles.receiptDoneButton} />
-                  </View>
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+      <ReceiptPreviewModal
+        visible={receiptVisible}
+        onClose={() => setReceiptVisible(false)}
+        receipt={
+          lastReceipt
+            ? {
+                receiptNumber: lastReceipt.receiptNumber,
+                date: lastReceipt.date,
+                customerName: lastReceipt.customerName,
+                cashierName: lastReceipt.cashierName,
+                items: lastReceipt.items.map((i) => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                })),
+                subtotal: lastReceipt.subtotal,
+                tax: lastReceipt.tax,
+                total: lastReceipt.total,
+                paidAmount: lastReceipt.paidAmount,
+                change: lastReceipt.change,
+                paymentMethod: lastReceipt.paymentMethod,
+              }
+            : null
+        }
+        settings={
+          settings
+            ? {
+                storeName: settings.storeName,
+                address: settings.address,
+                supportPhone: settings.supportPhone,
+                receiptFooter: settings.receiptFooter,
+                taxLabel: settings.taxLabel,
+              }
+            : null
+        }
+        onPrint={handlePrintReceipt}
+        printing={printing}
+      />
     </View>
   );
 }

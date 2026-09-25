@@ -1,14 +1,27 @@
 import type { ExpoConfig } from "expo/config";
 
+type AppExpoConfig = ExpoConfig & {
+  splash: {
+    image: string;
+    resizeMode: "contain";
+    backgroundColor: string;
+  };
+};
+
 const OMS_URL = process.env.EXPO_PUBLIC_OMS_URL ?? "https://staging.nctseafoods.store";
 const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV ?? "staging";
 
-const config: ExpoConfig = {
+const config: AppExpoConfig = {
   name: "NCT POS",
   slug: "nct-pos",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
+  splash: {
+    image: "./assets/nct-seafoods-logo.png",
+    resizeMode: "contain",
+    backgroundColor: "#ffffff",
+  },
   scheme: "nctpos",
   userInterfaceStyle: "automatic",
   extra: {
@@ -36,6 +49,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-audio",
     "expo-sqlite",
     "expo-secure-store",
     "expo-sharing",

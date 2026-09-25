@@ -5,35 +5,49 @@ import { useNetworkStore } from "@/lib/services/network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { SaleRepository } from "@/lib/repositories/sale.repository";
 
-const SYNC_INTERVAL_MS = 30_000;
+const SYNC_INTERVAL_MS = 15_000;
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 
 async function pushUnsyncedSales(): Promise<void> {
   try {
     const unsynced = await SaleRepository.findUnsynced(50);
     for (const sale of unsynced) {
+      const items = (sale.items ?? [])
+        .map((item) => ({
+          variationId: Number(item.sku),
+          qty: Number(item.quantity),
+        }))
+        .filter((item) => Number.isFinite(item.variationId) && item.variationId > 0 && item.qty > 0);
+
+      if (items.length === 0) continue;
+
       const payload = {
         receiptNumber: sale.receiptNumber,
         cashierId: sale.cashierId,
         cashierName: sale.cashierName,
+        cashierUserId: sale.cashierId,
+        paymentMethod: sale.paymentMethod,
         total: sale.total,
-        items: (sale.items ?? []).map((item: any) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lineTotal: item.lineTotal,
-        })),
+        items,
         payments: sale.payments?.map((p: any) => ({
           method: p.method,
           amount: p.amount,
         })) ?? [{ method: sale.paymentMethod, amount: sale.total }],
       };
 
-      const pushed = await OmsSyncService.pushSale(payload);
-      if (pushed) {
+      const pushResult = await OmsSyncService.pushSale(payload);
+      if (pushResult.success) {
         await SaleRepository.markSynced(sale.id);
       } else {
-        await SyncQueueService.enqueue("Sale", sale.id, "CREATE", payload);
+        const queued = await SyncQueueService.enqueue("Sale", sale.id, "CREATE", payload);
+        if (queued && !pushResult.retryable) {
+          const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+          await SyncQueueRepository.markEntityFailed(
+            "Sale",
+            sale.id,
+            pushResult.error ?? `HTTP ${pushResult.status}`
+          );
+        }
       }
     }
   } catch {

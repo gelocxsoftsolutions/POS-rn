@@ -226,7 +226,17 @@ export const SaleRepository = {
 
   async findUnsynced(limit: number = 50): Promise<SaleDTO[]> {
     const sales = await query<SaleDTO>(
-      "SELECT * FROM Sale WHERE synced = 0 AND status = 'COMPLETED' ORDER BY createdAt ASC LIMIT ?",
+      `SELECT s.* FROM Sale s
+       WHERE s.synced = 0
+         AND s.status = 'COMPLETED'
+         AND NOT EXISTS (
+           SELECT 1 FROM SyncQueue q
+           WHERE q.entityType = 'Sale'
+             AND q.entityId = s.id
+             AND q.status IN ('PENDING', 'PROCESSING', 'FAILED')
+         )
+       ORDER BY s.createdAt ASC
+       LIMIT ?`,
       [limit]
     );
     for (const sale of sales) {

@@ -7,6 +7,7 @@ import { v4 as uuid } from "uuid";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { ProductImageRepository } from "@/lib/repositories/product-image.repository";
+import { ProductPriceRepository } from "@/lib/repositories/product-price.repository";
 import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 
@@ -18,8 +19,14 @@ interface VariationDto {
   barcode?: string | null;
   unit?: string | null;
   weight?: number;
-  price?: number;
-  posPrice?: number;
+  price?: number | string;
+  posPrice?: number | string;
+  priceForCustomer?: number | string;
+  customerPrice?: number | string;
+  retailPrice?: number | string;
+  sellingPrice?: number | string;
+  pricing?: Record<string, unknown> | null;
+  prices?: Array<Record<string, unknown>> | null;
   imageUrl?: string | null;
   category?: { name: string; color?: string | null } | null;
 }
@@ -60,6 +67,95 @@ interface SyncProduct {
   sku: string;
 }
 
+export interface SalePushResult {
+  success: boolean;
+  status: number;
+  error?: string;
+  retryable: boolean;
+}
+
+function parsePrice(value: unknown): number | undefined {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return parsePrice(record.amount ?? record.value ?? record.price);
+  }
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const normalized = typeof value === "string"
+    ? value.replace(/,/g, "").replace(/[^0-9.-]/g, "").trim()
+    : value;
+  if (normalized === "") return undefined;
+  const price = Number(normalized);
+  return Number.isFinite(price) && price >= 0 ? price : undefined;
+}
+
+function findLabeledCustomerPrice(prices: unknown): number | undefined {
+  if (!Array.isArray(prices)) return undefined;
+  for (const entry of prices) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const label = String(
+      record.name ?? record.label ?? record.type ?? record.priceList ?? record.code ?? ""
+    ).toLowerCase();
+    if (!/(customer|retail|selling|pos)/.test(label)) continue;
+    const price = parsePrice(record.price ?? record.amount ?? record.value);
+    if (price !== undefined) return price;
+  }
+  return undefined;
+}
+
+function resolveCustomerPrice(variation: VariationDto, assignment?: unknown): number | undefined {
+  const outer = assignment && typeof assignment === "object"
+    ? assignment as Record<string, unknown>
+    : {};
+  const variationRecord = variation as unknown as Record<string, unknown>;
+  const pricing = variation.pricing && typeof variation.pricing === "object"
+    ? variation.pricing
+    : {};
+
+  const candidates = [
+    outer.priceForCustomer,
+    outer.price_for_customer,
+    variation.priceForCustomer,
+    variationRecord.price_for_customer,
+    pricing.priceForCustomer,
+    pricing.price_for_customer,
+    outer.customerPrice,
+    outer.customer_price,
+    variation.customerPrice,
+    variationRecord.customer_price,
+    pricing.customerPrice,
+    pricing.customer_price,
+    outer.retailPrice,
+    outer.retail_price,
+    variation.retailPrice,
+    variationRecord.retail_price,
+    pricing.retailPrice,
+    pricing.retail_price,
+    outer.sellingPrice,
+    outer.selling_price,
+    variation.sellingPrice,
+    variationRecord.selling_price,
+    pricing.sellingPrice,
+    pricing.selling_price,
+    findLabeledCustomerPrice(outer.prices),
+    findLabeledCustomerPrice(variation.prices),
+    outer.posPrice,
+    outer.pos_price,
+    variation.posPrice,
+    variationRecord.pos_price,
+    pricing.posPrice,
+    pricing.pos_price,
+    outer.price,
+    variation.price,
+  ];
+
+  for (const candidate of candidates) {
+    const price = parsePrice(candidate);
+    if (price !== undefined) return price;
+  }
+  return undefined;
+}
+
 async function cacheProductImage(imageId: string, sku: string, imageUrl: string): Promise<string> {
   if (Platform.OS === "web") return imageUrl;
 
@@ -97,7 +193,7 @@ async function cacheProductImage(imageId: string, sku: string, imageUrl: string)
 
 async function upsertProductFromVariation(
   variation: VariationDto,
-  fallbackPosPrice?: number
+  priceAssignment?: unknown
 ): Promise<SyncProduct | null> {
   const sku = String(variation.id ?? variation.productId ?? "").trim();
   if (!sku) return null;
@@ -155,17 +251,14 @@ async function upsertProductFromVariation(
 
   if (!productId) return null;
 
-  const price = Number(fallbackPosPrice ?? variation.posPrice ?? variation.price ?? 0);
-  if (price > 0) {
-    await execute(
-      "DELETE FROM ProductPrice WHERE productId = ? AND priceList = 'retail'",
-      [productId]
-    );
-    await execute(
-      `INSERT INTO ProductPrice (id, productId, priceList, price, currency, active, createdAt, updatedAt)
-       VALUES (?, ?, 'retail', ?, 'PHP', 1, ?, ?)`,
-      [uuid(), productId, price, new Date().toISOString(), new Date().toISOString()]
-    );
+  const price = resolveCustomerPrice(variation, priceAssignment);
+  if (price !== undefined) {
+    await ProductPriceRepository.upsert({
+      productId,
+      priceList: "retail",
+      price,
+      currency: "PHP",
+    });
   }
 
   if (variation.barcode) {
@@ -259,9 +352,50 @@ export const OmsSyncService = {
           if (pending) continue;
         } catch {}
 
-        await InventoryRepository.upsert(product.id, {
-          availableQty: Number(item.qty ?? 0),
-        });
+        // Sales and received transfers are applied locally and recorded with an
+        // exact resulting balance. Once a product has local movements, that
+        // ledger balance is authoritative for this POS device; an older OMS
+        // snapshot must not restore stock that was already sold.
+        const localMovements = await queryFirst<{ movementCount: number; localBalance: number }>(
+          `SELECT
+             COUNT(*) as movementCount,
+             COALESCE((
+               SELECT firstMovement.balanceBefore
+               FROM InventoryLedger firstMovement
+               WHERE firstMovement.productId = ?
+               ORDER BY firstMovement.createdAt ASC, firstMovement.rowid ASC
+               LIMIT 1
+             ), 0) + COALESCE(SUM(quantity), 0) as localBalance
+           FROM InventoryLedger
+           WHERE productId = ?`,
+          [product.id, product.id]
+        );
+        if (Number(localMovements?.movementCount ?? 0) > 0) {
+          await InventoryRepository.setQuantity(
+            product.id,
+            Math.max(0, Number(localMovements?.localBalance ?? 0))
+          );
+          synced++;
+          continue;
+        }
+
+        // Compatibility for sales created before inventory ledger entries were
+        // enforced: keep any still-unsynced quantities deducted from OMS stock.
+        const pendingSales = await queryFirst<{ qty: number }>(
+          `SELECT COALESCE(SUM(si.quantity), 0) as qty
+           FROM SaleItem si
+           INNER JOIN Sale s ON s.id = si.saleId
+           WHERE si.productId = ?
+             AND s.status = 'COMPLETED'
+             AND s.synced = 0`,
+          [product.id]
+        );
+        const availableQty = Math.max(
+          0,
+          Number(item.qty ?? 0) - Number(pendingSales?.qty ?? 0)
+        );
+
+        await InventoryRepository.upsert(product.id, { availableQty });
         synced++;
       }
 
@@ -290,7 +424,7 @@ export const OmsSyncService = {
       let synced = 0;
       for (const item of rows) {
         if (!item.variation) continue;
-        const product = await upsertProductFromVariation(item.variation, item.posPrice);
+        const product = await upsertProductFromVariation(item.variation, item);
         if (!product?.id) continue;
         synced++;
       }
@@ -313,7 +447,7 @@ export const OmsSyncService = {
     total?: number;
     items: Array<{ variationId: number; qty: number }>;
     payments?: Array<{ method: string; amount: number }>;
-  }): Promise<boolean> {
+  }): Promise<SalePushResult> {
     try {
       // Normalize to OMS canonical schema: items[{variationId, qty}], paymentMethod, cashierUserId
       const body: any = {
@@ -322,9 +456,16 @@ export const OmsSyncService = {
         cashierUserId: sale.cashierUserId ?? sale.cashierId,
       };
       const res = await api.post("/api/pos/sales", body);
-      return res.ok;
-    } catch {
-      return false;
+      if (res.ok) {
+        return { success: true, status: res.status, retryable: false };
+      }
+      const error = String(
+        (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`
+      );
+      const retryable = res.status === 0 || res.status === 408 || res.status === 429 || res.status >= 500;
+      return { success: false, status: res.status, error, retryable };
+    } catch (error: any) {
+      return { success: false, status: 0, error: error?.message ?? "Network error", retryable: true };
     }
   },
 
@@ -350,7 +491,7 @@ export const OmsSyncService = {
       }> }>(`/api/pos/transfers/for-device?deviceId=${deviceId}`);
 
       const transfers = res.data?.data;
-      if (res.ok && Array.isArray(transfers) && transfers.length > 0) {
+      if (res.ok && Array.isArray(transfers)) {
         let synced = 0;
         for (const t of transfers) {
           const existing = await queryFirst<{ id: string }>(
@@ -385,10 +526,16 @@ export const OmsSyncService = {
           });
           synced++;
         }
+
+        // Numeric transfer numbers were created by the legacy endpoint from its
+        // row ID (for example "16") rather than the canonical TRF number.
+        // Clean them only after canonical rows have been safely processed.
+        await TransferRepository.removeLegacyNumericPending();
         return { synced };
       }
 
-      // Fallback: legacy pending logs (creates synthetic IN_TRANSIT records, no inventory touch)
+      // Fallback only when the modern endpoint is unavailable or malformed.
+      // Legacy pending logs create synthetic IN_TRANSIT records with numeric IDs.
       const fallback = await api.get<{ data: Array<{
         id: string;
         direction: string;

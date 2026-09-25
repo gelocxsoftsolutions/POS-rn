@@ -13,6 +13,7 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,8 @@ import { api } from "@/lib/api/http";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import type { InventoryTransferDTO, InventoryTransferItemDTO } from "@/lib/types/inventory";
 import { useLocalSearchParams } from "expo-router";
+import { playFeedbackSound } from "@/lib/audio/feedback-sound";
+import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 
 const STATUS_FILTERS = ["All", "DRAFT", "APPROVED", "IN_TRANSIT", "RECEIVED"];
 
@@ -67,6 +70,12 @@ type ReceiveDraftItem = {
 };
 
 export default function TransfersScreen() {
+  const transferReceivedPlayer = useAudioPlayer(
+    require("../../../assets/sounds/transfer-received.wav")
+  );
+  const soundMuted = useUiStore((state) => state.soundMuted);
+  const soundVolume = useUiStore((state) => state.soundVolume);
+  const transferSoundVolume = useUiStore((state) => state.soundVolumes?.transferReceived ?? 1);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -252,6 +261,13 @@ export default function TransfersScreen() {
     setReceiveDraft((prev) => prev.map((r) => (r.itemId === itemId ? { ...r, notes } : r)));
   }, []);
 
+  const playTransferReceivedSound = useCallback(async () => {
+    await playFeedbackSound(transferReceivedPlayer, {
+      muted: soundMuted,
+      volume: soundVolume * transferSoundVolume,
+    });
+  }, [transferReceivedPlayer, soundMuted, soundVolume, transferSoundVolume]);
+
   const doFinalReceive = useCallback(async (omsTransferId?: number) => {
     if (!receiveTransferId) return;
     setReceiveSaving(true);
@@ -260,6 +276,7 @@ export default function TransfersScreen() {
       console.log("[Transfer] doFinalReceive", receiveTransferId, payload, "omsTransferId", omsTransferId);
       const result = await TransferService.receive(receiveTransferId, payload, session?.cashierName ?? "Cashier", omsTransferId);
       if (result) {
+        void playTransferReceivedSound();
         setShowReceiveChecklist(false);
         setShowConfirmScanner(false);
         setReceiveTransferId(null);
@@ -277,7 +294,7 @@ export default function TransfersScreen() {
     } finally {
       setReceiveSaving(false);
     }
-  }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers]);
+  }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers, playTransferReceivedSound]);
 
   const handleConfirmReceive = useCallback(async () => {
     if (!receiveTransferId) return;
@@ -988,76 +1005,20 @@ export default function TransfersScreen() {
         </View>
       </Modal>
 
-      <Modal
+      <ReceiptQrScannerModal
         visible={showConfirmScanner}
-        animationType="slide"
-        onRequestClose={() => {
+        dark={dark}
+        onClose={() => {
           setConfirmScanning(false);
           setShowConfirmScanner(false);
           setShowReceiveChecklist(true);
         }}
-      >
-        <View style={styles.qrModalContainer}>
-          <View style={styles.qrModalHeader}>
-            <TouchableOpacity
-              onPress={() => {
-                setConfirmScanning(false);
-                setShowConfirmScanner(false);
-                setShowReceiveChecklist(true);
-              }}
-              style={styles.backButton}
-            >
-              <Ionicons name="arrow-back" size={20} color="#17386b" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Scan QR</Text>
-            <View style={{ width: 40 }} />
-          </View>
-          <View style={styles.qrContainer}>
-            {permission?.granted ? (
-              <View style={styles.cameraCard}>
-                <View style={styles.cameraWrapper}>
-                  <CameraView
-                    key={showConfirmScanner ? "confirm-camera-mounted-2" : "confirm-camera-unmounted-2"}
-                    style={styles.camera}
-                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                    onBarcodeScanned={confirmScanning ? undefined : ({ data }: { data: string }) => handleConfirmQrScan(data)}
-                    onMountError={(e) => console.warn("[Camera] mount error", e)}
-                  />
-                  <View style={[styles.corner, styles.cornerTL]} />
-                  <View style={[styles.corner, styles.cornerTR]} />
-                  <View style={[styles.corner, styles.cornerBL]} />
-                  <View style={[styles.corner, styles.cornerBR]} />
-                </View>
-              </View>
-            ) : (
-              <View style={styles.permissionCard}>
-                <View style={styles.permissionIcon}>
-                  <Ionicons name="camera-outline" size={48} color="#17386b" />
-                </View>
-                <Text style={styles.qrTitle}>Camera permission needed</Text>
-                <Text style={styles.qrSubtitle}>Allow camera access to scan the OMS Transfer QR</Text>
-                <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission} activeOpacity={0.8}>
-                  <Ionicons name="camera" size={16} color="#ffffff" style={{ marginRight: 8 }} />
-                  <Text style={styles.permissionBtnText}>Grant Permission</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            <Text style={styles.qrTitle}>Scan OMS Transfer QR</Text>
-            <Text style={styles.qrSubtitleCenter}>Point camera at {receiveTransferNumber} QR from OMS to finalize</Text>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => {
-                setConfirmScanning(false);
-                setShowConfirmScanner(false);
-                setShowReceiveChecklist(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onScan={handleConfirmQrScan}
+        title="Scan QR"
+        subtitle="Scan OMS Transfer QR"
+        description={`Point camera at ${receiveTransferNumber} QR from OMS to finalize`}
+        hintText={`Transfer ${receiveTransferNumber} • scan to confirm receipt`}
+      />
     </View>
   );
 }

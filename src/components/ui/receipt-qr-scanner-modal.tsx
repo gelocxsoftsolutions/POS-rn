@@ -17,9 +17,22 @@ type Props = {
   dark: boolean;
   onClose: () => void;
   onScan: (barcode: string) => void | Promise<void>;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  hintText?: string;
 };
 
-export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props) {
+export function ReceiptQrScannerModal({
+  visible,
+  dark,
+  onClose,
+  onScan,
+  title = "Scan Receipt QR",
+  subtitle = "Scan receipt QR code",
+  description = "Point camera at the receipt QR to find it instantly.",
+  hintText = "Receipt QR is at the bottom of each receipt",
+}: Props) {
   const { width, height } = useWindowDimensions();
   const cameraSize = Math.max(160, Math.min(360, width - 48, height - 220));
   const [permission, requestPermission] = useCameraPermissions();
@@ -66,7 +79,7 @@ export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props)
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Ionicons name="qr-code" size={18} color={dark ? "#60a5fa" : "#17386b"} />
-            <Text style={[styles.headerTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>Scan Receipt QR</Text>
+            <Text style={[styles.headerTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>{title}</Text>
           </View>
           <View style={styles.headerSpacer} />
         </View>
@@ -102,8 +115,8 @@ export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props)
               <View style={[styles.permissionIconWrap, { backgroundColor: dark ? "#1e293b" : "#eef2ff" }]}>
                 <Ionicons name="qr-code-outline" size={48} color={dark ? "#5eead4" : "#0d9488"} />
               </View>
-              <Text style={[styles.title, { color: dark ? "#f8fafc" : "#1a202c" }]}>Scan receipt QR code</Text>
-              <Text style={[styles.subtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Point camera at the receipt QR to find it instantly.</Text>
+              <Text style={[styles.title, { color: dark ? "#f8fafc" : "#1a202c" }]}>{subtitle}</Text>
+              <Text style={[styles.subtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{description}</Text>
               <TouchableOpacity style={styles.permissionButton} onPress={handlePermission}>
                 <Ionicons name="camera" size={17} color="#ffffff" />
                 <Text style={styles.permissionButtonText}>Allow Camera</Text>
@@ -113,7 +126,7 @@ export function ReceiptQrScannerModal({ visible, dark, onClose, onScan }: Props)
 
           <View style={styles.hintBox}>
             <Ionicons name="information-circle-outline" size={16} color={dark ? "#5eead4" : "#0d9488"} />
-            <Text style={[styles.hintText, { color: dark ? "#94a3b8" : "#475569" }]}>Receipt QR is at the bottom of each receipt</Text>
+            <Text style={[styles.hintText, { color: dark ? "#94a3b8" : "#475569" }]}>{hintText}</Text>
           </View>
         </View>
       </View>

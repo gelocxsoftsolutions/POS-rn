@@ -5,6 +5,7 @@ import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
+import { api } from "@/lib/api/http";
 import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
 import type { SaleDTO } from "@/lib/types/sales";
 
@@ -65,6 +66,106 @@ export const SaleService = {
         };
       });
 
+      // Per-variation stock check (e.g., var:757 Available 13 Requested 29)
+      for (const it of saleItems) {
+        if (!it.productId) continue;
+        const inv = await InventoryRepository.findByProduct(it.productId);
+        if (inv && inv.availableQty < it.quantity) {
+          try {
+            const deviceId = input.deviceId;
+            if (deviceId) {
+              const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+              OmsSyncService.syncInventory(deviceId).catch(() => {});
+            }
+          } catch {}
+          return {
+            success: false as const,
+            error: `Not enough stock for ${it.productName}. Available: ${inv.availableQty}, requested: ${it.quantity}. Please reduce quantity.`,
+          };
+        }
+      }
+
+      // Pre-check group stock to avoid OMS 400 spam (group: productCode)
+      const groupRequested = new Map<string, number>();
+      const productCodeCache = new Map<string, string | null>();
+      for (const it of saleItems) {
+        if (!it.productId) continue;
+        let code = productCodeCache.get(it.productId);
+        if (code === undefined) {
+          const prow = await queryFirst<{ productCode: string | null }>(`SELECT productCode FROM Product WHERE id = ?`, [it.productId]);
+          code = prow?.productCode ?? null;
+          productCodeCache.set(it.productId, code);
+        }
+        const groupKey = code ?? it.productId;
+        groupRequested.set(groupKey, (groupRequested.get(groupKey) ?? 0) + it.quantity);
+      }
+      for (const [groupKey, requested] of groupRequested) {
+        // Group stock is per-group, not sum of variations (each variation in same productCode shares same qty)
+        const groupStock = await queryFirst<{ totalAvail: number }>(
+          `SELECT COALESCE(MAX(pi.availableQty),0) as totalAvail FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
+          [groupKey, groupKey]
+        );
+        const available = groupStock?.totalAvail ?? 0;
+        const hasInv = await queryFirst<{ cnt: number }>(
+          `SELECT COUNT(*) as cnt FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
+          [groupKey, groupKey]
+        );
+        if (hasInv && hasInv.cnt > 0 && available < requested) {
+          // Refresh from OMS in background
+          try {
+            const deviceId = input.deviceId;
+            if (deviceId) {
+              const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+              OmsSyncService.syncInventory(deviceId).catch(() => {});
+            }
+          } catch {}
+          return {
+            success: false as const,
+            error: `Not enough stock for this product group. Available: ${available}, requested: ${requested}. Please reduce quantity or sync inventory.`,
+          };
+        }
+      }
+
+      // Fresh OMS check to catch stale local stock (e.g., POS shows 15 but OMS group has 9, or var 13 vs 29)
+      try {
+        const deviceId = input.deviceId;
+        if (deviceId) {
+          const res = await api.get<{ data: Array<{ groupKey: string; qty: number; variation: { id: string } }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
+          if (res.ok && Array.isArray((res.data as any)?.data)) {
+            const omsGroupMap = new Map<string, number>();
+            const omsVarMap = new Map<string, number>();
+            for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
+              if (it.groupKey) omsGroupMap.set(it.groupKey, Number(it.qty ?? 0));
+              if (it.variation?.id) omsVarMap.set(String(it.variation.id), Number(it.qty ?? 0));
+            }
+            // Group check
+            for (const [groupKey, requested] of groupRequested) {
+              const omsAvail = omsGroupMap.get(groupKey);
+              if (omsAvail !== undefined && omsAvail < requested) {
+                return {
+                  success: false as const,
+                  error: `Not enough stock for this product group (OMS). Available: ${omsAvail}, requested: ${requested}. Please sync inventory and reduce quantity.`,
+                };
+              }
+            }
+            // Per-variation OMS check
+            for (const it of saleItems) {
+              if (!it.productId) continue;
+              const prow = await queryFirst<{ sku: string | null }>(`SELECT sku FROM Product WHERE id = ?`, [it.productId]);
+              const sku = prow?.sku ? String(prow.sku) : null;
+              if (!sku) continue;
+              const omsVarAvail = omsVarMap.get(sku);
+              if (omsVarAvail !== undefined && omsVarAvail < it.quantity) {
+                return {
+                  success: false as const,
+                  error: `Not enough stock for ${it.productName} (var:${sku}). Available: ${omsVarAvail}, requested: ${it.quantity}. Please sync inventory and reduce quantity.`,
+                };
+              }
+            }
+          }
+        }
+      } catch {}
+
       const total = subtotal + totalTax;
       const paidAmount = input.paidAmount ?? total;
       const changeAmount = Math.max(0, paidAmount - total);
@@ -117,12 +218,14 @@ export const SaleService = {
         if (item.productId) {
           const inv = await InventoryRepository.findByProduct(item.productId);
           const balanceBefore = inv?.availableQty ?? 0;
-          const balanceAfter = balanceBefore - item.quantity;
 
-          await InventoryRepository.updateQuantities(item.productId, {
+          const updatedInventory = await InventoryRepository.updateQuantities(item.productId, {
             availableQty: -item.quantity,
             soldQty: item.quantity,
           });
+          if (!updatedInventory) {
+            throw new Error(`Inventory record not found for ${item.productName}`);
+          }
 
           await InventoryLedgerRepository.create({
             movementType: "SALE",
@@ -130,7 +233,7 @@ export const SaleService = {
             productId: item.productId,
             quantity: -item.quantity,
             balanceBefore,
-            balanceAfter,
+            balanceAfter: updatedInventory.availableQty,
             createdById: input.cashierId,
             createdByName: input.cashierName,
           });
@@ -146,8 +249,40 @@ export const SaleService = {
 
       const sale = await SaleRepository.findById(saleId);
 
-      // Push to OMS asynchronously (fire-and-forget with SyncQueue fallback)
-      this._pushToOms(saleId, input, saleItems, total).catch(() => {});
+      // Push to OMS synchronously to catch insufficient stock immediately
+      const pushResult = await this._pushToOms(saleId, input, saleItems, total);
+
+      if (!pushResult.success) {
+        const errMsg = String((pushResult as any).error ?? "");
+        const isInsufficient = /insufficient pos stock/i.test(errMsg) || pushResult.status === 400;
+        if (isInsufficient) {
+          const availMatch = errMsg.match(/Available:\s*(\d+)/i);
+          const reqMatch = errMsg.match(/Requested:\s*(\d+)/i);
+          const groupMatch = errMsg.match(/(?:group|var):([^\s,\]]+)/i);
+          const available = availMatch ? availMatch[1] : "?";
+          const requested = reqMatch ? reqMatch[1] : String(itemCount);
+          const isVar = /for var:/i.test(errMsg);
+          const group = groupMatch ? (isVar ? `var:${groupMatch[1]}` : `group:${groupMatch[1].substring(0, 8)}…`) : isVar ? "this variation" : "this product group";
+
+          // Rollback local sale and inventory to keep POS consistent with OMS
+          await this._rollbackSale(saleId, saleItems);
+
+          // Trigger inventory sync to refresh stock
+          try {
+            const deviceId = input.deviceId;
+            if (deviceId) {
+              // Don't await, fire-and-forget sync refresh
+              const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+              OmsSyncService.syncInventory(deviceId).catch(() => {});
+            }
+          } catch {}
+
+          return {
+            success: false as const,
+            error: `Not enough stock for this product group. Available: ${available}, requested: ${requested}. Please adjust quantity and try again. (Group: ${group})`,
+          };
+        }
+      }
 
       return { success: true, sale };
     } catch (e: any) {
@@ -160,23 +295,76 @@ export const SaleService = {
     input: SaleInput,
     saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
     total: number
-  ): Promise<void> {
+  ): Promise<import("@/lib/services/oms-sync.service").SalePushResult> {
     const payload = await resolveSalePayload(input, saleItems, total, saleId);
     if (payload.items.length === 0) {
       // Nothing mappable to OMS (e.g. legacy mock SKUs like SHR-001) -> keep locally, mark synced to stop 400 loop
       console.warn("[Sale] No mappable OMS variations for sale", saleId, "- skipping OMS push (mock/unknown SKUs)");
       await SaleRepository.markSynced(saleId);
-      return;
+      return { success: true, status: 200, retryable: false };
     }
     try {
-      const pushed = await OmsSyncService.pushSale(payload as any);
-      if (pushed) {
+      const pushResult = await OmsSyncService.pushSale(payload as any);
+      if (pushResult.success) {
         await SaleRepository.markSynced(saleId);
       } else {
-        await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+        const queued = await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+        if (queued && !pushResult.retryable) {
+          const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+          await SyncQueueRepository.markEntityFailed(
+            "Sale",
+            saleId,
+            pushResult.error ?? `HTTP ${pushResult.status}`
+          );
+        }
       }
-    } catch {
+      return pushResult;
+    } catch (e: any) {
       await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+      return { success: false, status: 0, error: e?.message ?? "Network error", retryable: true };
+    }
+  },
+
+  async _rollbackSale(
+    saleId: string,
+    saleItems: Array<{ productId?: string; quantity: number }>
+  ): Promise<void> {
+    try {
+      // Revert inventory for each item
+      for (const item of saleItems) {
+        if (!item.productId) continue;
+        try {
+          await InventoryRepository.updateQuantities(item.productId, {
+            availableQty: item.quantity,
+            soldQty: -item.quantity,
+          });
+        } catch {}
+        try {
+          await execute(`DELETE FROM InventoryLedger WHERE referenceNumber = ? AND productId = ? AND movementType = 'SALE'`, [saleId, item.productId]);
+        } catch {}
+      }
+      // Remove sale related rows
+      try {
+        await execute(`DELETE FROM Payment WHERE saleId = ?`, [saleId]);
+      } catch {}
+      try {
+        await execute(`DELETE FROM SaleItem WHERE saleId = ?`, [saleId]);
+      } catch {}
+      try {
+        await execute(`DELETE FROM Sale WHERE id = ?`, [saleId]);
+      } catch {}
+      // Clean sync queue entry if any
+      try {
+        await execute(`DELETE FROM SyncQueue WHERE entityType = 'Sale' AND entityId = ?`, [saleId]);
+      } catch {}
+      // Also mark any remaining queue as failed to prevent retry
+      try {
+        const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+        await SyncQueueRepository.markEntityFailed("Sale", saleId, "Insufficient POS stock - rolled back");
+      } catch {}
+      console.log("[Sale] Rolled back sale", saleId, "due to insufficient stock");
+    } catch (e) {
+      console.warn("[Sale] Rollback failed for", saleId, e);
     }
   },
 
