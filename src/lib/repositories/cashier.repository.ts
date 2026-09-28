@@ -7,6 +7,7 @@ export interface CashierRow {
   employeeId: string | null;
   username: string | null;
   displayName: string;
+  photoUri: string | null;
   pinHash: string | null;
   passwordHash: string | null;
   roleId: string | null;
@@ -23,6 +24,7 @@ export interface CreateCashierInput {
   employeeId?: string;
   username?: string;
   displayName: string;
+  photoUri?: string;
   pinHash?: string;
   passwordHash?: string;
   roleId?: string;
@@ -30,8 +32,9 @@ export interface CreateCashierInput {
 
 export interface UpdateCashierInput {
   employeeId?: string;
-  username?: string;
+  username?: string | null;
   displayName?: string;
+  photoUri?: string | null;
   pinHash?: string;
   passwordHash?: string;
   roleId?: string;
@@ -73,13 +76,14 @@ export const CashierRepository = {
     const id = uuid();
     const now = new Date().toISOString();
     await execute(
-      `INSERT INTO Cashier (id, employeeId, username, displayName, pinHash, passwordHash, roleId, active, pinLoginEnabled, passwordLoginEnabled, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?)`,
+      `INSERT INTO Cashier (id, employeeId, username, displayName, photoUri, pinHash, passwordHash, roleId, active, pinLoginEnabled, passwordLoginEnabled, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?)`,
       [
         id,
         input.employeeId ?? null,
         input.username ?? null,
         input.displayName,
+        input.photoUri ?? null,
         input.pinHash ?? null,
         input.passwordHash ?? null,
         input.roleId ?? null,
@@ -97,6 +101,7 @@ export const CashierRepository = {
     if (input.employeeId !== undefined) { fields.push("employeeId = ?"); values.push(input.employeeId); }
     if (input.username !== undefined) { fields.push("username = ?"); values.push(input.username); }
     if (input.displayName !== undefined) { fields.push("displayName = ?"); values.push(input.displayName); }
+    if (input.photoUri !== undefined) { fields.push("photoUri = ?"); values.push(input.photoUri); }
     if (input.pinHash !== undefined) { fields.push("pinHash = ?"); values.push(input.pinHash); }
     if (input.passwordHash !== undefined) { fields.push("passwordHash = ?"); values.push(input.passwordHash); }
     if (input.roleId !== undefined) { fields.push("roleId = ?"); values.push(input.roleId); }

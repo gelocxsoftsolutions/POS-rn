@@ -11,6 +11,9 @@ import {
   TextInput,
   ActivityIndicator,
   StatusBar,
+  Image,
+  useColorScheme,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,6 +50,57 @@ export default function RegisterDevice() {
   const device = useDeviceStore((s) => s.device);
   const setDevice = useDeviceStore((s) => s.setDevice);
   const registering = useRef(false);
+  const isDark = useColorScheme() === "dark";
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const shortEdge = Math.min(width, height);
+  const scannerSize = Math.max(160, Math.min(320, shortEdge - 64));
+  const palette = {
+    background: isDark ? "#07111f" : "#f8fbff",
+    surface: isDark ? "#111c2e" : "#ffffff",
+    elevated: isDark ? "#17243a" : "#f0f4ff",
+    border: isDark ? "#2b3a50" : "#e2e8f0",
+    borderSoft: isDark ? "#213047" : "#eef2f7",
+    text: isDark ? "#f8fafc" : "#1a202c",
+    accent: isDark ? "#8abaff" : "#17386b",
+    muted: isDark ? "#a8b4c5" : "#6b7b8d",
+    subtle: isDark ? "#7f8da2" : "#94a3b8",
+    input: isDark ? "#0c1627" : "#f8fbff",
+    info: isDark ? "#12233a" : "#f0f4ff",
+  };
+  const logoSource = require("../../../assets/nct-seafoods-logo.png");
+  const statusBar = (
+    <StatusBar
+      barStyle={isDark ? "light-content" : "dark-content"}
+      backgroundColor={palette.background}
+    />
+  );
+  const header = (onBack: () => void, title?: string) => (
+    <View style={[styles.header, { backgroundColor: palette.background, borderBottomColor: palette.borderSoft }]}>
+      <TouchableOpacity
+        onPress={onBack}
+        style={[styles.backButton, { backgroundColor: palette.surface, borderColor: palette.border }]}
+      >
+        <Ionicons name="arrow-back" size={20} color={palette.accent} />
+      </TouchableOpacity>
+      {title ? (
+        <Text style={[styles.headerTitle, { color: palette.text }]}>{title}</Text>
+      ) : (
+        <View style={styles.headerBrand}>
+          <Image source={logoSource} style={styles.headerLogo} resizeMode="contain" />
+          <Text
+            style={[styles.headerBrandText, { color: palette.accent }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
+            NCT Seafoods POS System
+          </Text>
+        </View>
+      )}
+      <View style={{ width: 40 }} />
+    </View>
+  );
 
   const doRegister = useCallback(async (activationToken: string, url?: string) => {
     if (registering.current) return;
@@ -172,53 +226,53 @@ export default function RegisterDevice() {
 
   if (step === "success") {
     return (
-      <View style={styles.successContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
+      <View style={[styles.successContainer, { backgroundColor: palette.background }]}>
+        {statusBar}
         <ScrollView contentContainerStyle={styles.successScroll} bounces={false} showsVerticalScrollIndicator={false}>
-          <View style={styles.successCard}>
+          <View style={[styles.successCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <View style={styles.successIconCircle}>
               <Ionicons name="checkmark-circle" size={56} color="#22c55e" />
             </View>
-            <Text style={styles.successTitle}>Device Registered</Text>
-            <Text style={styles.successSubtitle}>
+            <Text style={[styles.successTitle, { color: palette.text }]}>Device Registered</Text>
+            <Text style={[styles.successSubtitle, { color: palette.muted }]}>
               This POS terminal is now provisioned and ready to use. You can sign in with your cashier credentials.
             </Text>
 
-            <View style={styles.deviceDetails}>
+            <View style={[styles.deviceDetails, { backgroundColor: palette.input, borderColor: palette.borderSoft }]}>
               {device.deviceCode && (
                 <View style={styles.detailRow}>
                   <View style={styles.detailLabelRow}>
                     <Ionicons name="barcode-outline" size={12} color="#6b7b8d" />
-                    <Text style={styles.detailLabel}>Device Code</Text>
+                    <Text style={[styles.detailLabel, { color: palette.muted }]}>Device Code</Text>
                   </View>
-                  <Text style={styles.detailValue}>{device.deviceCode}</Text>
+                  <Text style={[styles.detailValue, { color: palette.text }]}>{device.deviceCode}</Text>
                 </View>
               )}
               {device.publicIdentifier && (
                 <View style={styles.detailRow}>
                   <View style={styles.detailLabelRow}>
                     <Ionicons name="finger-print-outline" size={12} color="#6b7b8d" />
-                    <Text style={styles.detailLabel}>Identifier</Text>
+                    <Text style={[styles.detailLabel, { color: palette.muted }]}>Identifier</Text>
                   </View>
-                  <Text style={styles.detailValueMono} numberOfLines={1}>{device.publicIdentifier}</Text>
+                  <Text style={[styles.detailValueMono, { color: palette.text }]} numberOfLines={1}>{device.publicIdentifier}</Text>
                 </View>
               )}
               {device.branchName && (
                 <View style={styles.detailRow}>
                   <View style={styles.detailLabelRow}>
                     <Ionicons name="storefront-outline" size={12} color="#6b7b8d" />
-                    <Text style={styles.detailLabel}>Branch</Text>
+                    <Text style={[styles.detailLabel, { color: palette.muted }]}>Branch</Text>
                   </View>
-                  <Text style={styles.detailValue}>{device.branchName}</Text>
+                  <Text style={[styles.detailValue, { color: palette.text }]}>{device.branchName}</Text>
                 </View>
               )}
               {device.deviceName && (
                 <View style={[styles.detailRow, { marginBottom: 0 }]}>
                   <View style={styles.detailLabelRow}>
                     <Ionicons name="phone-portrait-outline" size={12} color="#6b7b8d" />
-                    <Text style={styles.detailLabel}>Terminal</Text>
+                    <Text style={[styles.detailLabel, { color: palette.muted }]}>Terminal</Text>
                   </View>
-                  <Text style={styles.detailValue}>{device.deviceName}</Text>
+                  <Text style={[styles.detailValue, { color: palette.text }]}>{device.deviceName}</Text>
                 </View>
               )}
             </View>
@@ -233,10 +287,8 @@ export default function RegisterDevice() {
             </TouchableOpacity>
           </View>
           <View style={styles.brandFooter}>
-            <View style={styles.brandFooterIcon}>
-              <Ionicons name="fish" size={14} color="#17386b" />
-            </View>
-            <Text style={styles.brandFooterText}>NCT Seafoods  •  Point of Sale</Text>
+            <Image source={logoSource} style={styles.brandFooterLogo} resizeMode="contain" />
+            <Text style={[styles.brandFooterText, { color: palette.muted }]}>NCT Seafoods  •  Point of Sale</Text>
           </View>
         </ScrollView>
       </View>
@@ -282,43 +334,32 @@ export default function RegisterDevice() {
 
     return (
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: "#f8fbff" }}
+        style={{ flex: 1, backgroundColor: palette.background }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setStep("success")} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color="#17386b" />
-          </TouchableOpacity>
-          <View style={styles.headerBrand}>
-            <View style={styles.headerBrandIcon}>
-              <Ionicons name="fish" size={16} color="#17386b" />
-            </View>
-            <Text style={styles.headerBrandText}>NCT POS</Text>
-          </View>
-          <View style={{ width: 40 }} />
-        </View>
+        {statusBar}
+        {header(() => setStep("success"))}
 
         <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
           <View style={styles.formHeader}>
-            <View style={styles.formIconCircle}>
-              <Ionicons name="key-outline" size={28} color="#17386b" />
+            <View style={[styles.formIconCircle, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
+              <Ionicons name="key-outline" size={28} color={palette.accent} />
             </View>
-            <Text style={styles.formTitle}>Set Cashier PINs</Text>
-            <Text style={styles.formSubtitle}>
+            <Text style={[styles.formTitle, { color: palette.text }]}>Set Cashier PINs</Text>
+            <Text style={[styles.formSubtitle, { color: palette.muted }]}>
               Assign a PIN for each cashier to sign in quickly on this terminal
             </Text>
           </View>
 
-          <View style={styles.formCard}>
+          <View style={[styles.formCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             {cashierPins.map((c) => (
               <View key={c.id} style={styles.inputGroup}>
-                <Text style={styles.label}>{c.displayName}</Text>
-                {c.username ? <Text style={styles.labelHint}>@{c.username}</Text> : null}
+                <Text style={[styles.label, { color: palette.text }]}>{c.displayName}</Text>
+                {c.username ? <Text style={[styles.labelHint, { color: palette.muted }]}>@{c.username}</Text> : null}
                 <TextInput
-                  style={[styles.input, pinErrors[c.id] ? { borderColor: "#dc3545", backgroundColor: "#fff5f5" } : null]}
+                  style={[styles.input, { backgroundColor: palette.input, borderColor: palette.border, color: palette.text }, pinErrors[c.id] ? { borderColor: "#dc3545" } : null]}
                   placeholder="Enter 6-digit PIN"
-                  placeholderTextColor="#b0b8c1"
+                  placeholderTextColor={palette.subtle}
                   value={c.pin}
                   onChangeText={(pin) => handlePinChange(c.id, pin)}
                   keyboardType="number-pad"
@@ -348,10 +389,10 @@ export default function RegisterDevice() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.modeToggle}
+              style={[styles.modeToggle, { borderColor: palette.border }]}
               onPress={() => setStep("success")}
             >
-              <Text style={styles.modeToggleText}>Skip for now</Text>
+              <Text style={[styles.modeToggleText, { color: palette.accent }]}>Skip for now</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -361,76 +402,52 @@ export default function RegisterDevice() {
 
   if (step === "choose") {
     return (
-      <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color="#17386b" />
-          </TouchableOpacity>
-          <View style={styles.headerBrand}>
-            <View style={styles.headerBrandIcon}>
-              <Ionicons name="fish" size={16} color="#17386b" />
-            </View>
-            <Text style={styles.headerBrandText}>NCT POS</Text>
-          </View>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: palette.background }]}>
+        {statusBar}
+        {header(() => router.back())}
 
-        <ScrollView contentContainerStyle={styles.chooseScroll} bounces={false} showsVerticalScrollIndicator={false}>
-          <View style={styles.brandBlock}>
-            <View style={styles.logoCircle}>
-              <Ionicons name="fish" size={44} color="#17386b" />
-            </View>
-            <Text style={styles.brandTitle}>NCT Seafoods</Text>
-            <Text style={styles.brandSubtitle}>Point of Sale Terminal</Text>
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <View style={styles.dividerDot} />
-              <View style={styles.dividerLine} />
-            </View>
-          </View>
-
-          <Text style={styles.title}>Register this device</Text>
-          <Text style={styles.subtitle}>
+        <ScrollView contentContainerStyle={[styles.chooseScroll, isLandscape && styles.chooseScrollLandscape]} bounces={false} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.title, { color: palette.text }]}>Register this device</Text>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>
             Choose how you want to provision this terminal with your OMS
           </Text>
 
           <View style={styles.optionsWrap}>
             <View style={styles.optionRecommendedWrap}>
-              <View style={styles.optionBadge}>
+              <View style={[styles.optionBadge, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
                 <Text style={styles.optionBadgeText}>Recommended</Text>
               </View>
-              <TouchableOpacity style={[styles.option, styles.optionRecommended]} onPress={handleQRScan} activeOpacity={0.7}>
-                <View style={styles.optionIcon}>
-                  <Ionicons name="qr-code" size={26} color="#17386b" />
+              <TouchableOpacity style={[styles.option, styles.optionRecommended, { backgroundColor: palette.surface, borderColor: palette.accent }]} onPress={handleQRScan} activeOpacity={0.7}>
+                <View style={[styles.optionIcon, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
+                  <Ionicons name="qr-code" size={26} color={palette.accent} />
                 </View>
                 <View style={styles.optionInfo}>
-                  <Text style={styles.optionTitle}>Scan QR Code</Text>
-                  <Text style={styles.optionDesc}>Scan the activation QR from your OMS dashboard</Text>
+                  <Text style={[styles.optionTitle, { color: palette.text }]}>Scan QR Code</Text>
+                  <Text style={[styles.optionDesc, { color: palette.muted }]}>Scan the activation QR from your OMS dashboard</Text>
                 </View>
-                <View style={styles.optionChevron}>
+                <View style={[styles.optionChevron, { backgroundColor: palette.input, borderColor: palette.borderSoft }]}>
                   <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
                 </View>
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.option} onPress={() => setStep("manual")} activeOpacity={0.7}>
-              <View style={styles.optionIcon}>
-                <Ionicons name="create-outline" size={26} color="#17386b" />
+            <TouchableOpacity style={[styles.option, { backgroundColor: palette.surface, borderColor: palette.border }]} onPress={() => setStep("manual")} activeOpacity={0.7}>
+              <View style={[styles.optionIcon, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
+                <Ionicons name="create-outline" size={26} color={palette.accent} />
               </View>
               <View style={styles.optionInfo}>
-                <Text style={styles.optionTitle}>Enter Token Manually</Text>
-                <Text style={styles.optionDesc}>Type the activation token and server URL</Text>
+                <Text style={[styles.optionTitle, { color: palette.text }]}>Enter Token Manually</Text>
+                <Text style={[styles.optionDesc, { color: palette.muted }]}>Type the activation token and server URL</Text>
               </View>
-              <View style={styles.optionChevron}>
+              <View style={[styles.optionChevron, { backgroundColor: palette.input, borderColor: palette.borderSoft }]}>
                 <Ionicons name="chevron-forward" size={18} color="#9fb0c8" />
               </View>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.helpCard}>
-            <Ionicons name="information-circle-outline" size={16} color="#6b7b8d" />
-            <Text style={styles.helpText}>You can generate an activation token in OMS → POS → Devices → Add Device</Text>
+          <View style={[styles.helpCard, { backgroundColor: palette.info, borderColor: palette.border }]}>
+            <Ionicons name="information-circle-outline" size={16} color={palette.muted} />
+            <Text style={[styles.helpText, { color: palette.muted }]}>You can generate an activation token in OMS → POS → Devices → Add Device</Text>
           </View>
         </ScrollView>
       </View>
@@ -439,20 +456,14 @@ export default function RegisterDevice() {
 
   if (step === "qr") {
     return (
-      <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => { setStep("choose"); setScanned(false); }} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color="#17386b" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Scan QR</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: palette.background }]}>
+        {statusBar}
+        {header(() => { setStep("choose"); setScanned(false); }, "Scan QR")}
         <ScrollView contentContainerStyle={styles.qrScroll} bounces={false} showsVerticalScrollIndicator={false}>
           <View style={styles.qrContainer}>
             {permission?.granted ? (
-              <View style={styles.cameraCard}>
-                <View style={styles.cameraWrapper}>
+              <View style={[styles.cameraCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                <View style={[styles.cameraWrapper, { width: scannerSize, height: scannerSize, borderColor: palette.border }]}>
                   <CameraView
                     style={styles.camera}
                     barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
@@ -472,12 +483,12 @@ export default function RegisterDevice() {
                 </View>
               </View>
             ) : (
-              <View style={styles.permissionCard}>
-                <View style={styles.permissionIcon}>
-                  <Ionicons name="camera-outline" size={48} color="#17386b" />
+              <View style={[styles.permissionCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+                <View style={[styles.permissionIcon, { backgroundColor: palette.elevated }]}>
+                  <Ionicons name="camera-outline" size={48} color={palette.accent} />
                 </View>
-                <Text style={styles.qrTitle}>Camera permission needed</Text>
-                <Text style={styles.qrSubtitle}>
+                <Text style={[styles.qrTitle, { color: palette.text }]}>Camera permission needed</Text>
+                <Text style={[styles.qrSubtitle, { color: palette.muted }]}>
                   Allow camera access to scan the OMS activation QR
                 </Text>
                 <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission} activeOpacity={0.8}>
@@ -486,16 +497,16 @@ export default function RegisterDevice() {
                 </TouchableOpacity>
               </View>
             )}
-            <Text style={styles.qrTitle}>Scan QR Code</Text>
-            <Text style={styles.qrSubtitleCenter}>
+            <Text style={[styles.qrTitle, { color: palette.text }]}>Scan QR Code</Text>
+            <Text style={[styles.qrSubtitleCenter, { color: palette.muted }]}>
               Point your camera at the QR code displayed on your OMS dashboard
             </Text>
             <TouchableOpacity
-              style={styles.cancelButton}
+              style={[styles.cancelButton, { backgroundColor: palette.surface, borderColor: palette.border }]}
               onPress={() => { setStep("choose"); setScanned(false); }}
               activeOpacity={0.7}
             >
-              <Text style={styles.cancelButtonText}>Back</Text>
+              <Text style={[styles.cancelButtonText, { color: palette.accent }]}>Back</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -505,41 +516,30 @@ export default function RegisterDevice() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#f8fbff" }}
+      style={{ flex: 1, backgroundColor: palette.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#f8fbff" />
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => setStep("choose")} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={20} color="#17386b" />
-        </TouchableOpacity>
-        <View style={styles.headerBrand}>
-          <View style={styles.headerBrandIcon}>
-            <Ionicons name="fish" size={16} color="#17386b" />
-          </View>
-          <Text style={styles.headerBrandText}>NCT POS</Text>
-        </View>
-        <View style={{ width: 40 }} />
-      </View>
+      {statusBar}
+      {header(() => setStep("choose"))}
 
       <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
         <View style={styles.formHeader}>
-          <View style={styles.formIconCircle}>
-            <Ionicons name="keypad-outline" size={28} color="#17386b" />
+          <View style={[styles.formIconCircle, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
+            <Ionicons name="keypad-outline" size={28} color={palette.accent} />
           </View>
-          <Text style={styles.formTitle}>Enter details manually</Text>
-          <Text style={styles.formSubtitle}>
+          <Text style={[styles.formTitle, { color: palette.text }]}>Enter details manually</Text>
+          <Text style={[styles.formSubtitle, { color: palette.muted }]}>
             Input the activation token and server URL from your administrator
           </Text>
         </View>
 
-        <View style={styles.formCard}>
+        <View style={[styles.formCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Activation Token</Text>
+            <Text style={[styles.label, { color: palette.text }]}>Activation Token</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: palette.input, borderColor: palette.border, color: palette.text }]}
               placeholder="Paste activation token"
-              placeholderTextColor="#b0b8c1"
+              placeholderTextColor={palette.subtle}
               value={token}
               onChangeText={setToken}
               autoCapitalize="characters"
@@ -548,12 +548,12 @@ export default function RegisterDevice() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Server URL</Text>
-            <Text style={styles.labelHint}>Leave empty to use the default staging server</Text>
+            <Text style={[styles.label, { color: palette.text }]}>Server URL</Text>
+            <Text style={[styles.labelHint, { color: palette.muted }]}>Leave empty to use the default staging server</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: palette.input, borderColor: palette.border, color: palette.text }]}
               placeholder="https://oms.example.com"
-              placeholderTextColor="#b0b8c1"
+              placeholderTextColor={palette.subtle}
               value={serverUrl}
               onChangeText={setServerUrl}
               keyboardType="url"
@@ -603,6 +603,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexShrink: 1,
+    paddingHorizontal: 8,
+  },
+  headerLogo: {
+    width: 34,
+    height: 34,
   },
   headerBrandIcon: {
     width: 28,
@@ -619,6 +625,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#17386b",
     letterSpacing: 0.6,
+    flexShrink: 1,
   },
   headerTitle: {
     fontSize: 15,
@@ -642,10 +649,16 @@ const styles = StyleSheet.create({
   },
   // choose step
   chooseScroll: {
+    flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 12,
+    paddingTop: 24,
     paddingBottom: 32,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  chooseScrollLandscape: {
+    paddingTop: 20,
+    paddingBottom: 24,
   },
   brandBlock: {
     alignItems: "center",
@@ -653,6 +666,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     width: "100%",
     maxWidth: 420,
+  },
+  brandBlockLandscape: {
+    paddingTop: 0,
+    paddingBottom: 6,
   },
   logoCircle: {
     width: 88,
@@ -1186,15 +1203,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     opacity: 0.9,
   },
-  brandFooterIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e8edf3",
-    alignItems: "center",
-    justifyContent: "center",
+  brandFooterLogo: {
+    width: 28,
+    height: 28,
   },
   brandFooterText: {
     fontSize: 11,

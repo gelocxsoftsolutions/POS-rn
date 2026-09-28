@@ -8,6 +8,8 @@ import { v4 as uuid } from "uuid";
 import { api } from "@/lib/api/http";
 import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
 import type { SaleDTO } from "@/lib/types/sales";
+import { useCashierStore } from "@/lib/stores/cashier-store";
+import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 
 async function resolveSalePayload(
   input: SaleInput,
@@ -63,6 +65,7 @@ export const SaleService = {
           tax: 0,
           lineTotal,
           unit: item.unit,
+          weight: item.weight ?? null,
         };
       });
 
@@ -197,8 +200,8 @@ export const SaleService = {
       for (const item of saleItems) {
         const itemId = uuid();
         await execute(
-          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit, weight)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             itemId,
             saleId,
@@ -212,6 +215,7 @@ export const SaleService = {
             item.tax,
             item.lineTotal,
             item.unit ?? null,
+            (item as any).weight ?? null,
           ]
         );
 
@@ -370,7 +374,11 @@ export const SaleService = {
 
   async list(filters: SaleFilter): Promise<PaginatedResult<SaleDTO>> {
     try {
-      return await SaleRepository.findMany(filters);
+      const currentCashierId = useCashierStore.getState().session?.cashierId;
+      const cashierIds = filters.cashierId || filters.cashierIds
+        ? filters.cashierIds
+        : getVisibleCashierIds(currentCashierId);
+      return await SaleRepository.findMany({ ...filters, cashierIds });
     } catch {
       return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
     }
@@ -378,7 +386,9 @@ export const SaleService = {
 
   async getById(id: string): Promise<SaleDTO | null> {
     try {
-      return await SaleRepository.findById(id);
+      const sale = await SaleRepository.findById(id);
+      const visibleCashiers = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      return sale && visibleCashiers.includes(sale.cashierId) ? sale : null;
     } catch {
       return null;
     }
@@ -386,7 +396,9 @@ export const SaleService = {
 
   async getByReceiptNumber(receiptNumber: string): Promise<SaleDTO | null> {
     try {
-      return await SaleRepository.findByReceiptNumber(receiptNumber);
+      const sale = await SaleRepository.findByReceiptNumber(receiptNumber);
+      const visibleCashiers = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      return sale && visibleCashiers.includes(sale.cashierId) ? sale : null;
     } catch {
       return null;
     }
@@ -395,8 +407,9 @@ export const SaleService = {
   async summary() {
     try {
       const today = new Date().toISOString().split("T")[0];
-      const totalSales = await SaleRepository.sumTotalToday();
-      const transactionCount = await SaleRepository.countToday();
+      const cashierIds = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      const totalSales = await SaleRepository.sumTotalToday(cashierIds);
+      const transactionCount = await SaleRepository.countToday(cashierIds);
       return {
         date: today,
         totalSales,

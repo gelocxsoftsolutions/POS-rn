@@ -6,6 +6,7 @@ interface CashierSessionData {
   sessionId: string;
   cashierId: string;
   cashierName: string;
+  photoUri?: string | null;
   cashierRole: string;
   roleId: string;
   loginTime: string;

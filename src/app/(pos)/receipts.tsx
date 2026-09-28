@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
-  Image,
   FlatList,
   TextInput,
   TouchableOpacity,
@@ -15,7 +14,6 @@ import {
   ScrollView,
 } from "react-native";
 import * as Print from "expo-print";
-import { File } from "expo-file-system";
 import QRCodeLib from "qrcode";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
@@ -29,6 +27,8 @@ import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
@@ -56,6 +56,7 @@ export default function ReceiptsScreen() {
   const dark = useIsDarkTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
+  const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
 
   const loadReceipts = useCallback(async () => {
     try {
@@ -64,7 +65,7 @@ export default function ReceiptsScreen() {
     } catch {
       // keep empty
     }
-  }, []);
+  }, [salesGroupCashierIds]);
 
   const loadReceiptSettings = useCallback(async () => {
     const settings = await SettingsService.get();
@@ -103,16 +104,10 @@ export default function ReceiptsScreen() {
     if (!selected || printing) return;
     setPrinting(true);
     try {
-      const logoSource = Image.resolveAssetSource(require("../../../assets/thermal-printer-logo.jpg"));
-      let logoUri = Platform.OS === "web" ? logoSource.uri : "";
-      if (Platform.OS !== "web") {
-        try {
-          const logoBase64 = await new File(logoSource.uri).base64();
-          logoUri = `data:image/jpeg;base64,${logoBase64}`;
-        } catch {
-          logoUri = "";
-        }
-      }
+      const logoUri = await getPrintableAssetDataUri(
+        require("../../../assets/thermal-printer-logo.jpg"),
+        "image/jpeg"
+      );
 
       let qrSvg = "";
       try {
@@ -263,13 +258,23 @@ export default function ReceiptsScreen() {
             <Ionicons name="receipt-outline" size={19} color={dark ? "#8fb4e8" : "#17386b"} />
           </View>
           <View style={styles.receiptInfo}>
-            <Text style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.receiptNumber}</Text>
+            <Text
+              style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+              numberOfLines={1}
+            >
+              {item.receiptNumber}
+            </Text>
             <Text style={[styles.receiptDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
           </View>
           <View style={styles.receiptRight}>
             <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
-            <Badge label={paymentMethodLabel(item.paymentMethod)} color={methodColor(item.paymentMethod)} size="sm" />
+            <Badge
+              label={paymentMethodLabel(item.paymentMethod)}
+              color={methodColor(item.paymentMethod)}
+              size="sm"
+              style={styles.receiptPaymentBadge}
+            />
           </View>
         </View>
       </Card>
@@ -485,6 +490,8 @@ const styles = StyleSheet.create({
   },
   receiptInfo: {
     flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
   },
   receiptIcon: {
     width: 38,
@@ -510,8 +517,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   receiptRight: {
+    width: 132,
+    flexShrink: 0,
     alignItems: "flex-end",
     gap: 4,
+  },
+  receiptPaymentBadge: {
+    alignSelf: "flex-end",
   },
   receiptTotal: {
     fontSize: 16,

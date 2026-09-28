@@ -76,6 +76,14 @@ export const SessionRepository = {
     );
   },
 
+  async deactivateByCashierId(cashierId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await execute(
+      "UPDATE CashierSession SET active = 0, logoutTime = ? WHERE cashierId = ? AND active = 1",
+      [now, cashierId]
+    );
+  },
+
   async lock(id: string): Promise<void> {
     const now = new Date().toISOString();
     await execute(

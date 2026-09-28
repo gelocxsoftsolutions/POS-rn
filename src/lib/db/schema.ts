@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 6;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -48,6 +48,7 @@ export const CREATE_TABLES = [
     employeeId TEXT UNIQUE,
     username TEXT UNIQUE,
     displayName TEXT NOT NULL,
+    photoUri TEXT,
     pinHash TEXT,
     passwordHash TEXT,
     roleId TEXT,
@@ -174,6 +175,7 @@ export const CREATE_TABLES = [
     categoryId TEXT,
     brandId TEXT,
     unitId TEXT,
+    weight REAL DEFAULT NULL,
     taxGroupId TEXT,
     status TEXT DEFAULT 'ACTIVE',
     imageId TEXT,
@@ -307,6 +309,7 @@ export const CREATE_TABLES = [
     tax REAL DEFAULT 0,
     lineTotal REAL DEFAULT 0,
     unit TEXT,
+    weight REAL DEFAULT NULL,
     FOREIGN KEY (saleId) REFERENCES Sale(id) ON DELETE CASCADE
   )`,
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Animated,
   Image,
   PanResponder,
+  AppState,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,7 @@ import { BottomSheet } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
 
 const WIDE_BREAKPOINT = 768;
@@ -96,6 +98,17 @@ function hasAnyRequiredPermission(item: (typeof navItems)[number], grantedPermis
       ? [item.requiredPermission]
       : [];
   return required.some((permission) => grantedPermissions.includes(permission));
+}
+
+function normalizePosPath(path: string) {
+  const normalized = path.replace(/^\/\(pos\)/, "") || "/";
+  return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
+}
+
+function isNavItemActive(pathname: string, href: string) {
+  const current = normalizePosPath(pathname);
+  const target = normalizePosPath(href);
+  return target === "/" ? current === "/" : current === target || current.startsWith(`${target}/`);
 }
 
 function SidebarClock({ dark }: { dark: boolean }) {
@@ -399,7 +412,7 @@ function BottomNavigation({
   return (
     <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight]}>
       {visibleNavItems.map((item) => {
-        const active = pathname === item.href;
+        const active = isNavItemActive(pathname, item.href);
         return (
           <TouchableOpacity
             key={item.name}
@@ -443,6 +456,7 @@ export default function POSLayout() {
   const device = useDeviceStore((s) => s.device);
   const deviceHydrated = useDeviceStore((s) => s.hydrated);
   const clearDevice = useDeviceStore((s) => s.clearDevice);
+  const autoLockMinutes = useAccessSettingsStore((s) => s.autoLockMinutes);
 
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
   const [transferCount, setTransferCount] = useState(0);
@@ -450,6 +464,9 @@ export default function POSLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const sidebarAnim = useRef(new Animated.Value(1)).current;
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundedAt = useRef<number | null>(null);
+  const autoLockRunning = useRef(false);
 
   const toggleSidebar = () => {
     const toValue = sidebarOpen ? 0 : 1;
@@ -485,6 +502,52 @@ export default function POSLayout() {
     }
     router.replace("/(auth)");
   };
+
+  const performAutoLock = useCallback(async () => {
+    if (autoLockRunning.current || !useCashierStore.getState().session) return;
+    autoLockRunning.current = true;
+    const currentSession = useCashierStore.getState().session;
+    if (currentSession?.sessionId) await CashierService.logout(currentSession.sessionId);
+    else {
+      useCashierStore.getState().clearSession();
+      useAuthStore.getState().signOut();
+    }
+    router.replace("/(auth)");
+    autoLockRunning.current = false;
+  }, [router]);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    if (autoLockMinutes <= 0 || !useCashierStore.getState().session) return;
+    idleTimer.current = setTimeout(() => void performAutoLock(), autoLockMinutes * 60 * 1000);
+  }, [autoLockMinutes, performAutoLock]);
+
+  useEffect(() => {
+    resetIdleTimer();
+    return () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [resetIdleTimer, session?.sessionId]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        if (backgroundedAt.current && autoLockMinutes > 0) {
+          const idleMs = Date.now() - backgroundedAt.current;
+          if (idleMs >= autoLockMinutes * 60 * 1000) {
+            void performAutoLock();
+            return;
+          }
+        }
+        backgroundedAt.current = null;
+        resetIdleTimer();
+      } else {
+        backgroundedAt.current = Date.now();
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+      }
+    });
+    return () => subscription.remove();
+  }, [autoLockMinutes, performAutoLock, resetIdleTimer]);
 
   // Refresh pending sync count on mount
   useEffect(() => {
@@ -584,7 +647,7 @@ export default function POSLayout() {
 
   // Reset badge when on transfers screen
   useEffect(() => {
-    if (pathname === "/(pos)/transfers") {
+    if (isNavItemActive(pathname, "/(pos)/transfers")) {
       setTransferCount(0);
     }
   }, [pathname]);
@@ -593,8 +656,7 @@ export default function POSLayout() {
   useEffect(() => {
     if (grantedPermissions.length === 0) return;
     const currentItem = navItems.find((item) => {
-      const itemPath = item.href.replace("(pos)", "").replace("//", "/") || "/";
-      return pathname === item.href || pathname === itemPath;
+      return isNavItemActive(pathname, item.href);
     });
     if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
       router.replace("/(pos)");
@@ -625,6 +687,7 @@ export default function POSLayout() {
   return (
     <View
       style={[styles.viewport, dark ? styles.bgDark : styles.bgLight]}
+      onTouchStart={resetIdleTimer}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setViewportSize((current) => current.width === width && current.height === height ? current : { width, height });
@@ -689,7 +752,7 @@ export default function POSLayout() {
               <SidebarClock dark={dark} />
               <View style={styles.sidebarNavItems}>
                 {visibleNavItems.map((item) => {
-                  const active = pathname === item.href;
+                  const active = isNavItemActive(pathname, item.href);
                   return (
                     <TouchableOpacity
                       key={item.name}

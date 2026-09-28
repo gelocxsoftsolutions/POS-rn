@@ -103,6 +103,10 @@ export const SaleRepository = {
       conditions.push("s.cashierId = ?");
       params.push(filter.cashierId);
     }
+    if (filter.cashierIds?.length) {
+      conditions.push(`s.cashierId IN (${filter.cashierIds.map(() => "?").join(", ")})`);
+      params.push(...filter.cashierIds);
+    }
     if (filter.shiftId) {
       conditions.push("s.shiftId = ?");
       params.push(filter.shiftId);
@@ -252,20 +256,22 @@ export const SaleRepository = {
     return sales;
   },
 
-  async countToday(): Promise<number> {
+  async countToday(cashierIds?: string[]): Promise<number> {
     const today = new Date().toISOString().split("T")[0];
+    const cashierClause = cashierIds?.length ? ` AND cashierId IN (${cashierIds.map(() => "?").join(", ")})` : "";
     const result = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'",
-      [today]
+      `SELECT COUNT(*) as c FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'${cashierClause}`,
+      [today, ...(cashierIds ?? [])]
     );
     return result?.c ?? 0;
   },
 
-  async sumTotalToday(): Promise<number> {
+  async sumTotalToday(cashierIds?: string[]): Promise<number> {
     const today = new Date().toISOString().split("T")[0];
+    const cashierClause = cashierIds?.length ? ` AND cashierId IN (${cashierIds.map(() => "?").join(", ")})` : "";
     const result = await queryFirst<{ s: number }>(
-      "SELECT COALESCE(SUM(total), 0) as s FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'",
-      [today]
+      `SELECT COALESCE(SUM(total), 0) as s FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'${cashierClause}`,
+      [today, ...(cashierIds ?? [])]
     );
     return result?.s ?? 0;
   },

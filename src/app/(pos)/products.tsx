@@ -42,6 +42,7 @@ export default function ProductsScreen() {
   const [stockFilter, setStockFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
   const [products, setProducts] = useState<ProductDTO[]>([]);
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
   const [totalPages, setTotalPages] = useState(1);
@@ -57,6 +58,7 @@ export default function ProductsScreen() {
   const [detailBarcodes, setDetailBarcodes] = useState<BarcodeDTO[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
@@ -177,7 +179,7 @@ export default function ProductsScreen() {
             )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={styles.gridProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
@@ -202,7 +204,7 @@ export default function ProductsScreen() {
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
               <View style={styles.listMeta}>
-                <Text style={styles.listProductPrice}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
                 <Badge label={badge.label} color={badge.color} size="sm" />
               </View>
               {item.categoryName && (
@@ -283,6 +285,113 @@ export default function ProductsScreen() {
 
   const allCategories = [{ id: null, name: "All" } as any, ...categories];
 
+  const groupedProducts = React.useMemo(() => {
+    const groups = new Map<string, ProductDTO[]>();
+    for (const p of products) {
+      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
+      const arr = groups.get(key);
+      if (arr) arr.push(p);
+      else groups.set(key, [p]);
+    }
+    const grouped = Array.from(groups.values()).map((g) => {
+      g.sort((a, b) => a.name.localeCompare(b.name) || (a.retailPrice ?? 0) - (b.retailPrice ?? 0));
+      return g;
+    });
+    grouped.sort((a, b) => a[0].name.localeCompare(b[0].name));
+    return grouped;
+  }, [products]);
+
+  const groupTotalPages = Math.max(1, Math.ceil(groupedProducts.length / pageSize));
+  const pagedGroups = React.useMemo(
+    () => groupedProducts.slice((page - 1) * pageSize, page * pageSize),
+    [groupedProducts, page, pageSize]
+  );
+
+  const handleGroupPress = useCallback(
+    (group: ProductDTO[]) => {
+      if (group.length === 1) {
+        openDetail(group[0]);
+      } else {
+        setVariationGroup(group);
+      }
+    },
+    [openDetail]
+  );
+
+  const renderGridGroup = ({ item: group }: { item: ProductDTO[] }) => {
+    const isMulti = group.length > 1;
+    const base = group[0];
+    const totalStock = group.reduce((s, p) => s + (p.availableQty ?? 0), 0);
+    const minPrice = Math.min(...group.map((p) => p.retailPrice ?? 0));
+    const maxPrice = Math.max(...group.map((p) => p.retailPrice ?? 0));
+    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
+    const badge = stockBadge(base);
+    const totalBadge = isMulti ? { label: `${group.length} variations`, color: "#6f42c1" } : badge;
+    return (
+      <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+          <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
+            {base.imageUrl ? (
+              <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
+            ) : (
+              <Ionicons name="fish" size={32} color="#17386b" />
+            )}
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c", flex: 1 }]} numberOfLines={2}>{base.name}</Text>
+            {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
+          </View>
+          {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ marginTop: 4, alignSelf: "flex-start" }} />}
+          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+          <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {isMulti ? totalStock : base.availableQty ?? 0}</Text>
+          <Badge label={totalBadge.label} color={totalBadge.color} size="sm" style={{ marginTop: 6 }} />
+          {isMulti && (
+            <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b", fontSize: 10 }]} numberOfLines={1}>
+              {group.map((g) => `${g.sku}${g.weight ? ` ${g.weight}${g.unitName ?? ""}` : ""}`).join(" • ")}
+            </Text>
+          )}
+        </Card>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderListGroup = ({ item: group }: { item: ProductDTO[] }) => {
+    const isMulti = group.length > 1;
+    const base = group[0];
+    const totalStock = group.reduce((s, p) => s + (p.availableQty ?? 0), 0);
+    const minPrice = Math.min(...group.map((p) => p.retailPrice ?? 0));
+    const maxPrice = Math.max(...group.map((p) => p.retailPrice ?? 0));
+    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
+    return (
+      <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
+        <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+          <View style={styles.listRow}>
+            <View style={styles.listImagePlaceholder}>
+              {base.imageUrl ? (
+                <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
+              ) : (
+                <Ionicons name="fish" size={28} color="#17386b" />
+              )}
+            </View>
+            <View style={styles.listInfo}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{base.name}</Text>
+                {isMulti && <Badge label={`${group.length} var`} color="#6f42c1" size="sm" />}
+              </View>
+              <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{base.sku}{isMulti ? ` +${group.length - 1} more` : ""}</Text>
+              <View style={styles.listMeta}>
+                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+                <Badge label={isMulti ? `Stock:${totalStock}` : stockBadge(base).label} color={isMulti ? "#6f42c1" : stockBadge(base).color} size="sm" />
+              </View>
+              {base.categoryName && <Text style={styles.listCategory}>{base.categoryName}</Text>}
+            </View>
+            <Ionicons name={isMulti ? "chevron-forward" : "chevron-forward"} size={18} color="#d1d9e6" />
+          </View>
+        </Card>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
       <View style={styles.pageHeader}>
@@ -290,13 +399,27 @@ export default function ProductsScreen() {
           <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
           <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
         </View>
-        <View style={[styles.countBadge, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
-          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{total} products</Text>
-        </View>
       </View>
-      <View style={styles.searchTools}>
+      <View style={styles.summaryRow}>
+        {[
+          { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
+          { label: "Available Units", value: inventorySummary.totalAvailable, icon: "layers-outline", color: "#16a34a" },
+          { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
+          { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
+        ].map((metric) => (
+          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
+            <Ionicons name={metric.icon as any} size={14} color={metric.color} />
+            <View>
+              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
+              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.searchTools, { zIndex: 20 }]}>
         <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+          <Ionicons name="search" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
           <TextInput
             style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
             placeholder="Search products..."
@@ -306,58 +429,62 @@ export default function ProductsScreen() {
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+              <Ionicons name="close-circle" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
             </TouchableOpacity>
           )}
-        </View>
-        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
-          <Ionicons name="scan" size={21} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.toggleRow}>
-        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Category</Text>
-        <View style={styles.filterPills}>
-          <FlatList
-            data={allCategories}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryFilterContent}
-            renderItem={({ item: cat }) => (
-              <TouchableOpacity
-                style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, selectedCategoryId === cat.id && styles.filterChipActive]}
-                onPress={() => { setSelectedCategoryId(cat.id); setPage(1); }}
-              >
-                <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, selectedCategoryId === cat.id && styles.filterTextActive]}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            )}
-            keyExtractor={(item) => item.id ?? "all"}
-          />
         </View>
         <View
           style={[
             styles.viewToggle,
-            {
-              backgroundColor: dark ? "#141922" : "#eef2f7",
-              borderColor: dark ? "#334155" : "#d8e0ea",
-            },
+            { backgroundColor: dark ? "#141922" : "#eef2f7", borderColor: dark ? "#334155" : "#d8e0ea" },
           ]}
         >
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]}
-            onPress={() => setViewMode("grid")}
-          >
-            <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
+            <Ionicons name="grid" size={15} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]}
-            onPress={() => setViewMode("list")}
-          >
-            <Ionicons name="list" size={18} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
+            <Ionicons name="list" size={15} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
         </View>
+        <View style={styles.categoryMenuWrap}>
+          <TouchableOpacity
+            style={[styles.categoryButton, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}
+            onPress={() => setShowCategoryMenu((visible) => !visible)}
+            accessibilityLabel="Choose product category"
+          >
+            <Ionicons name="funnel-outline" size={17} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Text style={[styles.categoryButtonText, { color: dark ? "#e2e8f0" : "#17386b" }]} numberOfLines={1}>
+              {allCategories.find((category) => category.id === selectedCategoryId)?.name ?? "Category"}
+            </Text>
+            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={dark ? "#94a3b8" : "#64748b"} />
+          </TouchableOpacity>
+          {showCategoryMenu && (
+            <View style={[styles.categoryDropdown, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}>
+              <ScrollView style={styles.categoryDropdownScroll} nestedScrollEnabled>
+                {allCategories.map((category) => {
+                  const selected = selectedCategoryId === category.id;
+                  return (
+                    <TouchableOpacity
+                      key={category.id ?? "all"}
+                      style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
+                      onPress={() => {
+                        setSelectedCategoryId(category.id);
+                        setPage(1);
+                        setShowCategoryMenu(false);
+                      }}
+                    >
+                      <Text style={[styles.categoryOptionText, { color: selected ? "#ffffff" : dark ? "#e2e8f0" : "#334155" }]}>{category.name}</Text>
+                      {selected && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
+          <Ionicons name="scan" size={18} color="#ffffff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.stockFilterLine}>
@@ -382,23 +509,6 @@ export default function ProductsScreen() {
         />
       </View>
 
-      <View style={styles.summaryRow}>
-        {[
-          { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
-          { label: "Available Units", value: inventorySummary.totalAvailable, icon: "layers-outline", color: "#16a34a" },
-          { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
-          { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
-        ].map((metric) => (
-          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
-            <Ionicons name={metric.icon as any} size={18} color={metric.color} />
-            <View>
-              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
-              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
-
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#17386b" />
@@ -406,9 +516,9 @@ export default function ProductsScreen() {
       ) : viewMode === "grid" ? (
         <FlatList
           key={`grid-${gridColumns}`}
-          data={products}
-          renderItem={renderGridItem}
-          keyExtractor={(item) => item.id}
+          data={pagedGroups}
+          renderItem={renderGridGroup}
+          keyExtractor={(item: ProductDTO[]) => item[0].id}
           numColumns={gridColumns}
           contentContainerStyle={styles.gridList}
           columnWrapperStyle={styles.gridRow}
@@ -422,9 +532,9 @@ export default function ProductsScreen() {
       ) : (
         <FlatList
           key="list"
-          data={products}
-          renderItem={renderListItem}
-          keyExtractor={(item) => item.id}
+          data={pagedGroups}
+          renderItem={renderListGroup}
+          keyExtractor={(item: ProductDTO[]) => item[0].id}
           numColumns={1}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
@@ -438,7 +548,7 @@ export default function ProductsScreen() {
 
       <PaginationControls
         page={page}
-        totalPages={totalPages}
+        totalPages={groupTotalPages}
         pageSize={pageSize}
         onPageChange={setPage}
         onPageSizeChange={(size) => {
@@ -447,6 +557,59 @@ export default function ProductsScreen() {
         }}
         dark={dark}
       />
+
+      <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
+        <View style={styles.variationModalOverlay}>
+          <View style={[styles.variationModal, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+            <View style={styles.variationModalHeader}>
+              <View style={styles.variationModalHeading}>
+                <Text style={[styles.variationModalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
+                <Text style={[styles.variationModalSubtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{variationGroup?.length} variations</Text>
+              </View>
+              <TouchableOpacity style={styles.variationCloseBtn} onPress={() => setVariationGroup(null)}>
+                <Ionicons name="close" size={20} color={dark ? "#94a3b8" : "#6b7b8d"} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.variationList} showsVerticalScrollIndicator={false}>
+              {variationGroup?.map((variant) => {
+                const badge = stockBadge(variant);
+                return (
+                  <TouchableOpacity
+                    key={variant.id}
+                    style={[styles.variationRow, { backgroundColor: dark ? "#0f1729" : "#f8fafc", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}
+                    onPress={() => {
+                      setVariationGroup(null);
+                      openDetail(variant);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.variationImageWrap}>
+                      {variant.imageUrl ? (
+                        <Image source={{ uri: variant.imageUrl }} style={styles.variationImage} resizeMode="contain" />
+                      ) : (
+                        <Ionicons name="fish" size={24} color="#17386b" />
+                      )}
+                    </View>
+                    <View style={styles.variationInfo}>
+                      <Text style={[styles.variationName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>
+                        {variant.sku}
+                        {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
+                        {variant.description ? ` • ${variant.description}` : ""}
+                      </Text>
+                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
+                      <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
+                        <Badge label={badge.label} color={badge.color} size="sm" />
+                        <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <BarcodeScannerModal
         visible={scannerVisible}
@@ -525,6 +688,15 @@ export default function ProductsScreen() {
                     <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.categoryName}</Text>
                   </View>
                 )}
+                {detailProduct.weight != null && (
+                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Weight</Text>
+                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>
+                      {detailProduct.weight}
+                      {detailProduct.unitName ? ` ${detailProduct.unitName}` : ""}
+                    </Text>
+                  </View>
+                )}
                 {detailProduct.brandName && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                     <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Brand</Text>
@@ -539,7 +711,7 @@ export default function ProductsScreen() {
                 )}
                 <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                   <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Price</Text>
-                  <Text style={[styles.detailInfoValueBold]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
+                  <Text style={[styles.detailInfoValueBold, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
                 </View>
                 {detailProduct.description && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
@@ -599,15 +771,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 3,
   },
-  countBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  countBadgeText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
@@ -625,9 +788,9 @@ const styles = StyleSheet.create({
   searchTools: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    margin: 16,
-    marginBottom: 8,
+    gap: 8,
+    margin: 12,
+    marginBottom: 6,
   },
   searchBar: {
     flex: 1,
@@ -635,37 +798,92 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#ffffff",
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 8,
-    fontSize: 14,
+    fontSize: 13,
     color: "#1a202c",
   },
   scanBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 7,
     backgroundColor: "#17386b",
     alignItems: "center",
     justifyContent: "center",
+  },
+  categoryMenuWrap: {
+    position: "relative",
+    zIndex: 30,
+  },
+  categoryButton: {
+    height: 36,
+    maxWidth: 190,
+    minWidth: 132,
+    paddingHorizontal: 11,
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  categoryButtonText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  categoryDropdown: {
+    position: "absolute",
+    top: 42,
+    right: 0,
+    width: 220,
+    maxHeight: 260,
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  categoryDropdownScroll: {
+    maxHeight: 246,
+  },
+  categoryOption: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  categoryOptionSelected: {
+    backgroundColor: "#17386b",
+  },
+  categoryOptionText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
   },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    minHeight: 38,
-    marginBottom: 6,
+    minHeight: 30,
+    marginBottom: 4,
     gap: 8,
   },
   filterLabel: {
-    width: 58,
+    width: 52,
     flexShrink: 0,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
   },
@@ -675,20 +893,21 @@ const styles = StyleSheet.create({
   },
   categoryFilterContent: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   viewToggle: {
     flexDirection: "row",
-    width: 76,
+    width: 72,
     height: 36,
-    padding: 3,
-    borderRadius: 8,
+    padding: 2,
+    borderRadius: 7,
     borderWidth: 1,
     flexShrink: 0,
   },
   viewToggleBtn: {
-    flex: 1,
-    borderRadius: 6,
+    width: 33,
+    height: 30,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -703,21 +922,21 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   stockFilterLine: {
-    minHeight: 38,
-    marginBottom: 6,
+    minHeight: 30,
+    marginBottom: 4,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   stockFilterContent: {
-    gap: 8,
+    gap: 6,
     alignItems: "center",
   },
   filterChip: {
-    paddingHorizontal: 14,
-    minHeight: 32,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    minHeight: 26,
+    borderRadius: 13,
     backgroundColor: "#f0f4ff",
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -729,9 +948,9 @@ const styles = StyleSheet.create({
     borderColor: "#17386b",
   },
   filterText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
-    lineHeight: 16,
+    lineHeight: 14,
     color: "#6b7b8d",
     includeFontPadding: false,
   },
@@ -742,27 +961,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 8,
+    paddingBottom: 6,
+    gap: 6,
   },
   summaryItem: {
     flex: 1,
-    minWidth: 140,
-    minHeight: 52,
+    minWidth: 64,
+    minHeight: 40,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 5,
   },
   summaryValue: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
   },
   summaryLabel: {
-    fontSize: 10,
-    marginTop: 1,
+    fontSize: 9,
+    marginTop: 0,
   },
   gridList: {
     padding: 12,
@@ -1084,5 +1303,83 @@ const styles = StyleSheet.create({
   barcodeEmptyText: {
     fontSize: 13,
     paddingVertical: 8,
+  },
+  variationModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+  },
+  variationModal: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "80%",
+    borderRadius: 12,
+    padding: 16,
+  },
+  variationModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  variationModalHeading: {
+    flex: 1,
+    marginRight: 12,
+  },
+  variationModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  variationModalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  variationCloseBtn: {
+    padding: 4,
+  },
+  variationList: {
+    marginTop: 12,
+    maxHeight: 400,
+  },
+  variationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 12,
+  },
+  variationImageWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#f0f4ff",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  variationImage: {
+    width: "100%",
+    height: "100%",
+  },
+  variationInfo: {
+    flex: 1,
+  },
+  variationName: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  variationPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#17386b",
+    marginTop: 2,
+  },
+  variationStock: {
+    fontSize: 11,
+    marginTop: 2,
   },
 });

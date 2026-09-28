@@ -72,6 +72,7 @@ export interface ProductDTO {
   brandName: string | null;
   unitId: string | null;
   unitName: string | null;
+  weight: number | null;
   taxGroupId: string | null;
   taxGroupName: string | null;
   taxRate: number | null;
