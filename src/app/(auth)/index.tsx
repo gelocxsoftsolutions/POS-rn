@@ -41,6 +41,10 @@ export default function SignInScreen() {
   const isLandscape = winW > winH;
   const isTablet = Math.min(winW, winH) >= 600;
   const compactLandscape = isLandscape && winH < 500;
+  const unregisteredLogoSize = Math.max(
+    110,
+    Math.min(isLandscape ? 240 : 200, Math.min(winW, winH) * (isLandscape ? 0.3 : 0.34))
+  );
 
   const screenBackground = dark ? "#0f1b33" : "#f4f6f8";
   const primaryTextColor = dark ? "#ffffff" : "#17386b";
@@ -177,32 +181,47 @@ export default function SignInScreen() {
 
   if (device.registrationState === "unregistered") {
     return (
-      <View style={styles.unregisteredBg}>
-        <StatusBar barStyle="light-content" backgroundColor="#17386b" />
-        <View style={styles.unregBrand}>
-          <View style={styles.unregBrandIcon}>
-            <Ionicons name="fish" size={16} color="#ffffff" />
-          </View>
-          <Text style={styles.unregBrandText}>NCT Seafoods</Text>
+      <View style={[
+        styles.unregisteredBg,
+        isLandscape && styles.unregisteredBgLandscape,
+        { backgroundColor: screenBackground },
+      ]}>
+        <StatusBar
+          barStyle={dark ? "light-content" : "dark-content"}
+          backgroundColor={screenBackground}
+        />
+        <View style={[styles.unregBrand, isLandscape && styles.unregBrandLandscape]}>
+          <Image
+            source={require("../../../assets/nct-seafoods-logo.png")}
+            style={{ width: unregisteredLogoSize, height: unregisteredLogoSize }}
+            resizeMode="contain"
+            accessibilityLabel="NCT Seafoods"
+          />
+          <Text style={[styles.unregBrandText, { color: primaryTextColor }]}>NCT Seafoods</Text>
+          <Text style={[styles.unregBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
         </View>
-        <View style={styles.unregisteredContainer}>
-          <View style={styles.unregisteredIconWrap}>
-            <Ionicons name="phone-portrait-outline" size={48} color="#17386b" />
+        <View style={[
+          styles.unregisteredContainer,
+          isLandscape && styles.unregisteredContainerLandscape,
+          { backgroundColor: keyBackground, borderColor: keyBorder },
+        ]}>
+          <View style={[styles.unregisteredIconWrap, { backgroundColor: dark ? "#17243a" : "#f0f4ff", borderColor: keyBorder }]}>
+            <Ionicons name="phone-portrait-outline" size={48} color={primaryTextColor} />
             <View style={styles.unregDisconnectBadge}>
               <Ionicons name="close" size={12} color="#ffffff" />
             </View>
           </View>
-          <Text style={styles.unregisteredTitle}>Device Not Registered</Text>
-          <Text style={styles.unregisteredSubtitle}>
+          <Text style={[styles.unregisteredTitle, { color: bodyTextColor }]}>Device Not Registered</Text>
+          <Text style={[styles.unregisteredSubtitle, { color: secondaryTextColor }]}>
             This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
           <TouchableOpacity
-            style={styles.registerButton}
+            style={[styles.registerButton, { backgroundColor: dark ? "#17386b" : "#ffffff", borderColor: primaryTextColor }]}
             onPress={() => router.push("/(auth)/register")}
             activeOpacity={0.85}
           >
-            <Ionicons name="qr-code" size={16} color="#17386b" style={{ marginRight: 8 }} />
-            <Text style={styles.registerButtonText}>Register Device</Text>
+            <Ionicons name="qr-code" size={16} color={dark ? "#ffffff" : "#17386b"} style={{ marginRight: 8 }} />
+            <Text style={[styles.registerButtonText, { color: dark ? "#ffffff" : "#17386b" }]}>Register Device</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -434,26 +453,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  unregBrand: {
+  unregisteredBgLandscape: {
     flexDirection: "row",
+    gap: 48,
+    paddingHorizontal: 40,
+  },
+  unregBrand: {
     alignItems: "center",
-    gap: 8,
     marginBottom: 20,
   },
-  unregBrandIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
+  unregBrandLandscape: {
+    flex: 1,
+    marginBottom: 0,
+    maxWidth: 440,
   },
   unregBrandText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 30,
+    fontWeight: "800",
     color: "#ffffff",
+    marginTop: 12,
+  },
+  unregBrandSubtitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 5,
+    textTransform: "uppercase",
   },
   unregisteredContainer: {
     alignItems: "center",
@@ -470,6 +494,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 6,
+  },
+  unregisteredContainerLandscape: {
+    maxWidth: 460,
+    paddingVertical: 24,
   },
   unregisteredIconWrap: {
     width: 72,
@@ -497,17 +525,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   unregisteredTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "800",
     color: "#1a202c",
     textAlign: "center",
   },
   unregisteredSubtitle: {
-    fontSize: 13,
+    fontSize: 15,
     color: "#6b7b8d",
     marginTop: 8,
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 22,
   },
   registerButton: {
     flexDirection: "row",
@@ -521,7 +549,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   registerButtonText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "700",
     color: "#17386b",
   },

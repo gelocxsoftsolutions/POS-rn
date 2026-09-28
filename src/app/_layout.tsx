@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Image } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Image, useColorScheme, useWindowDimensions } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { MD3DarkTheme, MD3LightTheme, PaperProvider } from "react-native-paper";
@@ -17,6 +17,10 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dark = useIsDarkTheme();
+  const splashDark = useColorScheme() === "dark";
+  const { width, height } = useWindowDimensions();
+  const shortEdge = Math.min(width, height);
+  const splashLogoSize = Math.max(104, Math.min(196, shortEdge * (width > height ? 0.3 : 0.28)));
   const shellBackground = dark ? "#050a14" : "#f8fbff";
 
   useEffect(() => {
@@ -42,17 +46,17 @@ export default function RootLayout() {
 
   if (!ready) {
     return (
-      <View style={styles.splash}>
+      <View style={[styles.splash, { backgroundColor: splashDark ? "#050a14" : "#f8fbff" }]}>
         <Image
           source={require("../../assets/nct-seafoods-logo.png")}
-          style={styles.splashLogo}
+          style={[styles.splashLogo, { width: splashLogoSize, height: splashLogoSize }]}
           resizeMode="contain"
         />
-        <Text style={styles.splashTitle}>NCT Seafoods POS</Text>
-        <Text style={styles.splashSubtitle}>Initializing system…</Text>
+        <Text style={[styles.splashTitle, { color: splashDark ? "#ffffff" : "#17386b" }]}>NCT Seafoods POS</Text>
+        <Text style={[styles.splashSubtitle, { color: splashDark ? "#a3b8d6" : "#667085" }]}>Initializing system…</Text>
         <ActivityIndicator
           size="large"
-          color="#ffffff"
+          color={splashDark ? "#ffffff" : "#17386b"}
           style={{ marginTop: 24 }}
         />
         {error && (
@@ -89,8 +93,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   splashLogo: {
-    width: 148,
-    height: 148,
     marginBottom: 20,
   },
   splashTitle: {
