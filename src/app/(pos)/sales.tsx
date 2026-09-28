@@ -17,7 +17,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import { useAudioPlayer } from "expo-audio";
-import { File } from "expo-file-system";
 import QRCodeLib from "qrcode";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { Card } from "@/components/ui/card";
@@ -39,6 +38,7 @@ import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
+import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
 
 const GRID_COLUMNS = 5;
 const RECEIPT_WIDTH_MM = 58;
@@ -519,16 +519,10 @@ export default function SalesScreen() {
     setPrinting(true);
 
     try {
-      const logoSource = Image.resolveAssetSource(require("../../../assets/thermal-printer-logo.jpg"));
-      let logoUri = Platform.OS === "web" ? logoSource.uri : "";
-      if (Platform.OS !== "web") {
-        try {
-          const logoBase64 = await new File(logoSource.uri).base64();
-          logoUri = `data:image/jpeg;base64,${logoBase64}`;
-        } catch {
-          logoUri = "";
-        }
-      }
+      const logoUri = await getPrintableAssetDataUri(
+        require("../../../assets/thermal-printer-logo.jpg"),
+        "image/jpeg"
+      );
 
       let qrSvg = "";
       try {

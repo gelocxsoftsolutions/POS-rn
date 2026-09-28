@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -48,6 +48,7 @@ export const CREATE_TABLES = [
     employeeId TEXT UNIQUE,
     username TEXT UNIQUE,
     displayName TEXT NOT NULL,
+    photoUri TEXT,
     pinHash TEXT,
     passwordHash TEXT,
     roleId TEXT,

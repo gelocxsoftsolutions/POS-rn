@@ -42,6 +42,7 @@ export default function ProductsScreen() {
   const [stockFilter, setStockFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
   const [products, setProducts] = useState<ProductDTO[]>([]);
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
   const [totalPages, setTotalPages] = useState(1);
@@ -398,13 +399,27 @@ export default function ProductsScreen() {
           <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
           <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
         </View>
-        <View style={[styles.countBadge, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
-          <Text style={[styles.countBadgeText, { color: dark ? "#d8dee8" : "#334155" }]}>{total} products</Text>
-        </View>
       </View>
-      <View style={styles.searchTools}>
+      <View style={styles.summaryRow}>
+        {[
+          { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
+          { label: "Available Units", value: inventorySummary.totalAvailable, icon: "layers-outline", color: "#16a34a" },
+          { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
+          { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
+        ].map((metric) => (
+          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
+            <Ionicons name={metric.icon as any} size={14} color={metric.color} />
+            <View>
+              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
+              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.searchTools, { zIndex: 20 }]}>
         <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+          <Ionicons name="search" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
           <TextInput
             style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
             placeholder="Search products..."
@@ -414,58 +429,62 @@ export default function ProductsScreen() {
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={18} color={dark ? "#4a6785" : "#8e99a4"} />
+              <Ionicons name="close-circle" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
             </TouchableOpacity>
           )}
-        </View>
-        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
-          <Ionicons name="scan" size={21} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.toggleRow}>
-        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Category</Text>
-        <View style={styles.filterPills}>
-          <FlatList
-            data={allCategories}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryFilterContent}
-            renderItem={({ item: cat }) => (
-              <TouchableOpacity
-                style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, selectedCategoryId === cat.id && styles.filterChipActive]}
-                onPress={() => { setSelectedCategoryId(cat.id); setPage(1); }}
-              >
-                <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, selectedCategoryId === cat.id && styles.filterTextActive]}>
-                  {cat.name}
-                </Text>
-              </TouchableOpacity>
-            )}
-            keyExtractor={(item) => item.id ?? "all"}
-          />
         </View>
         <View
           style={[
             styles.viewToggle,
-            {
-              backgroundColor: dark ? "#141922" : "#eef2f7",
-              borderColor: dark ? "#334155" : "#d8e0ea",
-            },
+            { backgroundColor: dark ? "#141922" : "#eef2f7", borderColor: dark ? "#334155" : "#d8e0ea" },
           ]}
         >
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]}
-            onPress={() => setViewMode("grid")}
-          >
-            <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
+            <Ionicons name="grid" size={15} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]}
-            onPress={() => setViewMode("list")}
-          >
-            <Ionicons name="list" size={18} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
+            <Ionicons name="list" size={15} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
           </TouchableOpacity>
         </View>
+        <View style={styles.categoryMenuWrap}>
+          <TouchableOpacity
+            style={[styles.categoryButton, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}
+            onPress={() => setShowCategoryMenu((visible) => !visible)}
+            accessibilityLabel="Choose product category"
+          >
+            <Ionicons name="funnel-outline" size={17} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Text style={[styles.categoryButtonText, { color: dark ? "#e2e8f0" : "#17386b" }]} numberOfLines={1}>
+              {allCategories.find((category) => category.id === selectedCategoryId)?.name ?? "Category"}
+            </Text>
+            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={dark ? "#94a3b8" : "#64748b"} />
+          </TouchableOpacity>
+          {showCategoryMenu && (
+            <View style={[styles.categoryDropdown, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}>
+              <ScrollView style={styles.categoryDropdownScroll} nestedScrollEnabled>
+                {allCategories.map((category) => {
+                  const selected = selectedCategoryId === category.id;
+                  return (
+                    <TouchableOpacity
+                      key={category.id ?? "all"}
+                      style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
+                      onPress={() => {
+                        setSelectedCategoryId(category.id);
+                        setPage(1);
+                        setShowCategoryMenu(false);
+                      }}
+                    >
+                      <Text style={[styles.categoryOptionText, { color: selected ? "#ffffff" : dark ? "#e2e8f0" : "#334155" }]}>{category.name}</Text>
+                      {selected && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
+          <Ionicons name="scan" size={18} color="#ffffff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.stockFilterLine}>
@@ -488,23 +507,6 @@ export default function ProductsScreen() {
           )}
           keyExtractor={(item) => item}
         />
-      </View>
-
-      <View style={styles.summaryRow}>
-        {[
-          { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
-          { label: "Available Units", value: inventorySummary.totalAvailable, icon: "layers-outline", color: "#16a34a" },
-          { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
-          { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
-        ].map((metric) => (
-          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
-            <Ionicons name={metric.icon as any} size={18} color={metric.color} />
-            <View>
-              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
-              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
-            </View>
-          </View>
-        ))}
       </View>
 
       {loading ? (
@@ -769,15 +771,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 3,
   },
-  countBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  countBadgeText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
@@ -795,9 +788,9 @@ const styles = StyleSheet.create({
   searchTools: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    margin: 16,
-    marginBottom: 8,
+    gap: 8,
+    margin: 12,
+    marginBottom: 6,
   },
   searchBar: {
     flex: 1,
@@ -805,37 +798,92 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#ffffff",
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 8,
-    fontSize: 14,
+    fontSize: 13,
     color: "#1a202c",
   },
   scanBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 7,
     backgroundColor: "#17386b",
     alignItems: "center",
     justifyContent: "center",
+  },
+  categoryMenuWrap: {
+    position: "relative",
+    zIndex: 30,
+  },
+  categoryButton: {
+    height: 36,
+    maxWidth: 190,
+    minWidth: 132,
+    paddingHorizontal: 11,
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  categoryButtonText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  categoryDropdown: {
+    position: "absolute",
+    top: 42,
+    right: 0,
+    width: 220,
+    maxHeight: 260,
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  categoryDropdownScroll: {
+    maxHeight: 246,
+  },
+  categoryOption: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  categoryOptionSelected: {
+    backgroundColor: "#17386b",
+  },
+  categoryOptionText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
   },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    minHeight: 38,
-    marginBottom: 6,
+    minHeight: 30,
+    marginBottom: 4,
     gap: 8,
   },
   filterLabel: {
-    width: 58,
+    width: 52,
     flexShrink: 0,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
   },
@@ -845,20 +893,21 @@ const styles = StyleSheet.create({
   },
   categoryFilterContent: {
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   viewToggle: {
     flexDirection: "row",
-    width: 76,
+    width: 72,
     height: 36,
-    padding: 3,
-    borderRadius: 8,
+    padding: 2,
+    borderRadius: 7,
     borderWidth: 1,
     flexShrink: 0,
   },
   viewToggleBtn: {
-    flex: 1,
-    borderRadius: 6,
+    width: 33,
+    height: 30,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -873,21 +922,21 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   stockFilterLine: {
-    minHeight: 38,
-    marginBottom: 6,
+    minHeight: 30,
+    marginBottom: 4,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   stockFilterContent: {
-    gap: 8,
+    gap: 6,
     alignItems: "center",
   },
   filterChip: {
-    paddingHorizontal: 14,
-    minHeight: 32,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    minHeight: 26,
+    borderRadius: 13,
     backgroundColor: "#f0f4ff",
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -899,9 +948,9 @@ const styles = StyleSheet.create({
     borderColor: "#17386b",
   },
   filterText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
-    lineHeight: 16,
+    lineHeight: 14,
     color: "#6b7b8d",
     includeFontPadding: false,
   },
@@ -912,27 +961,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 8,
+    paddingBottom: 6,
+    gap: 6,
   },
   summaryItem: {
     flex: 1,
-    minWidth: 140,
-    minHeight: 52,
+    minWidth: 64,
+    minHeight: 40,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 5,
   },
   summaryValue: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
   },
   summaryLabel: {
-    fontSize: 10,
-    marginTop: 1,
+    fontSize: 9,
+    marginTop: 0,
   },
   gridList: {
     padding: 12,

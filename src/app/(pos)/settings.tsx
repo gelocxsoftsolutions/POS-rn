@@ -24,6 +24,7 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
@@ -44,7 +45,6 @@ const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
 
 const AUDIT_FILTERS = ["ALL", "SALE_CREATED", "LOGIN_SUCCESS", "LOGIN_FAILED", "TRANSFER"] as const;
 const APPLICATION_SIZES = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
-
 function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onChange: (value: number) => void; dark: boolean }) {
   return (
     <View style={styles.sizeOptions}>
@@ -142,7 +142,7 @@ function SoundVolumeControl({
 interface CashierRow {
   id: string;
   displayName: string;
-  username: string;
+  username: string | null;
   roleName: string;
 }
 
@@ -190,6 +190,11 @@ export default function SettingsScreen() {
     setFeedbackSoundVolume,
   } = useUiStore();
   const dark = useIsDarkTheme();
+  const autoLockMinutes = useAccessSettingsStore((state) => state.autoLockMinutes);
+  const setAutoLockMinutes = useAccessSettingsStore((state) => state.setAutoLockMinutes);
+  const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const toggleCashierLink = useAccessSettingsStore((state) => state.toggleCashierLink);
+  const removeCashierFromGroup = useAccessSettingsStore((state) => state.removeCashierFromGroup);
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
   const [settingsSearch, setSettingsSearch] = useState("");
@@ -213,6 +218,15 @@ export default function SettingsScreen() {
   const [lastSync, setLastSync] = useState<string | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [editingUser, setEditingUser] = useState<CashierRow | null>(null);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newUserPin, setNewUserPin] = useState("");
+  const [newUserPinConfirm, setNewUserPinConfirm] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
+  const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditFilter, setAuditFilter] = useState<string>("ALL");
 
@@ -534,6 +548,110 @@ export default function SettingsScreen() {
     );
   };
 
+  const resetUserForm = () => {
+    setNewUserName("");
+    setNewUsername("");
+    setNewUserPin("");
+    setNewUserPinConfirm("");
+    setEditingUser(null);
+  };
+
+  const openCreateUser = () => {
+    resetUserForm();
+    setShowCreateUser(true);
+  };
+
+  const openEditUser = (user: CashierRow) => {
+    setEditingUser(user);
+    setNewUserName(user.displayName);
+    setNewUsername(user.username ?? "");
+    setNewUserPin("");
+    setNewUserPinConfirm("");
+    setShowCreateUser(true);
+  };
+
+  const closeUserModal = () => {
+    setShowCreateUser(false);
+    resetUserForm();
+  };
+
+  const handleSaveUser = async () => {
+    if (newUserPin !== newUserPinConfirm) {
+      Alert.alert(editingUser ? "Edit User" : "Create User", "The PIN confirmation does not match.");
+      return;
+    }
+    if (!editingUser && !newUserPin) {
+      Alert.alert("Create User", "Enter a 6-digit PIN for the new user.");
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      if (editingUser) {
+        await CashierService.updateManagedUser(editingUser.id, {
+          displayName: newUserName,
+          username: newUsername,
+          pin: newUserPin || undefined,
+        });
+      } else {
+        await CashierService.createLocalUser({
+          displayName: newUserName,
+          username: newUsername,
+          pin: newUserPin,
+          roleId: session?.roleId,
+        });
+      }
+      const wasEditing = Boolean(editingUser);
+      closeUserModal();
+      await loadUsers();
+      Alert.alert(wasEditing ? "User Updated" : "User Created", wasEditing ? "The user's details have been saved." : "The new user can now sign in with their PIN.");
+    } catch (error: any) {
+      Alert.alert(editingUser ? "Edit User" : "Create User", error?.message ?? "Unable to save the user.");
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleDeleteUser = (user: CashierRow) => {
+    if (user.id === session?.cashierId) {
+      Alert.alert("Delete User", "You cannot delete the account currently signed in.");
+      return;
+    }
+    Alert.alert(
+      "Delete User",
+      `Delete ${user.displayName}'s login from this device? Existing receipts and sales will be kept.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await CashierService.deleteLocalUser(user.id);
+              removeCashierFromGroup(user.id);
+              await loadUsers();
+            } catch (error: any) {
+              Alert.alert("Delete User", error?.message ?? "Unable to delete the user.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const applyAutoLock = () => {
+    const amount = Number(autoLockValue);
+    if (!Number.isInteger(amount) || amount < 1) {
+      Alert.alert("Auto Lock", "Enter a whole number greater than zero.");
+      return;
+    }
+    const minutes = autoLockUnit === "hours" ? amount * 60 : amount;
+    if (minutes > 10080) {
+      Alert.alert("Auto Lock", "Choose a timeout no longer than 7 days.");
+      return;
+    }
+    setAutoLockMinutes(minutes);
+  };
+
   const filteredAuditLogs =
     auditFilter === "ALL"
       ? auditLogs
@@ -703,10 +821,18 @@ export default function SettingsScreen() {
 
       {/* Users Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("users cashiers roles") && styles.hidden]}>
-        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-          <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users
-        </Text>
-        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Active cashiers synced to this device.</Text>
+        <View style={styles.sectionHeadingRow}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+              <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users and Shared Sales
+            </Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create device users and choose which accounts share sales, receipts, and reports.</Text>
+          </View>
+          <TouchableOpacity style={styles.addUserButton} onPress={openCreateUser}>
+            <Ionicons name="person-add-outline" size={17} color="#ffffff" />
+            <Text style={styles.addUserButtonText}>Add user</Text>
+          </TouchableOpacity>
+        </View>
 
         {cashiers.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
@@ -724,19 +850,104 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.userInfo}>
                 <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
-                <Text style={[styles.userUsername, { color: fieldLabelColor }]}>@{user.username}</Text>
+                <Text style={[styles.userUsername, { color: fieldLabelColor }]}>{user.username ? `@${user.username}` : "PIN login"}</Text>
               </View>
               <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
                 <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
               </View>
-              {session?.cashierName === user.displayName && (
+              {session?.cashierId === user.id && (
                 <View style={styles.youBadge}>
                   <Text style={styles.youBadgeText}>You</Text>
                 </View>
               )}
+              {session?.cashierId && user.id !== session.cashierId && (
+                <TouchableOpacity
+                  style={[
+                    styles.linkUserButton,
+                    { borderColor: dark ? "#334155" : "#cbd5e1" },
+                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonActive,
+                  ]}
+                  onPress={() => toggleCashierLink(session.cashierId, user.id)}
+                >
+                  <Ionicons
+                    name={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "link" : "unlink-outline"}
+                    size={15}
+                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "#ffffff" : fieldLabelColor}
+                  />
+                  <Text style={[
+                    styles.linkUserButtonText,
+                    { color: fieldLabelColor },
+                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonTextActive,
+                  ]}>
+                    {salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "Shared" : "Separate"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <View style={styles.userActions}>
+                <TouchableOpacity
+                  style={[styles.userActionButton, { borderColor: dark ? "#334155" : "#cbd5e1" }]}
+                  onPress={() => openEditUser(user)}
+                  accessibilityLabel={`Edit ${user.displayName}`}
+                >
+                  <Ionicons name="create-outline" size={16} color={fieldLabelColor} />
+                </TouchableOpacity>
+                {user.id !== session?.cashierId ? (
+                  <TouchableOpacity
+                    style={[styles.userActionButton, { borderColor: dark ? "#5b2930" : "#fecdd3" }]}
+                    onPress={() => handleDeleteUser(user)}
+                    accessibilityLabel={`Delete ${user.displayName}`}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#dc3545" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           ))
         )}
+      </Card>
+
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security auto lock idle timeout pin") && styles.hidden]}>
+        <View style={styles.autoLockHeading}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Auto Lock</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Sign out after this device has not been touched. A PIN is required to return.</Text>
+          </View>
+          <Switch
+            value={autoLockMinutes > 0}
+            onValueChange={(enabled) => enabled ? applyAutoLock() : setAutoLockMinutes(0)}
+            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
+            thumbColor={autoLockMinutes > 0 ? "#17386b" : "#f8fafc"}
+          />
+        </View>
+        <View style={styles.autoLockEditor}>
+          <TextInput
+            style={[styles.autoLockInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+            value={autoLockValue}
+            onChangeText={(value) => setAutoLockValue(value.replace(/[^0-9]/g, ""))}
+            keyboardType="number-pad"
+            maxLength={4}
+            accessibilityLabel="Auto lock timeout"
+          />
+          <View style={[styles.autoLockUnits, { borderColor: inputBorder }]}>
+            {(["minutes", "hours"] as const).map((unit) => (
+              <TouchableOpacity
+                key={unit}
+                style={[styles.autoLockUnit, autoLockUnit === unit && styles.autoLockUnitSelected]}
+                onPress={() => setAutoLockUnit(unit)}
+                accessibilityState={{ selected: autoLockUnit === unit }}
+              >
+                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? "#ffffff" : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.autoLockApply} onPress={applyAutoLock}>
+            <Ionicons name="checkmark" size={17} color="#ffffff" />
+            <Text style={styles.autoLockApplyText}>Apply</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.autoLockStatus, { color: sectionDescColor }]}>
+          {autoLockMinutes > 0 ? `Currently locks after ${autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? `${autoLockMinutes / 60} ${autoLockMinutes === 60 ? "hour" : "hours"}` : `${autoLockMinutes} ${autoLockMinutes === 1 ? "minute" : "minutes"}`}.` : "Auto lock is off."}
+        </Text>
       </Card>
 
       {/* Audit Logs Card */}
@@ -1097,6 +1308,31 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      <Modal visible={showCreateUser} transparent animationType="fade" onRequestClose={closeUserModal}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.createUserModal, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: cardBorder }]}>
+            <View style={styles.createUserHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: sectionTitleColor }]}>{editingUser ? "Edit User" : "Create User"}</Text>
+                <Text style={[styles.createUserHelp, { color: sectionDescColor }]}>{editingUser ? "Update the account details. Leave the PIN empty to keep it." : "This user starts with a separate sales history."}</Text>
+              </View>
+              <TouchableOpacity style={styles.modalCloseButton} onPress={closeUserModal}>
+                <Ionicons name="close" size={20} color={fieldLabelColor} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Display name</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserName} onChangeText={setNewUserName} placeholder="Cashier name" placeholderTextColor={fieldLabelColor} />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Username (optional)</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUsername} onChangeText={setNewUsername} placeholder="Username" placeholderTextColor={fieldLabelColor} autoCapitalize="none" />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>{editingUser ? "New 6-digit PIN (optional)" : "6-digit PIN"}</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPin} onChangeText={setNewUserPin} placeholder={editingUser ? "Keep current PIN" : "Enter PIN"} placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Confirm PIN</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPinConfirm} onChangeText={setNewUserPinConfirm} placeholder="Enter PIN again" placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
+            <Button title={creatingUser ? "Saving..." : editingUser ? "Save User" : "Create User"} onPress={handleSaveUser} loading={creatingUser} icon={editingUser ? "checkmark-circle-outline" : "person-add-outline"} style={styles.createUserSubmit} />
+          </View>
+        </View>
+      </Modal>
+
       {/* Currency Picker Modal */}
       <Modal visible={showCurrencyPicker} transparent animationType="fade">
         <TouchableOpacity
@@ -1219,6 +1455,149 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6b7b8d",
     marginBottom: 16,
+  },
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  sectionHeadingCopy: {
+    flex: 1,
+  },
+  addUserButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  addUserButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  linkUserButton: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  linkUserButtonActive: {
+    backgroundColor: "#17386b",
+    borderColor: "#17386b",
+  },
+  linkUserButtonText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  linkUserButtonTextActive: {
+    color: "#ffffff",
+  },
+  autoLockHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  autoLockEditor: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+  },
+  autoLockInput: {
+    width: 90,
+    minHeight: 40,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  autoLockUnits: {
+    minHeight: 40,
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 7,
+    overflow: "hidden",
+  },
+  autoLockUnit: {
+    minWidth: 76,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  autoLockUnitSelected: {
+    backgroundColor: "#17386b",
+  },
+  autoLockUnitText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  autoLockApply: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  autoLockApplyText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  autoLockStatus: {
+    fontSize: 11,
+    marginTop: 10,
+  },
+  createUserModal: {
+    width: "90%",
+    maxWidth: 440,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 20,
+  },
+  createUserHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  createUserHelp: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  modalCloseButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createUserLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  createUserInput: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    marginBottom: 13,
+    fontSize: 13,
+  },
+  createUserSubmit: {
+    marginTop: 5,
   },
   field: {
     flexDirection: "row",
@@ -1350,6 +1729,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#166534",
+  },
+  userActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  userActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterRow: {
     marginBottom: 12,

@@ -120,6 +120,7 @@ export interface SaleFilter {
   status?: string;
   paymentMethod?: string;
   cashierId?: string;
+  cashierIds?: string[];
   shiftId?: string;
   startDate?: string;
   endDate?: string;

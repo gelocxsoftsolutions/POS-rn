@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Directory, File, Paths } from "expo-file-system";
 import { Card } from "@/components/ui/card";
 import { CashierService } from "@/lib/services/cashier.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
@@ -14,9 +15,31 @@ export default function UserScreen() {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | null>(session?.photoUri ?? null);
+  const [pickingPhoto, setPickingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => setName(session?.cashierName ?? ""), [session?.cashierName]);
+  useEffect(() => setPhotoUri(session?.photoUri ?? null), [session?.photoUri]);
+
+  const handleChoosePhoto = async () => {
+    setPickingPhoto(true);
+    try {
+      const selection = await File.pickFileAsync({ mimeTypes: "image/*" });
+      if (selection.canceled) return;
+
+      const directory = new Directory(Paths.document, "profile-photos");
+      directory.create({ intermediates: true, idempotent: true });
+      const extension = selection.result.extension || ".jpg";
+      const destination = new File(directory, `${session?.cashierId || "user"}-${Date.now()}${extension}`);
+      await selection.result.copy(destination, { overwrite: true });
+      setPhotoUri(destination.uri);
+    } catch (error: any) {
+      Alert.alert("Profile photo", error?.message ?? "Unable to select that image.");
+    } finally {
+      setPickingPhoto(false);
+    }
+  };
 
   const handleSave = async () => {
     const displayName = name.trim();
@@ -35,10 +58,10 @@ export default function UserScreen() {
 
     setSaving(true);
     try {
-      await CashierService.updateProfile(session.cashierId, displayName, pin || undefined);
+      await CashierService.updateProfile(session.cashierId, displayName, pin || undefined, photoUri);
       setPin("");
       setConfirmPin("");
-      Alert.alert("Profile updated", "Your name and login details have been saved.");
+      Alert.alert("Profile updated", "Your photo, name, and login details have been saved.");
     } catch (error: any) {
       Alert.alert("Profile", error?.message ?? "Unable to update your profile.");
     } finally {
@@ -59,18 +82,33 @@ export default function UserScreen() {
         </TouchableOpacity>
         <View>
           <Text style={[styles.title, { color: text }]}>Your Profile</Text>
-          <Text style={[styles.subtitle, { color: muted }]}>Manage your display name and login PIN</Text>
+          <Text style={[styles.subtitle, { color: muted }]}>Manage your photo, display name, and login PIN</Text>
         </View>
       </View>
 
       <Card style={[styles.profileCard, { backgroundColor: surface, borderColor: border }]}>
         <View style={styles.identityRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(session?.cashierName || "U").slice(0, 2).toUpperCase()}</Text>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>{(session?.cashierName || "U").slice(0, 2).toUpperCase()}</Text>
+            )}
           </View>
-          <View>
+          <View style={styles.identityInfo}>
             <Text style={[styles.identityName, { color: text }]}>{session?.cashierName || "User"}</Text>
             <Text style={[styles.identityRole, { color: muted }]}>{session?.cashierRole || "Cashier"}</Text>
+            <View style={styles.photoActions}>
+              <TouchableOpacity style={[styles.photoButton, { borderColor: border }]} onPress={handleChoosePhoto} disabled={pickingPhoto}>
+                {pickingPhoto ? <ActivityIndicator size="small" color={text} /> : <Ionicons name="image-outline" size={16} color={text} />}
+                <Text style={[styles.photoButtonText, { color: text }]}>Change photo</Text>
+              </TouchableOpacity>
+              {photoUri ? (
+                <TouchableOpacity style={styles.removePhotoButton} onPress={() => setPhotoUri(null)} accessibilityLabel="Remove profile photo">
+                  <Ionicons name="trash-outline" size={17} color="#dc3545" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
         </View>
 
@@ -101,9 +139,15 @@ const styles = StyleSheet.create({
   profileCard: { width: "100%", maxWidth: 620, padding: 22, borderWidth: 1, borderRadius: 8, shadowOpacity: 0.03, elevation: 1 },
   identityRow: { flexDirection: "row", alignItems: "center", marginBottom: 24 },
   avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#17386b", alignItems: "center", justifyContent: "center", marginRight: 12 },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 26 },
   avatarText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
+  identityInfo: { flex: 1 },
   identityName: { fontSize: 17, fontWeight: "700" },
   identityRole: { fontSize: 12, marginTop: 2 },
+  photoActions: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  photoButton: { minHeight: 34, paddingHorizontal: 11, borderWidth: 1, borderRadius: 7, flexDirection: "row", alignItems: "center", gap: 7 },
+  photoButtonText: { fontSize: 12, fontWeight: "700" },
+  removePhotoButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   label: { fontSize: 12, fontWeight: "700", marginBottom: 7 },
   sectionLabel: { fontSize: 14, fontWeight: "700" },
   helpText: { fontSize: 11, marginTop: 4, marginBottom: 12 },

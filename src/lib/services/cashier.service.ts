@@ -37,6 +37,7 @@ export const CashierService = {
         sessionId: session.id,
         cashierId: cashier.id,
         cashierName: cashier.displayName,
+        photoUri: cashier.photoUri,
         cashierRole: "",
         roleId: cashier.roleId ?? "",
         loginTime: session.loginTime,
@@ -49,6 +50,7 @@ export const CashierService = {
         name: cashier.displayName,
         pin,
         role: "",
+        avatarUrl: cashier.photoUri ?? undefined,
       });
 
       return {
@@ -94,6 +96,7 @@ export const CashierService = {
         sessionId: session.id,
         cashierId: cashier.id,
         cashierName: cashier.displayName,
+        photoUri: cashier.photoUri,
         cashierRole: "",
         roleId: cashier.roleId ?? "",
         loginTime: session.loginTime,
@@ -106,6 +109,7 @@ export const CashierService = {
         name: cashier.displayName,
         pin: "",
         role: "",
+        avatarUrl: cashier.photoUri ?? undefined,
       });
 
       return {
@@ -156,21 +160,82 @@ export const CashierService = {
     return useCashierStore.getState().session;
   },
 
-  async updateProfile(cashierId: string, displayName: string, pin?: string) {
-    const updates: { displayName: string; pinHash?: string } = { displayName };
-    if (pin) updates.pinHash = sha256(pin);
+  async updateProfile(cashierId: string, displayName: string, pin?: string, photoUri?: string | null) {
+    const updates: { displayName: string; pinHash?: string; photoUri?: string | null } = { displayName };
+    if (pin) {
+      const pinHash = sha256(pin);
+      const duplicatePin = await CashierRepository.findByPinHash(pinHash);
+      if (duplicatePin && duplicatePin.id !== cashierId) throw new Error("That PIN is already assigned to another user.");
+      updates.pinHash = pinHash;
+    }
+    if (photoUri !== undefined) updates.photoUri = photoUri;
     const cashier = await CashierRepository.update(cashierId, updates);
     if (!cashier) throw new Error("Cashier profile not found");
 
     const currentSession = useCashierStore.getState().session;
     if (currentSession) {
-      useCashierStore.getState().setSession({ ...currentSession, cashierName: cashier.displayName });
+      useCashierStore.getState().setSession({ ...currentSession, cashierName: cashier.displayName, photoUri: cashier.photoUri });
     }
     const currentAuth = useAuthStore.getState().cashier;
     if (currentAuth) {
-      useAuthStore.getState().signIn({ ...currentAuth, name: cashier.displayName, pin: pin || currentAuth.pin });
+      useAuthStore.getState().signIn({ ...currentAuth, name: cashier.displayName, pin: pin || currentAuth.pin, avatarUrl: cashier.photoUri ?? undefined });
     }
     return cashier;
+  },
+
+  async createLocalUser(input: { displayName: string; username?: string; pin: string; roleId?: string }) {
+    const displayName = input.displayName.trim();
+    const username = input.username?.trim().toLowerCase();
+    if (!displayName) throw new Error("Enter a display name.");
+    if (!/^\d{6}$/.test(input.pin)) throw new Error("The PIN must contain exactly 6 numbers.");
+    if (await CashierRepository.findByPinHash(sha256(input.pin))) throw new Error("That PIN is already assigned to another user.");
+    if (username && await CashierRepository.findByUsername(username)) throw new Error("That username is already in use.");
+
+    return CashierRepository.create({
+      displayName,
+      username: username || undefined,
+      pinHash: sha256(input.pin),
+      roleId: input.roleId || undefined,
+    });
+  },
+
+  async updateManagedUser(cashierId: string, input: { displayName: string; username?: string; pin?: string }) {
+    const displayName = input.displayName.trim();
+    const username = input.username?.trim().toLowerCase() || null;
+    if (!displayName) throw new Error("Enter a display name.");
+    if (input.pin && !/^\d{6}$/.test(input.pin)) throw new Error("The PIN must contain exactly 6 numbers.");
+
+    if (input.pin) {
+      const duplicatePin = await CashierRepository.findByPinHash(sha256(input.pin));
+      if (duplicatePin && duplicatePin.id !== cashierId) throw new Error("That PIN is already assigned to another user.");
+    }
+    if (username) {
+      const duplicateUsername = await CashierRepository.findByUsername(username);
+      if (duplicateUsername && duplicateUsername.id !== cashierId) throw new Error("That username is already in use.");
+    }
+
+    const cashier = await CashierRepository.update(cashierId, {
+      displayName,
+      username,
+      pinHash: input.pin ? sha256(input.pin) : undefined,
+    });
+    if (!cashier) throw new Error("User not found.");
+    const currentSession = useCashierStore.getState().session;
+    if (currentSession?.cashierId === cashierId) {
+      useCashierStore.getState().setSession({ ...currentSession, cashierName: cashier.displayName });
+      const currentAuth = useAuthStore.getState().cashier;
+      if (currentAuth) useAuthStore.getState().signIn({ ...currentAuth, name: cashier.displayName, pin: input.pin || currentAuth.pin });
+    }
+    return cashier;
+  },
+
+  async deleteLocalUser(cashierId: string) {
+    const current = useCashierStore.getState().session;
+    if (current?.cashierId === cashierId) throw new Error("You cannot delete the account currently signed in.");
+    const cashier = await CashierRepository.findById(cashierId);
+    if (!cashier) throw new Error("User not found.");
+    await SessionRepository.deactivateByCashierId(cashierId);
+    await CashierRepository.update(cashierId, { active: false });
   },
 
   async getRolePermissions(roleId: string) {

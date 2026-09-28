@@ -37,6 +37,13 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
     // column already exists
   }
 
+  // Migration to v6: keep locally selected cashier profile photos.
+  try {
+    await database.execAsync("ALTER TABLE Cashier ADD COLUMN photoUri TEXT DEFAULT NULL");
+  } catch {
+    // column already exists
+  }
+
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
   await database.runAsync(

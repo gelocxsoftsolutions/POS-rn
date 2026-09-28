@@ -10,11 +10,13 @@ import type {
   SalesTrendPoint,
 } from "@/lib/types/reports";
 
-const completedRange = "s.status = 'COMPLETED' AND datetime(s.createdAt) >= datetime(?) AND datetime(s.createdAt) <= datetime(?)";
-
 export const ReportRepository = {
   async getSalesReport(range: ReportDateRange): Promise<SalesReport> {
-    const params = [range.startDate, range.endDate];
+    const cashierClause = range.cashierIds?.length
+      ? ` AND s.cashierId IN (${range.cashierIds.map(() => "?").join(", ")})`
+      : "";
+    const completedRange = `s.status = 'COMPLETED' AND datetime(s.createdAt) >= datetime(?) AND datetime(s.createdAt) <= datetime(?)${cashierClause}`;
+    const params = [range.startDate, range.endDate, ...(range.cashierIds ?? [])];
     const summary = await queryFirst<ReportSummary>(
       `SELECT
         COALESCE(SUM(s.total), 0) AS revenue,
@@ -57,6 +59,17 @@ export const ReportRepository = {
       params
     );
 
+    const itemSales = await query<ProductPerformance>(
+      `SELECT si.productId, COALESCE(NULLIF(si.productName, ''), 'Unknown product') AS productName,
+        si.sku, COALESCE(SUM(si.quantity), 0) AS quantity,
+        COALESCE(SUM(si.lineTotal), 0) AS revenue
+       FROM SaleItem si INNER JOIN Sale s ON s.id = si.saleId
+       WHERE ${completedRange}
+       GROUP BY si.productId, si.productName, si.sku
+       ORDER BY si.productName ASC, si.sku ASC`,
+      params
+    );
+
     const cashiers = await query<CashierPerformance>(
       `SELECT s.cashierId, COALESCE(NULLIF(s.cashierName, ''), 'Unknown cashier') AS cashierName,
         COUNT(*) AS transactions, COALESCE(SUM(s.total), 0) AS revenue,
@@ -78,6 +91,7 @@ export const ReportRepository = {
       trend,
       payments,
       topProducts,
+      itemSales,
       cashiers,
       sales,
     };
