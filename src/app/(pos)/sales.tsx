@@ -17,7 +17,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import { useAudioPlayer } from "expo-audio";
-import { File } from "expo-file-system";
 import QRCodeLib from "qrcode";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { Card } from "@/components/ui/card";
@@ -25,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BottomSheet } from "@/components/ui/modal";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useCartStore } from "@/lib/stores/cart-store";
@@ -39,6 +39,12 @@ import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
+import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
+import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
+import { createCode128Svg } from "@/lib/barcodes/code128";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 
 const GRID_COLUMNS = 5;
 const RECEIPT_WIDTH_MM = 58;
@@ -80,6 +86,11 @@ const toUniqueCartProducts = (items: ProductDTO[], stock: Map<string, number>): 
       quantity: 0,
       maxQuantity: stock.get(product.id) ?? 0,
       imageUrl: product.imageUrl ?? undefined,
+      productCode: product.productCode ?? null,
+      description: product.description ?? null,
+      weight: product.weight ?? null,
+      unitName: product.unitName ?? null,
+      categoryName: product.categoryName ?? null,
     });
   });
   return Array.from(uniqueProducts.values());
@@ -113,6 +124,7 @@ export default function SalesScreen() {
   const [quantityItem, setQuantityItem] = useState<PosCartItem | null>(null);
   const [quantityInput, setQuantityInput] = useState("");
   const replaceQuantityOnNextKey = React.useRef(false);
+  const [variationGroup, setVariationGroup] = useState<PosCartItem[] | null>(null);
 
   const cart = useCartStore();
   const cashier = useAuthStore((s) => s.cashier);
@@ -121,6 +133,7 @@ export default function SalesScreen() {
   const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
@@ -214,14 +227,34 @@ export default function SalesScreen() {
     );
   }, [products, search, sort]);
 
-  const productTotalPages = Math.max(1, Math.ceil(sortedProducts.length / productPageSize));
+  const groupedProducts = useMemo(() => {
+    const groups = new Map<string, PosCartItem[]>();
+    for (const p of sortedProducts) {
+      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
+      const arr = groups.get(key);
+      if (arr) arr.push(p);
+      else groups.set(key, [p]);
+    }
+    const grouped = Array.from(groups.values()).map((group) => {
+      group.sort((a, b) => a.name.localeCompare(b.name) || a.unitPrice - b.unitPrice);
+      return group;
+    });
+    grouped.sort((a, b) => a[0].name.localeCompare(b[0].name));
+    // Apply sort that is not name - for price/stock sort, sort groups by min/max of that
+    if (sort === "priceAsc") grouped.sort((a, b) => Math.min(...a.map((x) => x.unitPrice)) - Math.min(...b.map((x) => x.unitPrice)));
+    if (sort === "priceDesc") grouped.sort((a, b) => Math.max(...b.map((x) => x.unitPrice)) - Math.max(...a.map((x) => x.unitPrice)));
+    if (sort === "stockDesc") grouped.sort((a, b) => Math.max(...b.map((x) => x.maxQuantity ?? 0)) - Math.max(...a.map((x) => x.maxQuantity ?? 0)));
+    return grouped;
+  }, [sortedProducts, sort]);
+
+  const productTotalPages = Math.max(1, Math.ceil(groupedProducts.length / productPageSize));
   const productCardWidth = productSectionWidth > 0
     ? (productSectionWidth - (GRID_COLUMNS - 1) * 12) / GRID_COLUMNS
     : undefined;
   const productImageSize = Math.min(160, Math.max(72, (productCardWidth ?? 184) - 24));
-  const pagedProducts = useMemo(
-    () => sortedProducts.slice((productPage - 1) * productPageSize, productPage * productPageSize),
-    [sortedProducts, productPage, productPageSize]
+  const pagedGroups = useMemo(
+    () => groupedProducts.slice((productPage - 1) * productPageSize, productPage * productPageSize),
+    [groupedProducts, productPage, productPageSize]
   );
   const checkoutSubtotal = cart.total();
   const checkoutTaxRate = settings?.taxRate ?? 0.12;
@@ -313,6 +346,11 @@ export default function SalesScreen() {
           quantity: 0,
           maxQuantity: stockMap.get(product.id) ?? 0,
           imageUrl: product.imageUrl ?? undefined,
+          productCode: product.productCode ?? null,
+          description: product.description ?? null,
+          weight: product.weight ?? null,
+          unitName: product.unitName ?? null,
+          categoryName: product.categoryName ?? null,
         };
 
         if (handleAddToCart(item)) {
@@ -378,6 +416,8 @@ export default function SalesScreen() {
           barcode: i.barcode,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
+          unit: i.unitName ?? undefined,
+          weight: i.weight ?? null,
         })),
         paidAmount: paid,
         deviceId: device.deviceId ?? undefined,
@@ -385,7 +425,6 @@ export default function SalesScreen() {
       });
 
         if (result.success && result.sale) {
-        void playCheckoutSuccessSound();
         const receiptData = {
           receiptNumber: result.sale.receiptNumber,
           items: [...cart.items],
@@ -484,29 +523,63 @@ export default function SalesScreen() {
   const handlePrintReceipt = async () => {
     if (!lastReceipt || printing) return;
     setPrinting(true);
+    void playCheckoutSuccessSound();
 
     try {
-      const logoSource = Image.resolveAssetSource(require("../../../assets/thermal-printer-logo.jpg"));
-      let logoUri = Platform.OS === "web" ? logoSource.uri : "";
-      if (Platform.OS !== "web") {
-        try {
-          const logoBase64 = await new File(logoSource.uri).base64();
-          logoUri = `data:image/jpeg;base64,${logoBase64}`;
-        } catch {
-          logoUri = "";
+      const logoUri = await getPrintableAssetDataUri(
+        require("../../../assets/thermal-printer-logo.jpg"),
+        "image/jpeg"
+      );
+
+      if (Platform.OS === "android") {
+        if (!selectedPrinter) {
+          Alert.alert("Print Receipt", "Select a Bluetooth thermal printer in Settings first.");
+          return;
         }
+        const receiptText = formatEscPosReceipt(
+          {
+            receiptNumber: lastReceipt.receiptNumber,
+            date: lastReceipt.date,
+            customerName: lastReceipt.customerName,
+            cashierName: lastReceipt.cashierName,
+            items: lastReceipt.items.map((item: PosCartItem) => ({
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.quantity * item.unitPrice,
+            })),
+            subtotal: lastReceipt.subtotal,
+            discount: lastReceipt.discount ?? 0,
+            tax: lastReceipt.tax,
+            total: lastReceipt.total,
+            paidAmount: lastReceipt.paidAmount,
+            change: lastReceipt.change,
+            paymentMethod: lastReceipt.paymentMethod,
+          },
+          settings
+        );
+        await BluetoothPrinter.printReceipt(
+          selectedPrinter.address,
+          receiptText,
+          logoUri,
+          String(lastReceipt.receiptNumber),
+          serializeReceiptQrMatrix(String(lastReceipt.receiptNumber)),
+          true
+        );
+        return;
       }
 
       let qrSvg = "";
       try {
-        qrSvg = await QRCodeLib.toString(String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt"), { type: "svg", margin: 1, width: 160 });
+        qrSvg = await QRCodeLib.toString(String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt"), { type: "svg", margin: 1, width: 200, errorCorrectionLevel: "L" });
         // Ensure svg scales to container
-        qrSvg = qrSvg.replace('<svg ', '<svg style="width:28mm;height:28mm;display:block;margin:0 auto;" ');
+        qrSvg = qrSvg.replace('<svg ', '<svg style="width:42mm;height:42mm;display:block;margin:0 auto;" ');
       } catch {
         qrSvg = "";
       }
+      const receiptBarcodeSvg = createCode128Svg(String(lastReceipt.receiptNumber));
 
-      const receiptHeightMm = Math.max(150, 138 + lastReceipt.items.length * 11);
+      const receiptHeightMm = Math.max(218, 206 + lastReceipt.items.length * 11);
       const receiptHeightPoints = Math.round((receiptHeightMm / 25.4) * 72);
       const itemRows = lastReceipt.items.map((item: PosCartItem) => `
         <div class="item">
@@ -528,7 +601,7 @@ export default function SalesScreen() {
               html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
               body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
               .center { text-align: center; }
-              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 1.5mm; display: block; }
+              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 4mm; display: block; }
               h1 { font-size: 12pt; margin: 0 0 1mm; }
               .meta { font-size: 7.5pt; line-height: 1.35; margin: 0; }
               .receipt-number { margin-top: 2mm; font-weight: 700; }
@@ -539,9 +612,11 @@ export default function SalesScreen() {
               .item-copy span { font-size: 7.5pt; margin-top: 0.5mm; }
               .total { font-size: 11pt; font-weight: 700; margin-top: 2mm; }
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
+              .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
+              .barcode svg { width: 46mm; height: 14mm; display: block; }
+              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
-              .qr svg { width: 28mm; height: 28mm; }
-              .qr-caption { font-size: 6.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
+              .qr svg { width: 42mm; height: 42mm; }
             </style>
           </head>
           <body>
@@ -566,7 +641,8 @@ export default function SalesScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${lastReceipt.change.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${qrSvg ? `<div class="qr">${qrSvg}<div class="qr-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;
 
@@ -586,7 +662,7 @@ export default function SalesScreen() {
     } catch (error: any) {
       const message = error?.message?.toLowerCase().includes("cancel")
         ? "Printer selection was cancelled."
-        : "No thermal printer was selected or the print service is unavailable.";
+        : error?.message ?? "No thermal printer was selected or the print service is unavailable.";
       Alert.alert("Print Receipt", message);
     } finally {
       setPrinting(false);
@@ -621,7 +697,7 @@ export default function SalesScreen() {
           )}
         </View>
         <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
         <View style={styles.productFooter}>
           <Badge
             label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -665,7 +741,7 @@ export default function SalesScreen() {
         </View>
         <View style={styles.productListDetails}>
           <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={styles.productPrice}>₱{item.unitPrice.toFixed(2)}</Text>
+          <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
           <View style={styles.productFooter}>
             <Badge
               label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -674,6 +750,97 @@ export default function SalesScreen() {
             />
             {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
           </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const handleGroupPress = useCallback((group: PosCartItem[]) => {
+    if (group.length === 1) {
+      handleAddToCart(group[0]);
+    } else {
+      setVariationGroup(group);
+    }
+  }, [handleAddToCart]);
+
+  const renderGroup = ({ item: group }: { item: PosCartItem[] }) => {
+    const isMulti = group.length > 1;
+    const base = group[0];
+    const minPrice = Math.min(...group.map((g) => g.unitPrice));
+    const maxPrice = Math.max(...group.map((g) => g.unitPrice));
+    const totalStock = group.reduce((sum, g) => sum + (stockMap.get(g.productId) ?? g.maxQuantity), 0);
+    const effectiveTotal = group.reduce((sum, g) => sum + effectiveStock(g.productId, stockMap.get(g.productId) ?? g.maxQuantity), 0);
+    const cartCount = group.reduce((sum, g) => sum + (cart.items.find((i) => i.productId === g.productId)?.quantity ?? 0), 0);
+    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${base.unitPrice.toFixed(2)}`;
+
+    if (viewMode === "list") {
+      return (
+        <TouchableOpacity
+          style={[
+            styles.productCard,
+            styles.productCardList,
+            effectiveTotal <= 0 && styles.productCardDisabled,
+            { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+          ]}
+          onPress={() => handleGroupPress(group)}
+          activeOpacity={0.7}
+          disabled={effectiveTotal <= 0 && !isMulti}
+        >
+          <View style={[styles.productImage, styles.productImageList]}>
+            {base.imageUrl ? (
+              <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
+            ) : (
+              <Ionicons name="fish" size={30} color="#17386b" />
+            )}
+          </View>
+          <View style={styles.productListDetails}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{base.name}</Text>
+              {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" />}
+            </View>
+            {isMulti && (
+              <Text style={[styles.productVariationSubtext, { color: dark ? "#94a3b8" : "#6b7b8d" }]} numberOfLines={1}>
+                {group.map((g) => `${g.sku}${g.weight ? ` • ${g.weight}${g.unitName ?? ""}` : ""}`).join(" • ")}
+              </Text>
+            )}
+            <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+            <View style={styles.productFooter}>
+              <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
+              {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
+            </View>
+          </View>
+          {isMulti && <Ionicons name="chevron-forward" size={16} color="#8e99a4" style={{ marginLeft: 8 }} />}
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.productCard,
+          effectiveTotal <= 0 && styles.productCardDisabled,
+          { width: productCardWidth, backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+        ]}
+        onPress={() => handleGroupPress(group)}
+        activeOpacity={0.7}
+        disabled={effectiveTotal <= 0 && !isMulti}
+      >
+        <View style={[styles.productImage, { width: productImageSize, height: productImageSize }]}>
+          {base.imageUrl ? (
+            <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
+          ) : (
+            <Ionicons name="fish" size={32} color="#17386b" />
+          )}
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
+          <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c", flex: 1 }]} numberOfLines={1}>{base.name}</Text>
+          {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
+        </View>
+        {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ alignSelf: "flex-start", marginBottom: 4 }} />}
+        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+        <View style={styles.productFooter}>
+          <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
+          {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
         </View>
       </TouchableOpacity>
     );
@@ -724,8 +891,13 @@ export default function SalesScreen() {
                 </TouchableOpacity>
               )}
             </View>
+            <UsbBarcodeScannerInput
+              onScan={handleBarcodeScan}
+              dark={dark}
+              disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
+            />
             <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
-              <Ionicons name="scan" size={20} color="#ffffff" />
+              <Ionicons name="camera-outline" size={20} color="#ffffff" />
             </TouchableOpacity>
           </View>
 
@@ -765,9 +937,9 @@ export default function SalesScreen() {
             <FlatList
               key={`sales-products-${viewMode}`}
               style={styles.productGrid}
-              data={pagedProducts}
-              renderItem={viewMode === "grid" ? renderProduct : renderProductListItem}
-              keyExtractor={(item) => item.productId}
+              data={pagedGroups}
+              renderItem={renderGroup}
+              keyExtractor={(item: PosCartItem[]) => item[0].productId}
               numColumns={viewMode === "grid" ? GRID_COLUMNS : 1}
               columnWrapperStyle={viewMode === "grid" ? styles.productRow : undefined}
               contentContainerStyle={styles.productList}
@@ -822,6 +994,13 @@ export default function SalesScreen() {
                     </View>
                     <View style={styles.cartItemInfo}>
                       <Text style={[styles.cartItemName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
+                      {(item.sku || item.weight != null || item.unitName || item.description) && (
+                        <Text style={[styles.cartItemVariation, { color: dark ? "#94a3b8" : "#6b7b8d" }]} numberOfLines={1}>
+                          {item.sku ? `${item.sku}` : ""}
+                          {item.weight != null ? ` • ${item.weight}${item.unitName ?? ""}` : item.unitName ? ` • ${item.unitName}` : ""}
+                          {item.description ? ` • ${item.description}` : ""}
+                        </Text>
+                      )}
                       <Text style={[styles.cartItemPrice, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>₱{item.unitPrice.toFixed(2)}</Text>
                     </View>
                     <View style={styles.cartItemActions}>
@@ -845,7 +1024,7 @@ export default function SalesScreen() {
                         <Ionicons name="add" size={14} color="#17386b" />
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.cartItemTotal}>
+                    <Text style={[styles.cartItemTotal, { color: dark ? "#ffffff" : "#17386b" }]}>
                       ₱{(item.unitPrice * item.quantity).toFixed(2)}
                     </Text>
                     <TouchableOpacity
@@ -870,7 +1049,7 @@ export default function SalesScreen() {
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={[styles.totalLabel, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Total</Text>
-                <Text style={styles.totalValue}>₱{checkoutTotalAmount.toFixed(2)}</Text>
+                <Text style={[styles.totalValue, { color: dark ? "#ffffff" : "#17386b" }]}>₱{checkoutTotalAmount.toFixed(2)}</Text>
               </View>
             </View>
 
@@ -921,6 +1100,63 @@ export default function SalesScreen() {
               <Ionicons name="checkmark" size={20} color="#ffffff" />
               <Text style={styles.quantityApplyText}>Apply quantity</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
+        <View style={styles.variationModalOverlay}>
+          <View style={[styles.variationModal, { backgroundColor: dark ? "#141922" : "#ffffff" }]}>
+            <View style={styles.variationModalHeader}>
+              <View style={styles.variationModalHeading}>
+                <Text style={[styles.variationModalTitle, { color: dark ? "#f8fafc" : "#17202b" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
+                <Text style={[styles.variationModalSubtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{variationGroup?.length} variations</Text>
+              </View>
+              <TouchableOpacity style={styles.variationCloseBtn} onPress={() => setVariationGroup(null)}>
+                <Ionicons name="close" size={20} color={dark ? "#cbd5e1" : "#475569"} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.variationList} showsVerticalScrollIndicator={false}>
+              {variationGroup?.map((variant) => {
+                const stock = stockMap.get(variant.productId) ?? variant.maxQuantity;
+                const effective = effectiveStock(variant.productId, stock);
+                const inCart = cart.items.find((i) => i.productId === variant.productId);
+                return (
+                  <TouchableOpacity
+                    key={variant.productId}
+                    style={[styles.variationRow, { backgroundColor: dark ? "#0f1729" : "#f8fafc", borderColor: dark ? "#1e293b" : "#e2e8f0" }, effective <= 0 && { opacity: 0.5 }]}
+                    onPress={() => {
+                      if (effective <= 0) return;
+                      handleAddToCart(variant);
+                      setVariationGroup(null);
+                    }}
+                    disabled={effective <= 0}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.variationImageWrap}>
+                      {variant.imageUrl ? (
+                        <Image source={{ uri: variant.imageUrl }} style={styles.variationImage} resizeMode="contain" />
+                      ) : (
+                        <Ionicons name="fish" size={24} color="#17386b" />
+                      )}
+                    </View>
+                    <View style={styles.variationInfo}>
+                      <Text style={[styles.variationName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>
+                        {variant.sku}
+                        {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
+                        {variant.description ? ` • ${variant.description}` : ""}
+                      </Text>
+                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{variant.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.variationStock, { color: effective > 0 ? "#16a34a" : "#dc2626" }]}>Stock: {effective}</Text>
+                    </View>
+                    <View style={styles.variationAdd}>
+                      <Ionicons name="add-circle" size={28} color={effective > 0 ? "#17386b" : "#9ca3af"} />
+                      {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1063,10 +1299,14 @@ export default function SalesScreen() {
                 date: lastReceipt.date,
                 customerName: lastReceipt.customerName,
                 cashierName: lastReceipt.cashierName,
-                items: lastReceipt.items.map((i) => ({
+                items: lastReceipt.items.map((i: any) => ({
                   name: i.name,
                   quantity: i.quantity,
                   unitPrice: i.unitPrice,
+                  sku: i.sku,
+                  weight: i.weight,
+                  unitName: i.unitName,
+                  description: i.description,
                 })),
                 subtotal: lastReceipt.subtotal,
                 tax: lastReceipt.tax,
@@ -1380,6 +1620,11 @@ const styles = StyleSheet.create({
   },
   cartItemPrice: {
     fontSize: 11,
+    color: "#6b7b8d",
+    marginTop: 2,
+  },
+  cartItemVariation: {
+    fontSize: 10,
     color: "#6b7b8d",
     marginTop: 2,
   },
@@ -1975,5 +2220,91 @@ const styles = StyleSheet.create({
   receiptDoneButton: {
     width: "100%",
     marginTop: 8,
+  },
+  productVariationSubtext: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  variationModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
+  },
+  variationModal: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "80%",
+    borderRadius: 12,
+    padding: 16,
+  },
+  variationModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  variationModalHeading: {
+    flex: 1,
+    marginRight: 12,
+  },
+  variationModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  variationModalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  variationCloseBtn: {
+    padding: 4,
+  },
+  variationList: {
+    marginTop: 12,
+    maxHeight: 400,
+  },
+  variationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 12,
+  },
+  variationImageWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: "#f0f4ff",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  variationImage: {
+    width: "100%",
+    height: "100%",
+  },
+  variationInfo: {
+    flex: 1,
+  },
+  variationName: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  variationPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#17386b",
+    marginTop: 2,
+  },
+  variationStock: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  variationAdd: {
+    alignItems: "center",
+    gap: 4,
   },
 });

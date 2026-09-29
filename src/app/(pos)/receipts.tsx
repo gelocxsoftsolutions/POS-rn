@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
-  Image,
   FlatList,
   TextInput,
   TouchableOpacity,
@@ -15,7 +14,6 @@ import {
   ScrollView,
 } from "react-native";
 import * as Print from "expo-print";
-import { File } from "expo-file-system";
 import QRCodeLib from "qrcode";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
@@ -28,7 +26,15 @@ import type { SaleDTO } from "@/lib/types/sales";
 import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { usePrinterStore } from "@/lib/stores/printer-store";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
+import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
+import { createCode128Svg } from "@/lib/barcodes/code128";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
@@ -56,6 +62,8 @@ export default function ReceiptsScreen() {
   const dark = useIsDarkTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
+  const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
 
   const loadReceipts = useCallback(async () => {
     try {
@@ -64,7 +72,7 @@ export default function ReceiptsScreen() {
     } catch {
       // keep empty
     }
-  }, []);
+  }, [salesGroupCashierIds]);
 
   const loadReceiptSettings = useCallback(async () => {
     const settings = await SettingsService.get();
@@ -103,26 +111,59 @@ export default function ReceiptsScreen() {
     if (!selected || printing) return;
     setPrinting(true);
     try {
-      const logoSource = Image.resolveAssetSource(require("../../../assets/thermal-printer-logo.jpg"));
-      let logoUri = Platform.OS === "web" ? logoSource.uri : "";
-      if (Platform.OS !== "web") {
-        try {
-          const logoBase64 = await new File(logoSource.uri).base64();
-          logoUri = `data:image/jpeg;base64,${logoBase64}`;
-        } catch {
-          logoUri = "";
+      const logoUri = await getPrintableAssetDataUri(
+        require("../../../assets/thermal-printer-logo.jpg"),
+        "image/jpeg"
+      );
+
+      if (Platform.OS === "android") {
+        if (!selectedPrinter) {
+          Alert.alert("Print Receipt", "Select a Bluetooth thermal printer in Settings first.");
+          return;
         }
+        const receiptText = formatEscPosReceipt(
+          {
+            receiptNumber: selected.receiptNumber,
+            date: selected.createdAt,
+            customerName: selected.customerName,
+            cashierName: selected.cashierName,
+            items: (selected.items ?? []).map((item) => ({
+              name: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.lineTotal,
+            })),
+            subtotal: selected.subtotal,
+            discount: selected.discount,
+            tax: selected.tax,
+            total: selected.total,
+            paidAmount: selected.paidAmount,
+            change: selected.changeAmount,
+            paymentMethod: selected.paymentMethod,
+          },
+          receiptSettings
+        );
+        await BluetoothPrinter.printReceipt(
+          selectedPrinter.address,
+          receiptText,
+          logoUri,
+          selected.receiptNumber,
+          serializeReceiptQrMatrix(selected.receiptNumber),
+          false
+        );
+        return;
       }
 
       let qrSvg = "";
       try {
-        qrSvg = await QRCodeLib.toString(String(selected.receiptNumber), { type: "svg", margin: 1, width: 160 });
-        qrSvg = qrSvg.replace('<svg ', '<svg style="width:28mm;height:28mm;display:block;margin:0 auto;" ');
+        qrSvg = await QRCodeLib.toString(String(selected.receiptNumber), { type: "svg", margin: 1, width: 200, errorCorrectionLevel: "L" });
+        qrSvg = qrSvg.replace('<svg ', '<svg style="width:42mm;height:42mm;display:block;margin:0 auto;" ');
       } catch {
         qrSvg = "";
       }
+      const receiptBarcodeSvg = createCode128Svg(selected.receiptNumber);
 
-      const receiptHeightMm = Math.max(150, 138 + (selected.items?.length ?? 0) * 11);
+      const receiptHeightMm = Math.max(218, 206 + (selected.items?.length ?? 0) * 11);
       const receiptHeightPoints = Math.round((receiptHeightMm / 25.4) * 72);
       const itemRows = (selected.items ?? [])
         .map(
@@ -148,7 +189,7 @@ export default function ReceiptsScreen() {
               html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
               body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
               .center { text-align: center; }
-              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 1.5mm; display: block; }
+              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 4mm; display: block; }
               h1 { font-size: 12pt; margin: 0 0 1mm; }
               .meta { font-size: 7.5pt; line-height: 1.35; margin: 0; }
               .receipt-number { margin-top: 2mm; font-weight: 700; }
@@ -159,9 +200,11 @@ export default function ReceiptsScreen() {
               .item-copy span { font-size: 7.5pt; margin-top: 0.5mm; }
               .total { font-size: 11pt; font-weight: 700; margin-top: 2mm; }
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
+              .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
+              .barcode svg { width: 46mm; height: 14mm; display: block; }
+              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
-              .qr svg { width: 28mm; height: 28mm; }
-              .qr-caption { font-size: 6.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
+              .qr svg { width: 42mm; height: 42mm; }
             </style>
           </head>
           <body>
@@ -187,7 +230,8 @@ export default function ReceiptsScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(receiptSettings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${qrSvg ? `<div class="qr">${qrSvg}<div class="qr-caption">${escapeHtml(selected.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(selected.receiptNumber)}</div></div>` : ""}
+            ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;
 
@@ -207,21 +251,21 @@ export default function ReceiptsScreen() {
     } catch (error: any) {
       const message = error?.message?.toLowerCase().includes("cancel")
         ? "Printer selection was cancelled."
-        : "No thermal printer was selected or the print service is unavailable.";
+        : error?.message ?? "No thermal printer was selected or the print service is unavailable.";
       Alert.alert("Print Receipt", message);
     } finally {
       setPrinting(false);
     }
-  }, [selected, receiptSettings, printing]);
+  }, [selected, receiptSettings, printing, selectedPrinter]);
 
   const handleScanReceipt = useCallback(
-    (barcode: string) => {
+    async (barcode: string) => {
       const trimmed = barcode.trim();
-      // Try exact match on receiptNumber, otherwise fallback to contains search
-      const found =
+      let found =
         receipts.find((r) => r.receiptNumber === trimmed) ??
         receipts.find((r) => r.receiptNumber.toLowerCase().includes(trimmed.toLowerCase())) ??
         receipts.find((r) => r.id === trimmed);
+      if (!found) found = await SaleService.getByReceiptNumber(trimmed) ?? undefined;
       if (found) {
         setSelected(found);
         setPrintPreviewVisible(true);
@@ -263,13 +307,23 @@ export default function ReceiptsScreen() {
             <Ionicons name="receipt-outline" size={19} color={dark ? "#8fb4e8" : "#17386b"} />
           </View>
           <View style={styles.receiptInfo}>
-            <Text style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{item.receiptNumber}</Text>
+            <Text
+              style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+              numberOfLines={1}
+            >
+              {item.receiptNumber}
+            </Text>
             <Text style={[styles.receiptDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
           </View>
           <View style={styles.receiptRight}>
             <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
-            <Badge label={paymentMethodLabel(item.paymentMethod)} color={methodColor(item.paymentMethod)} size="sm" />
+            <Badge
+              label={paymentMethodLabel(item.paymentMethod)}
+              color={methodColor(item.paymentMethod)}
+              size="sm"
+              style={styles.receiptPaymentBadge}
+            />
           </View>
         </View>
       </Card>
@@ -311,7 +365,12 @@ export default function ReceiptsScreen() {
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan receipt QR">
+        <UsbBarcodeScannerInput
+          onScan={handleScanReceipt}
+          dark={dark}
+          disabled={scannerVisible || printPreviewVisible || printing}
+        />
+        <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan receipt barcode or QR code">
           <Ionicons name="scan" size={20} color="#ffffff" />
         </TouchableOpacity>
       </View>
@@ -485,6 +544,8 @@ const styles = StyleSheet.create({
   },
   receiptInfo: {
     flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
   },
   receiptIcon: {
     width: 38,
@@ -510,8 +571,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   receiptRight: {
+    width: 132,
+    flexShrink: 0,
     alignItems: "flex-end",
     gap: 4,
+  },
+  receiptPaymentBadge: {
+    alignSelf: "flex-end",
   },
   receiptTotal: {
     fontSize: 16,

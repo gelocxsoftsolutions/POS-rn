@@ -1,6 +1,7 @@
 export interface ReportDateRange {
   startDate: string;
   endDate: string;
+  cashierIds?: string[];
 }
 
 export interface ReportSummary {
@@ -59,6 +60,7 @@ export interface SalesReport {
   trend: SalesTrendPoint[];
   payments: PaymentBreakdown[];
   topProducts: ProductPerformance[];
+  itemSales: ProductPerformance[];
   cashiers: CashierPerformance[];
   sales: ReportSaleRow[];
 }

@@ -8,12 +8,14 @@ import { v4 as uuid } from "uuid";
 import { api } from "@/lib/api/http";
 import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
 import type { SaleDTO } from "@/lib/types/sales";
+import { useCashierStore } from "@/lib/stores/cashier-store";
+import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 
 async function resolveSalePayload(
   input: SaleInput,
   saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
   total: number,
-  saleId: string
+  receiptNumber: string
 ) {
   const mappedItems: Array<{ variationId: number; qty: number }> = [];
   for (const item of saleItems) {
@@ -27,7 +29,7 @@ async function resolveSalePayload(
   }
   return {
     // Keep legacy fields for OMS compat, but canonical is variationId/qty
-    receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+    receiptNumber,
     cashierId: input.cashierId,
     cashierName: input.cashierName,
     cashierUserId: input.cashierId,
@@ -38,11 +40,18 @@ async function resolveSalePayload(
   };
 }
 
+function createReceiptNumber() {
+  const time = Date.now().toString(36).toUpperCase().slice(-7);
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, "0");
+  return `R${time}${random}`;
+}
+
 export const SaleService = {
   async create(input: SaleInput) {
     try {
       const saleId = uuid();
       const now = new Date().toISOString();
+      const receiptNumber = createReceiptNumber();
       const businessDate = now.split("T")[0];
 
       let subtotal = 0;
@@ -63,6 +72,7 @@ export const SaleService = {
           tax: 0,
           lineTotal,
           unit: item.unit,
+          weight: item.weight ?? null,
         };
       });
 
@@ -175,7 +185,7 @@ export const SaleService = {
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, 0, ?)`,
         [
           saleId,
-          `RCP-${now.replace(/[-:T]/g, "").substring(0, 14)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          receiptNumber,
           input.cashierId,
           input.cashierName,
           input.customerName ?? null,
@@ -197,8 +207,8 @@ export const SaleService = {
       for (const item of saleItems) {
         const itemId = uuid();
         await execute(
-          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO SaleItem (id, saleId, productId, productName, sku, barcode, quantity, unitPrice, discount, tax, lineTotal, unit, weight)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             itemId,
             saleId,
@@ -212,6 +222,7 @@ export const SaleService = {
             item.tax,
             item.lineTotal,
             item.unit ?? null,
+            (item as any).weight ?? null,
           ]
         );
 
@@ -250,7 +261,7 @@ export const SaleService = {
       const sale = await SaleRepository.findById(saleId);
 
       // Push to OMS synchronously to catch insufficient stock immediately
-      const pushResult = await this._pushToOms(saleId, input, saleItems, total);
+      const pushResult = await this._pushToOms(saleId, receiptNumber, input, saleItems, total);
 
       if (!pushResult.success) {
         const errMsg = String((pushResult as any).error ?? "");
@@ -292,11 +303,12 @@ export const SaleService = {
 
   async _pushToOms(
     saleId: string,
+    receiptNumber: string,
     input: SaleInput,
     saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
     total: number
   ): Promise<import("@/lib/services/oms-sync.service").SalePushResult> {
-    const payload = await resolveSalePayload(input, saleItems, total, saleId);
+    const payload = await resolveSalePayload(input, saleItems, total, receiptNumber);
     if (payload.items.length === 0) {
       // Nothing mappable to OMS (e.g. legacy mock SKUs like SHR-001) -> keep locally, mark synced to stop 400 loop
       console.warn("[Sale] No mappable OMS variations for sale", saleId, "- skipping OMS push (mock/unknown SKUs)");
@@ -370,7 +382,11 @@ export const SaleService = {
 
   async list(filters: SaleFilter): Promise<PaginatedResult<SaleDTO>> {
     try {
-      return await SaleRepository.findMany(filters);
+      const currentCashierId = useCashierStore.getState().session?.cashierId;
+      const cashierIds = filters.cashierId || filters.cashierIds
+        ? filters.cashierIds
+        : getVisibleCashierIds(currentCashierId);
+      return await SaleRepository.findMany({ ...filters, cashierIds });
     } catch {
       return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 };
     }
@@ -378,7 +394,9 @@ export const SaleService = {
 
   async getById(id: string): Promise<SaleDTO | null> {
     try {
-      return await SaleRepository.findById(id);
+      const sale = await SaleRepository.findById(id);
+      const visibleCashiers = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      return sale && visibleCashiers.includes(sale.cashierId) ? sale : null;
     } catch {
       return null;
     }
@@ -386,7 +404,9 @@ export const SaleService = {
 
   async getByReceiptNumber(receiptNumber: string): Promise<SaleDTO | null> {
     try {
-      return await SaleRepository.findByReceiptNumber(receiptNumber);
+      const sale = await SaleRepository.findByReceiptNumber(receiptNumber);
+      const visibleCashiers = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      return sale && visibleCashiers.includes(sale.cashierId) ? sale : null;
     } catch {
       return null;
     }
@@ -395,8 +415,9 @@ export const SaleService = {
   async summary() {
     try {
       const today = new Date().toISOString().split("T")[0];
-      const totalSales = await SaleRepository.sumTotalToday();
-      const transactionCount = await SaleRepository.countToday();
+      const cashierIds = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
+      const totalSales = await SaleRepository.sumTotalToday(cashierIds);
+      const transactionCount = await SaleRepository.countToday(cashierIds);
       return {
         date: today,
         totalSales,

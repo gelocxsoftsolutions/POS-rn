@@ -61,6 +61,11 @@ export interface PosCartItem {
   quantity: number;
   maxQuantity: number;
   imageUrl?: string;
+  productCode?: string | null;
+  description?: string | null;
+  weight?: number | null;
+  unitName?: string | null;
+  categoryName?: string | null;
 }
 
 export interface CheckoutPayload {

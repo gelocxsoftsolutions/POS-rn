@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import * as Print from "expo-print";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { File, Paths } from "expo-file-system";
@@ -17,17 +19,32 @@ import dayjs from "dayjs";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
+import { SettingsService } from "@/lib/services/settings.service";
 import type { SalesReport, SalesTrendPoint } from "@/lib/types/reports";
+import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
+import { EndOfDayReportModal } from "@/components/ui/end-of-day-report-modal";
+import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 
 type Preset = "today" | "7days" | "30days" | "custom";
 type DateTarget = "start" | "end" | null;
 
 const emptyReport: SalesReport = {
   summary: { revenue: 0, transactionCount: 0, averageBasket: 0, itemsSold: 0, tax: 0, discounts: 0 },
-  trend: [], payments: [], topProducts: [], cashiers: [], sales: [],
+  trend: [], payments: [], topProducts: [], itemSales: [], cashiers: [], sales: [],
 };
 
 const currency = (value: number) => `\u20B1${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const RECEIPT_WIDTH_MM = 58;
+const RECEIPT_WIDTH_POINTS = Math.round((RECEIPT_WIDTH_MM / 25.4) * 72);
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+const paymentLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
 function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean }) {
   const width = 760;
@@ -80,6 +97,10 @@ export default function ReportsScreen() {
   const [report, setReport] = useState<SalesReport>(emptyReport);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [eodVisible, setEodVisible] = useState(false);
+  const [printingEod, setPrintingEod] = useState(false);
+  const [settings, setSettings] = useState<StoreSettingsRow | null>(null);
+  const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
 
   const colors = useMemo(() => ({
     background: dark ? "#0b0f16" : "#f4f6f8",
@@ -113,9 +134,13 @@ export default function ReportsScreen() {
     });
     setReport(result);
     setLoading(false);
-  }, [startDate, endDate]);
+  }, [startDate, endDate, salesGroupCashierIds]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
+
+  useEffect(() => {
+    SettingsService.get().then(setSettings).catch(() => setSettings(null));
+  }, []);
 
   const chooseDate = (event: DateTimePickerEvent, selected?: Date) => {
     const target = dateTarget;
@@ -156,6 +181,84 @@ export default function ReportsScreen() {
     }
   };
 
+  const printEndOfDay = async () => {
+    if (!report.sales.length || printingEod) return;
+    setPrintingEod(true);
+    try {
+      const logoUri = await getPrintableAssetDataUri(
+        require("../../../assets/thermal-printer-logo.jpg"),
+        "image/jpeg"
+      );
+
+      const subtotal = report.sales.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0);
+      const sameDate = dayjs(startDate).isSame(endDate, "day");
+      const period = sameDate
+        ? dayjs(startDate).format("MMM D, YYYY")
+        : `${dayjs(startDate).format("MMM D, YYYY")} - ${dayjs(endDate).format("MMM D, YYYY")}`;
+      const paymentRows = report.payments.map((payment) => `
+        <div class="item"><div><strong>${escapeHtml(paymentLabel(payment.method))}</strong><small>${payment.transactions} transactions</small></div><strong>${currency(payment.amount)}</strong></div>
+      `).join("");
+      const itemRows = report.itemSales.map((item) => `
+        <div class="item"><div class="copy"><strong>${escapeHtml(item.productName)}</strong>${item.sku ? `<small>SKU: ${escapeHtml(item.sku)}</small>` : ""}<small>Qty: ${item.quantity}</small></div><strong>${currency(item.revenue)}</strong></div>
+      `).join("");
+      const cashierRows = report.cashiers.map((cashier) => `
+        <div class="item"><div class="copy"><strong>${escapeHtml(cashier.cashierName)}</strong><small>${cashier.transactions} transactions</small></div><strong>${currency(cashier.revenue)}</strong></div>
+      `).join("");
+      const rowCount = report.itemSales.length + report.payments.length + report.cashiers.length;
+      const reportHeightMm = Math.max(180, 160 + rowCount * 11);
+      const reportHeightPoints = Math.round((reportHeightMm / 25.4) * 72);
+      const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0" /><style>
+        @page { size: ${RECEIPT_WIDTH_MM}mm ${reportHeightMm}mm; margin: 0; }
+        * { box-sizing: border-box; } html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
+        body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; }
+        .center { text-align: center; } .logo { width: 23mm; height: 23mm; object-fit: contain; display: block; margin: 0 auto 1mm; }
+        h1 { font-size: 12pt; margin: 0 0 1mm; } h2 { font-size: 10pt; margin: 3mm 0 1mm; }
+        .meta { font-size: 7.2pt; line-height: 1.35; margin: 0; } .rule { border-top: .25mm dashed #000; margin: 2.5mm 0; }
+        .row, .item { display: flex; justify-content: space-between; align-items: flex-start; gap: 2mm; margin-bottom: 1.4mm; }
+        .copy { min-width: 0; flex: 1; } .item strong, .item small { display: block; overflow-wrap: anywhere; }
+        .item small { font-size: 7pt; margin-top: .3mm; } .total { font-size: 11pt; font-weight: 800; margin: 2mm 0; }
+        .section { border-top: .25mm solid #000; border-bottom: .25mm solid #000; padding: 1mm 0; margin: 3mm 0 2mm; text-align: center; font-size: 8pt; font-weight: 800; }
+        .footer { margin-top: 3mm; text-align: center; font-size: 7pt; font-style: italic; }
+      </style></head><body>
+        ${logoUri ? `<img class="logo" src="${logoUri}" />` : ""}
+        <div class="center"><h1>${escapeHtml(settings?.storeName || "NCT Seafoods")}</h1>
+        ${settings?.address ? `<p class="meta">${escapeHtml(settings.address)}</p>` : ""}
+        ${settings?.supportPhone ? `<p class="meta">${escapeHtml(settings.supportPhone)}</p>` : ""}
+        <h2>END OF DAY REPORT</h2><p class="meta">${escapeHtml(period)}</p><p class="meta">Generated: ${escapeHtml(new Date().toLocaleString("en-PH"))}</p></div>
+        <div class="rule"></div>
+        <div class="row"><span>Transactions</span><strong>${report.summary.transactionCount}</strong></div>
+        <div class="row"><span>Items sold</span><strong>${report.summary.itemsSold}</strong></div>
+        <div class="row"><span>Subtotal</span><strong>${currency(subtotal)}</strong></div>
+        ${report.summary.discounts > 0 ? `<div class="row"><span>Discounts</span><strong>-${currency(report.summary.discounts)}</strong></div>` : ""}
+        <div class="row"><span>Tax</span><strong>${currency(report.summary.tax)}</strong></div>
+        <div class="row total"><span>TOTAL SALES</span><span>${currency(report.summary.revenue)}</span></div>
+        <div class="row"><span>Average basket</span><strong>${currency(report.summary.averageBasket)}</strong></div>
+        <div class="section">PAYMENT SUMMARY</div>${paymentRows}
+        <div class="section">ITEMS SOLD</div>${itemRows}
+        <div class="section">CASHIER SUMMARY</div>${cashierRows}
+        <div class="rule"></div><p class="footer">Local completed sales from this POS device</p>
+      </body></html>`;
+
+      let printerUrl: string | undefined;
+      if (Platform.OS === "ios") {
+        const printer = await Print.selectPrinterAsync();
+        printerUrl = printer.url;
+      }
+      await Print.printAsync({
+        html,
+        printerUrl,
+        width: RECEIPT_WIDTH_POINTS,
+        height: reportHeightPoints,
+        margins: Platform.OS === "ios" ? { top: 0, right: 0, bottom: 0, left: 0 } : undefined,
+      });
+    } catch (error: any) {
+      const cancelled = error?.message?.toLowerCase().includes("cancel");
+      Alert.alert("Print EOD Report", cancelled ? "Printer selection was cancelled." : "No thermal printer was selected or the print service is unavailable.");
+    } finally {
+      setPrintingEod(false);
+    }
+  };
+
   const summaryCards = [
     { label: "Revenue", value: currency(report.summary.revenue), icon: "cash-outline", color: "#2563eb" },
     { label: "Transactions", value: report.summary.transactionCount.toLocaleString(), icon: "receipt-outline", color: "#16a34a" },
@@ -173,10 +276,24 @@ export default function ReportsScreen() {
           <Text style={[styles.title, { color: colors.text }]}>Sales Reports</Text>
           <Text style={[styles.subtitle, { color: colors.muted }]}>Performance from completed sales stored on this device</Text>
         </View>
-        <TouchableOpacity style={[styles.exportButton, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
-          {exporting ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="download-outline" size={18} color="#ffffff" />}
-          <Text style={styles.exportText}>Export CSV</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[
+              styles.printButton,
+              { backgroundColor: colors.panel, borderColor: dark ? "#8abaff" : "#17386b" },
+              !report.sales.length && styles.disabled,
+            ]}
+            onPress={() => setEodVisible(true)}
+            disabled={!report.sales.length || loading}
+          >
+            <Ionicons name="print-outline" size={18} color={dark ? "#8abaff" : "#17386b"} />
+            <Text style={[styles.printButtonText, { color: dark ? "#8abaff" : "#17386b" }]}>End of Day</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.exportButton, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
+            {exporting ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="download-outline" size={18} color="#ffffff" />}
+            <Text style={styles.exportText}>Export CSV</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.rangeRow}>
@@ -272,17 +389,30 @@ export default function ReportsScreen() {
           </View>
         </>
       )}
+      <EndOfDayReportModal
+        visible={eodVisible}
+        onClose={() => setEodVisible(false)}
+        onPrint={printEndOfDay}
+        printing={printingEod}
+        report={report}
+        settings={settings}
+        startDate={startDate}
+        endDate={endDate}
+      />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   page: { padding: 20, paddingBottom: 40, gap: 14 },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 },
+  headerActions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 },
   title: { fontSize: 26, fontWeight: "800" },
   subtitle: { fontSize: 13, marginTop: 3 },
   exportButton: { height: 42, paddingHorizontal: 16, borderRadius: 7, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   exportText: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  printButton: { height: 42, paddingHorizontal: 16, borderRadius: 7, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#17386b", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  printButtonText: { color: "#17386b", fontSize: 13, fontWeight: "700" },
   disabled: { opacity: 0.45 },
   rangeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
   presets: { flexDirection: "row", gap: 7 },

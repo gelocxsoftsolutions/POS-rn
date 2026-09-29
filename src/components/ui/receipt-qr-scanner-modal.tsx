@@ -28,10 +28,10 @@ export function ReceiptQrScannerModal({
   dark,
   onClose,
   onScan,
-  title = "Scan Receipt QR",
-  subtitle = "Scan receipt QR code",
-  description = "Point camera at the receipt QR to find it instantly.",
-  hintText = "Receipt QR is at the bottom of each receipt",
+  title = "Scan Receipt Code",
+  subtitle = "Scan receipt barcode or QR",
+  description = "Point the camera at either code to find the receipt instantly.",
+  hintText = "The barcode and QR are at the bottom of each receipt",
 }: Props) {
   const { width, height } = useWindowDimensions();
   const cameraSize = Math.max(160, Math.min(360, width - 48, height - 220));
@@ -78,7 +78,7 @@ export function ReceiptQrScannerModal({
             <Ionicons name="close" size={20} color={dark ? "#f8fafc" : "#17386b"} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Ionicons name="qr-code" size={18} color={dark ? "#60a5fa" : "#17386b"} />
+            <Ionicons name="scan" size={18} color={dark ? "#60a5fa" : "#17386b"} />
             <Text style={[styles.headerTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>{title}</Text>
           </View>
           <View style={styles.headerSpacer} />
@@ -100,7 +100,7 @@ export function ReceiptQrScannerModal({
               <CameraView
                 key={visible ? "receipt-qr-mounted" : "receipt-qr-unmounted"}
                 style={StyleSheet.absoluteFill}
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                barcodeScannerSettings={{ barcodeTypes: ["qr", "code128", "code39", "code93"] }}
                 onBarcodeScanned={scanning ? undefined : ({ data }: { data: string }) => handleScan(data)}
                 onMountError={(event) => console.warn("[Camera] receipt qr mount error", event)}
               />

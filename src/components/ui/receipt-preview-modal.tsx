@@ -7,13 +7,18 @@ import {
   Modal,
   StyleSheet,
 } from "react-native";
-import QRCode from "react-native-qrcode-svg";
 import { Button } from "@/components/ui/button";
+import { ReceiptQrCode } from "@/components/ui/receipt-qr-code";
+import { Code128Barcode } from "@/components/ui/code128-barcode";
 
 export type ReceiptPreviewItem = {
   name: string;
   quantity: number;
   unitPrice: number;
+  sku?: string;
+  weight?: number | null;
+  unitName?: string | null;
+  description?: string | null;
 };
 
 export type ReceiptPreviewData = {
@@ -85,6 +90,13 @@ export function ReceiptPreviewModal({
                 <View key={idx} style={styles.receiptItem}>
                   <View style={styles.receiptItemLeft}>
                     <Text style={styles.receiptItemName}>{item.name}</Text>
+                    {(item.sku || item.weight != null || item.unitName || item.description) && (
+                      <Text style={styles.receiptItemVariation} numberOfLines={1}>
+                        {item.sku ? item.sku : ""}
+                        {item.weight != null ? ` • ${item.weight}${item.unitName ?? ""}` : item.unitName ? ` • ${item.unitName}` : ""}
+                        {item.description ? ` • ${item.description}` : ""}
+                      </Text>
+                    )}
                     <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
                   </View>
                   <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
@@ -113,14 +125,17 @@ export function ReceiptPreviewModal({
               </View>
               <View style={styles.receiptDivider} />
               <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
+              <View style={styles.receiptBarcode}>
+                <Code128Barcode value={receipt.receiptNumber} height={58} />
+                <Text style={styles.receiptCodeCaption}>{receipt.receiptNumber}</Text>
+              </View>
               <View style={styles.receiptQR}>
-                <QRCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={140} />
-                <Text style={styles.receiptQRCaption}>{receipt.receiptNumber}</Text>
+                <ReceiptQrCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={176} />
               </View>
               <View style={styles.receiptActions}>
                 {onPrint && (
                   <Button
-                    title={printing ? "Finding Printer..." : "Print Receipt"}
+                    title={printing ? "Printing..." : "Print Receipt"}
                     onPress={onPrint}
                     icon="print-outline"
                     loading={printing}
@@ -166,7 +181,7 @@ const styles = StyleSheet.create({
   receiptLogo: {
     width: 104,
     height: 104,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   receiptStore: {
     fontSize: 18,
@@ -228,6 +243,11 @@ const styles = StyleSheet.create({
     color: "#6b7b8d",
     marginTop: 2,
   },
+  receiptItemVariation: {
+    fontSize: 10,
+    color: "#6b7b8d",
+    marginTop: 1,
+  },
   receiptItemPrice: {
     fontSize: 13,
     color: "#1a202c",
@@ -249,10 +269,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 20,
   },
-  receiptQRCaption: {
+  receiptBarcode: {
+    width: "100%",
+    marginTop: 20,
+    alignItems: "center",
+  },
+  receiptCodeCaption: {
     fontSize: 9,
     color: "#475569",
-    marginTop: 8,
+    marginTop: 5,
     letterSpacing: 0.5,
     textAlign: "center",
   },

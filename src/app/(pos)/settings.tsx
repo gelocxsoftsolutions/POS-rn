@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Switch,
+  Linking,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -24,6 +25,8 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
@@ -31,6 +34,10 @@ import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
+import {
+  BluetoothPrinter,
+  type BluetoothPrinterDevice,
+} from "@/lib/printers/bluetooth-printer";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
 
@@ -44,7 +51,6 @@ const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
 
 const AUDIT_FILTERS = ["ALL", "SALE_CREATED", "LOGIN_SUCCESS", "LOGIN_FAILED", "TRANSFER"] as const;
 const APPLICATION_SIZES = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
-
 function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onChange: (value: number) => void; dark: boolean }) {
   return (
     <View style={styles.sizeOptions}>
@@ -142,7 +148,7 @@ function SoundVolumeControl({
 interface CashierRow {
   id: string;
   displayName: string;
-  username: string;
+  username: string | null;
   roleName: string;
 }
 
@@ -190,6 +196,11 @@ export default function SettingsScreen() {
     setFeedbackSoundVolume,
   } = useUiStore();
   const dark = useIsDarkTheme();
+  const autoLockMinutes = useAccessSettingsStore((state) => state.autoLockMinutes);
+  const setAutoLockMinutes = useAccessSettingsStore((state) => state.setAutoLockMinutes);
+  const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const toggleCashierLink = useAccessSettingsStore((state) => state.toggleCashierLink);
+  const removeCashierFromGroup = useAccessSettingsStore((state) => state.removeCashierFromGroup);
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
   const [settingsSearch, setSettingsSearch] = useState("");
@@ -211,8 +222,22 @@ export default function SettingsScreen() {
   const setLiveStatus = useOmsConnectionStore((state) => state.setStatus);
   const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const setSelectedPrinter = usePrinterStore((state) => state.setSelectedPrinter);
+  const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
+  const [connectedPrinterId, setConnectedPrinterId] = useState<string | null>(null);
+  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "disconnect" | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [editingUser, setEditingUser] = useState<CashierRow | null>(null);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newUserPin, setNewUserPin] = useState("");
+  const [newUserPinConfirm, setNewUserPinConfirm] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
+  const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditFilter, setAuditFilter] = useState<string>("ALL");
 
@@ -313,6 +338,22 @@ export default function SettingsScreen() {
     loadUsers();
     loadAuditLogs();
   }, [loadOmsSettings, loadUsers, loadAuditLogs]));
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    if (!selectedPrinter) {
+      setConnectedPrinterId(null);
+      return () => { active = false; };
+    }
+    BluetoothPrinter.isConnected(selectedPrinter.address)
+      .then((connected) => {
+        if (active) setConnectedPrinterId(connected ? selectedPrinter.id : null);
+      })
+      .catch(() => {
+        if (active) setConnectedPrinterId(null);
+      });
+    return () => { active = false; };
+  }, [selectedPrinter]));
 
   const handleSaveSettings = async () => {
     const nextTaxRatePercent = Number(taxRatePercent);
@@ -534,6 +575,173 @@ export default function SettingsScreen() {
     );
   };
 
+  const loadPairedPrinters = async () => {
+    setPrinterAction("refresh");
+    try {
+      const devices = await BluetoothPrinter.getPairedDevices();
+      setPairedPrinters(devices);
+      const connected = devices.find((item) => item.connected);
+      setConnectedPrinterId(connected?.id ?? null);
+      if (devices.length === 0) {
+        Alert.alert(
+          "No Paired Printers",
+          "Pair the JK-5802H in Android Bluetooth settings, then refresh this list."
+        );
+      }
+    } catch (error: any) {
+      Alert.alert("Bluetooth Printer", error?.message ?? "Unable to load paired devices.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handleConnectPrinter = async () => {
+    if (!selectedPrinter) {
+      Alert.alert("Bluetooth Printer", "Select the JK-5802H from the paired devices first.");
+      return;
+    }
+    setPrinterAction("connect");
+    try {
+      await BluetoothPrinter.connect(selectedPrinter.address);
+      setConnectedPrinterId(selectedPrinter.id);
+      Alert.alert("Printer Connected", `${selectedPrinter.name} is ready for ESC/POS printing.`);
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert("Connection Failed", error?.message ?? "Unable to connect to the printer.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handleDisconnectPrinter = async () => {
+    setPrinterAction("disconnect");
+    try {
+      await BluetoothPrinter.disconnect();
+      setConnectedPrinterId(null);
+    } catch (error: any) {
+      Alert.alert("Bluetooth Printer", error?.message ?? "Unable to disconnect the printer.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handlePrinterTest = async () => {
+    setPrinterAction("test");
+    try {
+      await BluetoothPrinter.printTest();
+      Alert.alert("Test Sent", "A short 58mm test slip was sent to the printer.");
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert("Test Print Failed", error?.message ?? "Unable to print the test slip.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const resetUserForm = () => {
+    setNewUserName("");
+    setNewUsername("");
+    setNewUserPin("");
+    setNewUserPinConfirm("");
+    setEditingUser(null);
+  };
+
+  const openCreateUser = () => {
+    resetUserForm();
+    setShowCreateUser(true);
+  };
+
+  const openEditUser = (user: CashierRow) => {
+    setEditingUser(user);
+    setNewUserName(user.displayName);
+    setNewUsername(user.username ?? "");
+    setNewUserPin("");
+    setNewUserPinConfirm("");
+    setShowCreateUser(true);
+  };
+
+  const closeUserModal = () => {
+    setShowCreateUser(false);
+    resetUserForm();
+  };
+
+  const handleSaveUser = async () => {
+    if (newUserPin !== newUserPinConfirm) {
+      Alert.alert(editingUser ? "Edit User" : "Create User", "The PIN confirmation does not match.");
+      return;
+    }
+    if (!editingUser && !newUserPin) {
+      Alert.alert("Create User", "Enter a 6-digit PIN for the new user.");
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      if (editingUser) {
+        await CashierService.updateManagedUser(editingUser.id, {
+          displayName: newUserName,
+          username: newUsername,
+          pin: newUserPin || undefined,
+        });
+      } else {
+        await CashierService.createLocalUser({
+          displayName: newUserName,
+          username: newUsername,
+          pin: newUserPin,
+          roleId: session?.roleId,
+        });
+      }
+      const wasEditing = Boolean(editingUser);
+      closeUserModal();
+      await loadUsers();
+      Alert.alert(wasEditing ? "User Updated" : "User Created", wasEditing ? "The user's details have been saved." : "The new user can now sign in with their PIN.");
+    } catch (error: any) {
+      Alert.alert(editingUser ? "Edit User" : "Create User", error?.message ?? "Unable to save the user.");
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleDeleteUser = (user: CashierRow) => {
+    if (user.id === session?.cashierId) {
+      Alert.alert("Delete User", "You cannot delete the account currently signed in.");
+      return;
+    }
+    Alert.alert(
+      "Delete User",
+      `Delete ${user.displayName}'s login from this device? Existing receipts and sales will be kept.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await CashierService.deleteLocalUser(user.id);
+              removeCashierFromGroup(user.id);
+              await loadUsers();
+            } catch (error: any) {
+              Alert.alert("Delete User", error?.message ?? "Unable to delete the user.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const applyAutoLock = () => {
+    const amount = Number(autoLockValue);
+    if (!Number.isInteger(amount) || amount < 1) {
+      Alert.alert("Auto Lock", "Enter a whole number greater than zero.");
+      return;
+    }
+    const minutes = autoLockUnit === "hours" ? amount * 60 : amount;
+    if (minutes > 10080) {
+      Alert.alert("Auto Lock", "Choose a timeout no longer than 7 days.");
+      return;
+    }
+    setAutoLockMinutes(minutes);
+  };
+
   const filteredAuditLogs =
     auditFilter === "ALL"
       ? auditLogs
@@ -703,10 +911,18 @@ export default function SettingsScreen() {
 
       {/* Users Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("users cashiers roles") && styles.hidden]}>
-        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
-          <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users
-        </Text>
-        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Active cashiers synced to this device.</Text>
+        <View style={styles.sectionHeadingRow}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
+              <Ionicons name="people-outline" size={18} color={sectionTitleColor} /> Users and Shared Sales
+            </Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create device users and choose which accounts share sales, receipts, and reports.</Text>
+          </View>
+          <TouchableOpacity style={styles.addUserButton} onPress={openCreateUser}>
+            <Ionicons name="person-add-outline" size={17} color="#ffffff" />
+            <Text style={styles.addUserButtonText}>Add user</Text>
+          </TouchableOpacity>
+        </View>
 
         {cashiers.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
@@ -724,19 +940,104 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.userInfo}>
                 <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
-                <Text style={[styles.userUsername, { color: fieldLabelColor }]}>@{user.username}</Text>
+                <Text style={[styles.userUsername, { color: fieldLabelColor }]}>{user.username ? `@${user.username}` : "PIN login"}</Text>
               </View>
               <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
                 <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
               </View>
-              {session?.cashierName === user.displayName && (
+              {session?.cashierId === user.id && (
                 <View style={styles.youBadge}>
                   <Text style={styles.youBadgeText}>You</Text>
                 </View>
               )}
+              {session?.cashierId && user.id !== session.cashierId && (
+                <TouchableOpacity
+                  style={[
+                    styles.linkUserButton,
+                    { borderColor: dark ? "#334155" : "#cbd5e1" },
+                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonActive,
+                  ]}
+                  onPress={() => toggleCashierLink(session.cashierId, user.id)}
+                >
+                  <Ionicons
+                    name={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "link" : "unlink-outline"}
+                    size={15}
+                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "#ffffff" : fieldLabelColor}
+                  />
+                  <Text style={[
+                    styles.linkUserButtonText,
+                    { color: fieldLabelColor },
+                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonTextActive,
+                  ]}>
+                    {salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "Shared" : "Separate"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <View style={styles.userActions}>
+                <TouchableOpacity
+                  style={[styles.userActionButton, { borderColor: dark ? "#334155" : "#cbd5e1" }]}
+                  onPress={() => openEditUser(user)}
+                  accessibilityLabel={`Edit ${user.displayName}`}
+                >
+                  <Ionicons name="create-outline" size={16} color={fieldLabelColor} />
+                </TouchableOpacity>
+                {user.id !== session?.cashierId ? (
+                  <TouchableOpacity
+                    style={[styles.userActionButton, { borderColor: dark ? "#5b2930" : "#fecdd3" }]}
+                    onPress={() => handleDeleteUser(user)}
+                    accessibilityLabel={`Delete ${user.displayName}`}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#dc3545" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           ))
         )}
+      </Card>
+
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security auto lock idle timeout pin") && styles.hidden]}>
+        <View style={styles.autoLockHeading}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Auto Lock</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Sign out after this device has not been touched. A PIN is required to return.</Text>
+          </View>
+          <Switch
+            value={autoLockMinutes > 0}
+            onValueChange={(enabled) => enabled ? applyAutoLock() : setAutoLockMinutes(0)}
+            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
+            thumbColor={autoLockMinutes > 0 ? "#17386b" : "#f8fafc"}
+          />
+        </View>
+        <View style={styles.autoLockEditor}>
+          <TextInput
+            style={[styles.autoLockInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+            value={autoLockValue}
+            onChangeText={(value) => setAutoLockValue(value.replace(/[^0-9]/g, ""))}
+            keyboardType="number-pad"
+            maxLength={4}
+            accessibilityLabel="Auto lock timeout"
+          />
+          <View style={[styles.autoLockUnits, { borderColor: inputBorder }]}>
+            {(["minutes", "hours"] as const).map((unit) => (
+              <TouchableOpacity
+                key={unit}
+                style={[styles.autoLockUnit, autoLockUnit === unit && styles.autoLockUnitSelected]}
+                onPress={() => setAutoLockUnit(unit)}
+                accessibilityState={{ selected: autoLockUnit === unit }}
+              >
+                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? "#ffffff" : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.autoLockApply} onPress={applyAutoLock}>
+            <Ionicons name="checkmark" size={17} color="#ffffff" />
+            <Text style={styles.autoLockApplyText}>Apply</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.autoLockStatus, { color: sectionDescColor }]}>
+          {autoLockMinutes > 0 ? `Currently locks after ${autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? `${autoLockMinutes / 60} ${autoLockMinutes === 60 ? "hour" : "hours"}` : `${autoLockMinutes} ${autoLockMinutes === 1 ? "minute" : "minutes"}`}.` : "Auto lock is off."}
+        </Text>
       </Card>
 
       {/* Audit Logs Card */}
@@ -869,6 +1170,123 @@ export default function SettingsScreen() {
               Last sync: {new Date(lastSync).toLocaleTimeString()}
             </Text>
           )}
+        </View>
+      </Card>
+
+      {/* Bluetooth Thermal Printer Card */}
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("bluetooth thermal printer jk-5802h receipt esc pos paired device") && styles.hidden]}>
+        <View style={styles.printerHeadingRow}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Bluetooth Thermal Printer</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select a paired 58mm ESC/POS printer for receipts.</Text>
+          </View>
+          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : (dark ? "#2a303a" : "#eef2f6") }]}>
+            <View style={[styles.printerStatusDot, { backgroundColor: connectedPrinterId ? "#22c55e" : "#94a3b8" }]} />
+            <Text style={[styles.printerStatusText, { color: connectedPrinterId ? (dark ? "#86efac" : "#166534") : fieldLabelColor }]}>
+              {connectedPrinterId ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+
+        {selectedPrinter && (
+          <View style={[styles.selectedPrinterSummary, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+            <View style={[styles.printerIcon, { backgroundColor: dark ? "#17345b" : "#e8f0ff" }]}>
+              <Ionicons name="print-outline" size={22} color={dark ? "#93c5fd" : "#17386b"} />
+            </View>
+            <View style={styles.printerDeviceCopy}>
+              <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{selectedPrinter.name}</Text>
+              <Text style={[styles.printerDeviceAddress, { color: fieldLabelColor }]}>{selectedPrinter.address}</Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={21} color="#22a447" />
+          </View>
+        )}
+
+        <View style={styles.printerToolbar}>
+          <TouchableOpacity
+            style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
+            onPress={() => void loadPairedPrinters()}
+            disabled={printerAction !== null}
+          >
+            {printerAction === "refresh" ? (
+              <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />
+            ) : (
+              <Ionicons name="refresh" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            )}
+            <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Refresh paired devices</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
+            onPress={() => void Linking.sendIntent("android.settings.BLUETOOTH_SETTINGS")}
+          >
+            <Ionicons name="bluetooth" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Bluetooth settings</Text>
+          </TouchableOpacity>
+        </View>
+
+        {pairedPrinters.length > 0 ? (
+          <View style={[styles.printerDeviceList, { borderColor: inputBorder }]}>
+            {pairedPrinters.map((printer, index) => {
+              const selected = selectedPrinter?.id === printer.id;
+              return (
+                <TouchableOpacity
+                  key={printer.id}
+                  style={[
+                    styles.printerDeviceRow,
+                    { borderBottomColor: inputBorder },
+                    index === pairedPrinters.length - 1 && styles.printerDeviceRowLast,
+                    selected && { backgroundColor: dark ? "#162845" : "#eef4ff" },
+                  ]}
+                  onPress={() => setSelectedPrinter(printer)}
+                >
+                  <View style={[styles.printerRadio, { borderColor: selected ? "#2563a6" : (dark ? "#64748b" : "#94a3b8") }]}>
+                    {selected && <View style={styles.printerRadioSelected} />}
+                  </View>
+                  <View style={styles.printerDeviceCopy}>
+                    <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{printer.name}</Text>
+                    <Text style={[styles.printerDeviceAddress, { color: fieldLabelColor }]}>{printer.address}</Text>
+                  </View>
+                  {connectedPrinterId === printer.id && <Text style={styles.connectedDeviceLabel}>Connected</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={[styles.printerEmpty, { backgroundColor: dark ? "#101722" : "#f8fafc", borderColor: inputBorder }]}>
+            <Ionicons name="bluetooth-outline" size={20} color={fieldLabelColor} />
+            <Text style={[styles.printerEmptyText, { color: fieldLabelColor }]}>Pair the JK-5802H in Android settings, then refresh this list.</Text>
+          </View>
+        )}
+
+        <View style={styles.printerButtonRow}>
+          {connectedPrinterId === selectedPrinter?.id ? (
+            <Button
+              title="Disconnect"
+              onPress={handleDisconnectPrinter}
+              variant="secondary"
+              loading={printerAction === "disconnect"}
+              disabled={printerAction !== null && printerAction !== "disconnect"}
+              icon="close-circle-outline"
+              style={styles.printerActionButton}
+            />
+          ) : (
+            <Button
+              title="Connect"
+              onPress={handleConnectPrinter}
+              loading={printerAction === "connect"}
+              disabled={!selectedPrinter || (printerAction !== null && printerAction !== "connect")}
+              icon="bluetooth-outline"
+              style={styles.printerActionButton}
+            />
+          )}
+          <Button
+            title="Test Print"
+            onPress={handlePrinterTest}
+            variant="secondary"
+            loading={printerAction === "test"}
+            disabled={!selectedPrinter || connectedPrinterId !== selectedPrinter.id || (printerAction !== null && printerAction !== "test")}
+            icon="print-outline"
+            style={styles.printerActionButton}
+          />
         </View>
       </Card>
 
@@ -1097,6 +1515,31 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      <Modal visible={showCreateUser} transparent animationType="fade" onRequestClose={closeUserModal}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.createUserModal, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: cardBorder }]}>
+            <View style={styles.createUserHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: sectionTitleColor }]}>{editingUser ? "Edit User" : "Create User"}</Text>
+                <Text style={[styles.createUserHelp, { color: sectionDescColor }]}>{editingUser ? "Update the account details. Leave the PIN empty to keep it." : "This user starts with a separate sales history."}</Text>
+              </View>
+              <TouchableOpacity style={styles.modalCloseButton} onPress={closeUserModal}>
+                <Ionicons name="close" size={20} color={fieldLabelColor} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Display name</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserName} onChangeText={setNewUserName} placeholder="Cashier name" placeholderTextColor={fieldLabelColor} />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Username (optional)</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUsername} onChangeText={setNewUsername} placeholder="Username" placeholderTextColor={fieldLabelColor} autoCapitalize="none" />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>{editingUser ? "New 6-digit PIN (optional)" : "6-digit PIN"}</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPin} onChangeText={setNewUserPin} placeholder={editingUser ? "Keep current PIN" : "Enter PIN"} placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Confirm PIN</Text>
+            <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPinConfirm} onChangeText={setNewUserPinConfirm} placeholder="Enter PIN again" placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
+            <Button title={creatingUser ? "Saving..." : editingUser ? "Save User" : "Create User"} onPress={handleSaveUser} loading={creatingUser} icon={editingUser ? "checkmark-circle-outline" : "person-add-outline"} style={styles.createUserSubmit} />
+          </View>
+        </View>
+      </Modal>
+
       {/* Currency Picker Modal */}
       <Modal visible={showCurrencyPicker} transparent animationType="fade">
         <TouchableOpacity
@@ -1219,6 +1662,149 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#6b7b8d",
     marginBottom: 16,
+  },
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  sectionHeadingCopy: {
+    flex: 1,
+  },
+  addUserButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  addUserButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  linkUserButton: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  linkUserButtonActive: {
+    backgroundColor: "#17386b",
+    borderColor: "#17386b",
+  },
+  linkUserButtonText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  linkUserButtonTextActive: {
+    color: "#ffffff",
+  },
+  autoLockHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  autoLockEditor: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+  },
+  autoLockInput: {
+    width: 90,
+    minHeight: 40,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  autoLockUnits: {
+    minHeight: 40,
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 7,
+    overflow: "hidden",
+  },
+  autoLockUnit: {
+    minWidth: 76,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  autoLockUnitSelected: {
+    backgroundColor: "#17386b",
+  },
+  autoLockUnitText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  autoLockApply: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  autoLockApplyText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  autoLockStatus: {
+    fontSize: 11,
+    marginTop: 10,
+  },
+  createUserModal: {
+    width: "90%",
+    maxWidth: 440,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 20,
+  },
+  createUserHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  createUserHelp: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  modalCloseButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createUserLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  createUserInput: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    marginBottom: 13,
+    fontSize: 13,
+  },
+  createUserSubmit: {
+    marginTop: 5,
   },
   field: {
     flexDirection: "row",
@@ -1350,6 +1936,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#166534",
+  },
+  userActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  userActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterRow: {
     marginBottom: 12,
@@ -1687,6 +2286,138 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  printerHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  printerStatusBadge: {
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  printerStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  printerStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  selectedPrinterSummary: {
+    minHeight: 62,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    marginBottom: 12,
+  },
+  printerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  printerToolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  printerToolButton: {
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  printerToolText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  printerDeviceList: {
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  printerDeviceRow: {
+    minHeight: 58,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderBottomWidth: 1,
+  },
+  printerDeviceRowLast: {
+    borderBottomWidth: 0,
+  },
+  printerRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  printerRadioSelected: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#2563a6",
+  },
+  printerDeviceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  printerDeviceName: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  printerDeviceAddress: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  connectedDeviceLabel: {
+    color: "#22a447",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  printerEmpty: {
+    minHeight: 58,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  printerEmptyText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  printerButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  printerActionButton: {
+    flexGrow: 1,
+    minWidth: 150,
   },
   dangerBtn: {
     marginTop: 16,

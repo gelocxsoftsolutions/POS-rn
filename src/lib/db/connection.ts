@@ -23,6 +23,27 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
     await database.execAsync(sql);
   }
 
+  // Migration to v4: add weight column to Product if missing
+  try {
+    await database.execAsync("ALTER TABLE Product ADD COLUMN weight REAL DEFAULT NULL");
+  } catch {
+    // column already exists
+  }
+
+  // Migration to v5: add weight column to SaleItem if missing
+  try {
+    await database.execAsync("ALTER TABLE SaleItem ADD COLUMN weight REAL DEFAULT NULL");
+  } catch {
+    // column already exists
+  }
+
+  // Migration to v6: keep locally selected cashier profile photos.
+  try {
+    await database.execAsync("ALTER TABLE Cashier ADD COLUMN photoUri TEXT DEFAULT NULL");
+  } catch {
+    // column already exists
+  }
+
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
   await database.runAsync(

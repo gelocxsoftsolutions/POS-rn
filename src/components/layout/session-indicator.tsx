@@ -1,5 +1,5 @@
 import React from "react";
-import { TouchableOpacity, Text, StyleSheet, View } from "react-native";
+import { TouchableOpacity, Text, StyleSheet, View, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 
@@ -27,7 +27,11 @@ export function SessionIndicator({ dark = false, onPress, statusLabel, statusCol
       disabled={!onPress}
     >
       <View style={[styles.avatar, dark ? styles.avatarDark : styles.avatarLight]}>
-        <Ionicons name="person" size={14} color="#ffffff" />
+        {session.photoUri ? (
+          <Image source={{ uri: session.photoUri }} style={styles.avatarImage} />
+        ) : (
+          <Ionicons name="person" size={14} color="#ffffff" />
+        )}
       </View>
       <View style={styles.info}>
         <Text
@@ -84,6 +88,11 @@ const styles = StyleSheet.create({
   },
   avatarDark: {
     backgroundColor: "#3b82f6",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
   },
   info: {
     marginRight: 2,
