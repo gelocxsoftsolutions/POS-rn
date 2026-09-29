@@ -7,8 +7,9 @@ import {
   Modal,
   StyleSheet,
 } from "react-native";
-import QRCode from "react-native-qrcode-svg";
 import { Button } from "@/components/ui/button";
+import { ReceiptQrCode } from "@/components/ui/receipt-qr-code";
+import { Code128Barcode } from "@/components/ui/code128-barcode";
 
 export type ReceiptPreviewItem = {
   name: string;
@@ -124,14 +125,17 @@ export function ReceiptPreviewModal({
               </View>
               <View style={styles.receiptDivider} />
               <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
+              <View style={styles.receiptBarcode}>
+                <Code128Barcode value={receipt.receiptNumber} height={58} />
+                <Text style={styles.receiptCodeCaption}>{receipt.receiptNumber}</Text>
+              </View>
               <View style={styles.receiptQR}>
-                <QRCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={140} />
-                <Text style={styles.receiptQRCaption}>{receipt.receiptNumber}</Text>
+                <ReceiptQrCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={176} />
               </View>
               <View style={styles.receiptActions}>
                 {onPrint && (
                   <Button
-                    title={printing ? "Finding Printer..." : "Print Receipt"}
+                    title={printing ? "Printing..." : "Print Receipt"}
                     onPress={onPrint}
                     icon="print-outline"
                     loading={printing}
@@ -177,7 +181,7 @@ const styles = StyleSheet.create({
   receiptLogo: {
     width: 104,
     height: 104,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   receiptStore: {
     fontSize: 18,
@@ -265,10 +269,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 20,
   },
-  receiptQRCaption: {
+  receiptBarcode: {
+    width: "100%",
+    marginTop: 20,
+    alignItems: "center",
+  },
+  receiptCodeCaption: {
     fontSize: 9,
     color: "#475569",
-    marginTop: 8,
+    marginTop: 5,
     letterSpacing: 0.5,
     textAlign: "center",
   },

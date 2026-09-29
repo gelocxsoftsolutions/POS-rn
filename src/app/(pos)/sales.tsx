@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BottomSheet } from "@/components/ui/modal";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useCartStore } from "@/lib/stores/cart-store";
@@ -39,6 +40,11 @@ import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
 import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
+import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
+import { createCode128Svg } from "@/lib/barcodes/code128";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 
 const GRID_COLUMNS = 5;
 const RECEIPT_WIDTH_MM = 58;
@@ -127,6 +133,7 @@ export default function SalesScreen() {
   const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
@@ -418,7 +425,6 @@ export default function SalesScreen() {
       });
 
         if (result.success && result.sale) {
-        void playCheckoutSuccessSound();
         const receiptData = {
           receiptNumber: result.sale.receiptNumber,
           items: [...cart.items],
@@ -517,6 +523,7 @@ export default function SalesScreen() {
   const handlePrintReceipt = async () => {
     if (!lastReceipt || printing) return;
     setPrinting(true);
+    void playCheckoutSuccessSound();
 
     try {
       const logoUri = await getPrintableAssetDataUri(
@@ -524,16 +531,55 @@ export default function SalesScreen() {
         "image/jpeg"
       );
 
+      if (Platform.OS === "android") {
+        if (!selectedPrinter) {
+          Alert.alert("Print Receipt", "Select a Bluetooth thermal printer in Settings first.");
+          return;
+        }
+        const receiptText = formatEscPosReceipt(
+          {
+            receiptNumber: lastReceipt.receiptNumber,
+            date: lastReceipt.date,
+            customerName: lastReceipt.customerName,
+            cashierName: lastReceipt.cashierName,
+            items: lastReceipt.items.map((item: PosCartItem) => ({
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.quantity * item.unitPrice,
+            })),
+            subtotal: lastReceipt.subtotal,
+            discount: lastReceipt.discount ?? 0,
+            tax: lastReceipt.tax,
+            total: lastReceipt.total,
+            paidAmount: lastReceipt.paidAmount,
+            change: lastReceipt.change,
+            paymentMethod: lastReceipt.paymentMethod,
+          },
+          settings
+        );
+        await BluetoothPrinter.printReceipt(
+          selectedPrinter.address,
+          receiptText,
+          logoUri,
+          String(lastReceipt.receiptNumber),
+          serializeReceiptQrMatrix(String(lastReceipt.receiptNumber)),
+          true
+        );
+        return;
+      }
+
       let qrSvg = "";
       try {
-        qrSvg = await QRCodeLib.toString(String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt"), { type: "svg", margin: 1, width: 160 });
+        qrSvg = await QRCodeLib.toString(String(lastReceipt.receiptNumber ?? lastReceipt.date ?? "receipt"), { type: "svg", margin: 1, width: 200, errorCorrectionLevel: "L" });
         // Ensure svg scales to container
-        qrSvg = qrSvg.replace('<svg ', '<svg style="width:28mm;height:28mm;display:block;margin:0 auto;" ');
+        qrSvg = qrSvg.replace('<svg ', '<svg style="width:42mm;height:42mm;display:block;margin:0 auto;" ');
       } catch {
         qrSvg = "";
       }
+      const receiptBarcodeSvg = createCode128Svg(String(lastReceipt.receiptNumber));
 
-      const receiptHeightMm = Math.max(150, 138 + lastReceipt.items.length * 11);
+      const receiptHeightMm = Math.max(218, 206 + lastReceipt.items.length * 11);
       const receiptHeightPoints = Math.round((receiptHeightMm / 25.4) * 72);
       const itemRows = lastReceipt.items.map((item: PosCartItem) => `
         <div class="item">
@@ -555,7 +601,7 @@ export default function SalesScreen() {
               html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
               body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
               .center { text-align: center; }
-              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 1.5mm; display: block; }
+              .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 4mm; display: block; }
               h1 { font-size: 12pt; margin: 0 0 1mm; }
               .meta { font-size: 7.5pt; line-height: 1.35; margin: 0; }
               .receipt-number { margin-top: 2mm; font-weight: 700; }
@@ -566,9 +612,11 @@ export default function SalesScreen() {
               .item-copy span { font-size: 7.5pt; margin-top: 0.5mm; }
               .total { font-size: 11pt; font-weight: 700; margin-top: 2mm; }
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
+              .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
+              .barcode svg { width: 46mm; height: 14mm; display: block; }
+              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
-              .qr svg { width: 28mm; height: 28mm; }
-              .qr-caption { font-size: 6.5pt; text-align: center; margin-top: 1mm; letter-spacing: 0.3pt; }
+              .qr svg { width: 42mm; height: 42mm; }
             </style>
           </head>
           <body>
@@ -593,7 +641,8 @@ export default function SalesScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${lastReceipt.change.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${qrSvg ? `<div class="qr">${qrSvg}<div class="qr-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;
 
@@ -613,7 +662,7 @@ export default function SalesScreen() {
     } catch (error: any) {
       const message = error?.message?.toLowerCase().includes("cancel")
         ? "Printer selection was cancelled."
-        : "No thermal printer was selected or the print service is unavailable.";
+        : error?.message ?? "No thermal printer was selected or the print service is unavailable.";
       Alert.alert("Print Receipt", message);
     } finally {
       setPrinting(false);
@@ -842,8 +891,13 @@ export default function SalesScreen() {
                 </TouchableOpacity>
               )}
             </View>
+            <UsbBarcodeScannerInput
+              onScan={handleBarcodeScan}
+              dark={dark}
+              disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
+            />
             <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
-              <Ionicons name="scan" size={20} color="#ffffff" />
+              <Ionicons name="camera-outline" size={20} color="#ffffff" />
             </TouchableOpacity>
           </View>
 

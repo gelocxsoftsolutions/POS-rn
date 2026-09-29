@@ -15,7 +15,7 @@ async function resolveSalePayload(
   input: SaleInput,
   saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
   total: number,
-  saleId: string
+  receiptNumber: string
 ) {
   const mappedItems: Array<{ variationId: number; qty: number }> = [];
   for (const item of saleItems) {
@@ -29,7 +29,7 @@ async function resolveSalePayload(
   }
   return {
     // Keep legacy fields for OMS compat, but canonical is variationId/qty
-    receiptNumber: `RCP-${saleId.substring(0, 8)}`,
+    receiptNumber,
     cashierId: input.cashierId,
     cashierName: input.cashierName,
     cashierUserId: input.cashierId,
@@ -40,11 +40,18 @@ async function resolveSalePayload(
   };
 }
 
+function createReceiptNumber() {
+  const time = Date.now().toString(36).toUpperCase().slice(-7);
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, "0");
+  return `R${time}${random}`;
+}
+
 export const SaleService = {
   async create(input: SaleInput) {
     try {
       const saleId = uuid();
       const now = new Date().toISOString();
+      const receiptNumber = createReceiptNumber();
       const businessDate = now.split("T")[0];
 
       let subtotal = 0;
@@ -178,7 +185,7 @@ export const SaleService = {
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, 0, ?)`,
         [
           saleId,
-          `RCP-${now.replace(/[-:T]/g, "").substring(0, 14)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          receiptNumber,
           input.cashierId,
           input.cashierName,
           input.customerName ?? null,
@@ -254,7 +261,7 @@ export const SaleService = {
       const sale = await SaleRepository.findById(saleId);
 
       // Push to OMS synchronously to catch insufficient stock immediately
-      const pushResult = await this._pushToOms(saleId, input, saleItems, total);
+      const pushResult = await this._pushToOms(saleId, receiptNumber, input, saleItems, total);
 
       if (!pushResult.success) {
         const errMsg = String((pushResult as any).error ?? "");
@@ -296,11 +303,12 @@ export const SaleService = {
 
   async _pushToOms(
     saleId: string,
+    receiptNumber: string,
     input: SaleInput,
     saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
     total: number
   ): Promise<import("@/lib/services/oms-sync.service").SalePushResult> {
-    const payload = await resolveSalePayload(input, saleItems, total, saleId);
+    const payload = await resolveSalePayload(input, saleItems, total, receiptNumber);
     if (payload.items.length === 0) {
       // Nothing mappable to OMS (e.g. legacy mock SKUs like SHR-001) -> keep locally, mark synced to stop 400 loop
       console.warn("[Sale] No mappable OMS variations for sale", saleId, "- skipping OMS push (mock/unknown SKUs)");

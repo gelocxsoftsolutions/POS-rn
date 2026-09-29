@@ -26,7 +26,7 @@ export const ProductService = {
 
   async getByBarcode(barcode: string): Promise<ProductDTO | null> {
     try {
-      const barcodeRow = await BarcodeRepository.findByBarcode(barcode);
+      const barcodeRow = await BarcodeRepository.findByBarcode(barcode.trim());
       if (!barcodeRow) return null;
       return await ProductRepository.findById(barcodeRow.productId);
     } catch {

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -19,11 +19,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
+import { usePrinterStore } from "@/lib/stores/printer-store";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import type {
   ProductDTO,
   ProductDetailDTO,
@@ -59,9 +62,12 @@ export default function ProductsScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
+  const [printingBarcode, setPrintingBarcode] = useState<string | null>(null);
+  const barcodeTap = useRef<{ value: string; time: number } | null>(null);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const dark = useIsDarkTheme();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
@@ -147,9 +153,10 @@ export default function ProductsScreen() {
   const handleBarcodeScan = useCallback(async (barcode: string) => {
     setScannerVisible(false);
     try {
-      const product = await ProductService.getByBarcode(barcode);
+      const normalizedBarcode = barcode.trim();
+      const product = await ProductService.getByBarcode(normalizedBarcode);
       if (!product) {
-        Alert.alert("Not Found", "No product matched that barcode.");
+        Alert.alert("Variation Not Found", `No product variation matched "${normalizedBarcode}".`);
         return;
       }
       await openDetail(product);
@@ -157,6 +164,39 @@ export default function ProductsScreen() {
       Alert.alert("Error", "Failed to look up product by barcode.");
     }
   }, [openDetail]);
+
+  const printVariationBarcode = useCallback(async (barcode: string) => {
+    if (!selectedPrinter) {
+      Alert.alert("Print Barcode", "Select a Bluetooth thermal printer in Settings first.");
+      return;
+    }
+    if (!detailProduct || printingBarcode) return;
+    setPrintingBarcode(barcode);
+    try {
+      await BluetoothPrinter.printBarcode(selectedPrinter.address, detailProduct.name, barcode);
+      Alert.alert("Barcode Printed", `${barcode} was sent to ${selectedPrinter.name}.`);
+    } catch (error) {
+      Alert.alert("Print Failed", error instanceof Error ? error.message : "The barcode could not be printed.");
+    } finally {
+      setPrintingBarcode(null);
+    }
+  }, [detailProduct, printingBarcode, selectedPrinter]);
+
+  const handleBarcodeTap = useCallback((barcode: string) => {
+    const now = Date.now();
+    const previous = barcodeTap.current;
+    barcodeTap.current = { value: barcode, time: now };
+    if (!previous || previous.value !== barcode || now - previous.time > 500) return;
+    barcodeTap.current = null;
+    Alert.alert(
+      "Print Variation Barcode",
+      `Print ${barcode} on the selected thermal printer?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Print", onPress: () => void printVariationBarcode(barcode) },
+      ]
+    );
+  }, [printVariationBarcode]);
 
   const stockBadge = (product: ProductDTO) => {
     const qty = (product as any).availableQty ?? 0;
@@ -482,6 +522,12 @@ export default function ProductsScreen() {
             </View>
           )}
         </View>
+        <UsbBarcodeScannerInput
+          onScan={handleBarcodeScan}
+          dark={dark}
+          compact
+          disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || detailLoading}
+        />
         <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
           <Ionicons name="scan" size={18} color="#ffffff" />
         </TouchableOpacity>
@@ -661,14 +707,23 @@ export default function ProductsScreen() {
                     <Ionicons name="barcode-outline" size={20} color={dark ? "#8fb4e8" : "#17386b"} />
                     <Text style={[styles.barcodeFooterTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Variation Barcode</Text>
                   </View>
+                  <Text style={[styles.barcodePrintHint, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Double tap a barcode to print</Text>
                   {detailBarcodes.length > 0 ? detailBarcodes.map((bc, index) => (
-                    <View key={`${bc.barcode}-${index}`} style={[styles.barcodeRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+                    <TouchableOpacity
+                      key={`${bc.barcode}-${index}`}
+                      style={[styles.barcodeRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff", opacity: printingBarcode === bc.barcode ? 0.6 : 1 }]}
+                      onPress={() => handleBarcodeTap(bc.barcode)}
+                      activeOpacity={0.85}
+                      disabled={printingBarcode !== null}
+                    >
                       <Code128Barcode value={bc.barcode} height={68} dark={dark} />
                       <View style={styles.barcodeCaption}>
                         <Text style={[styles.barcodeText, { color: dark ? "#f8fafc" : "#1a202c" }]} selectable>{bc.barcode}</Text>
-                        <Text style={[styles.barcodeType, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{bc.type}</Text>
+                        <Text style={[styles.barcodeType, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>
+                          {printingBarcode === bc.barcode ? "printing..." : bc.type}
+                        </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   )) : (
                     <Text style={[styles.barcodeEmptyText, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>No barcode received from OMS</Text>
                   )}
@@ -1267,6 +1322,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f4ff",
+  },
+  barcodePrintHint: {
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: 2,
   },
   barcodeCaption: {
     flexDirection: "row",

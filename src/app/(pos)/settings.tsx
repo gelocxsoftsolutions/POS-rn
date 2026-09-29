@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Switch,
+  Linking,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -25,6 +26,7 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
@@ -32,6 +34,10 @@ import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
+import {
+  BluetoothPrinter,
+  type BluetoothPrinterDevice,
+} from "@/lib/printers/bluetooth-printer";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
 
@@ -216,6 +222,11 @@ export default function SettingsScreen() {
   const setLiveStatus = useOmsConnectionStore((state) => state.setStatus);
   const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const setSelectedPrinter = usePrinterStore((state) => state.setSelectedPrinter);
+  const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
+  const [connectedPrinterId, setConnectedPrinterId] = useState<string | null>(null);
+  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "disconnect" | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -327,6 +338,22 @@ export default function SettingsScreen() {
     loadUsers();
     loadAuditLogs();
   }, [loadOmsSettings, loadUsers, loadAuditLogs]));
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    if (!selectedPrinter) {
+      setConnectedPrinterId(null);
+      return () => { active = false; };
+    }
+    BluetoothPrinter.isConnected(selectedPrinter.address)
+      .then((connected) => {
+        if (active) setConnectedPrinterId(connected ? selectedPrinter.id : null);
+      })
+      .catch(() => {
+        if (active) setConnectedPrinterId(null);
+      });
+    return () => { active = false; };
+  }, [selectedPrinter]));
 
   const handleSaveSettings = async () => {
     const nextTaxRatePercent = Number(taxRatePercent);
@@ -546,6 +573,69 @@ export default function SettingsScreen() {
         },
       ]
     );
+  };
+
+  const loadPairedPrinters = async () => {
+    setPrinterAction("refresh");
+    try {
+      const devices = await BluetoothPrinter.getPairedDevices();
+      setPairedPrinters(devices);
+      const connected = devices.find((item) => item.connected);
+      setConnectedPrinterId(connected?.id ?? null);
+      if (devices.length === 0) {
+        Alert.alert(
+          "No Paired Printers",
+          "Pair the JK-5802H in Android Bluetooth settings, then refresh this list."
+        );
+      }
+    } catch (error: any) {
+      Alert.alert("Bluetooth Printer", error?.message ?? "Unable to load paired devices.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handleConnectPrinter = async () => {
+    if (!selectedPrinter) {
+      Alert.alert("Bluetooth Printer", "Select the JK-5802H from the paired devices first.");
+      return;
+    }
+    setPrinterAction("connect");
+    try {
+      await BluetoothPrinter.connect(selectedPrinter.address);
+      setConnectedPrinterId(selectedPrinter.id);
+      Alert.alert("Printer Connected", `${selectedPrinter.name} is ready for ESC/POS printing.`);
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert("Connection Failed", error?.message ?? "Unable to connect to the printer.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handleDisconnectPrinter = async () => {
+    setPrinterAction("disconnect");
+    try {
+      await BluetoothPrinter.disconnect();
+      setConnectedPrinterId(null);
+    } catch (error: any) {
+      Alert.alert("Bluetooth Printer", error?.message ?? "Unable to disconnect the printer.");
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
+  const handlePrinterTest = async () => {
+    setPrinterAction("test");
+    try {
+      await BluetoothPrinter.printTest();
+      Alert.alert("Test Sent", "A short 58mm test slip was sent to the printer.");
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert("Test Print Failed", error?.message ?? "Unable to print the test slip.");
+    } finally {
+      setPrinterAction(null);
+    }
   };
 
   const resetUserForm = () => {
@@ -1080,6 +1170,123 @@ export default function SettingsScreen() {
               Last sync: {new Date(lastSync).toLocaleTimeString()}
             </Text>
           )}
+        </View>
+      </Card>
+
+      {/* Bluetooth Thermal Printer Card */}
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("bluetooth thermal printer jk-5802h receipt esc pos paired device") && styles.hidden]}>
+        <View style={styles.printerHeadingRow}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Bluetooth Thermal Printer</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select a paired 58mm ESC/POS printer for receipts.</Text>
+          </View>
+          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : (dark ? "#2a303a" : "#eef2f6") }]}>
+            <View style={[styles.printerStatusDot, { backgroundColor: connectedPrinterId ? "#22c55e" : "#94a3b8" }]} />
+            <Text style={[styles.printerStatusText, { color: connectedPrinterId ? (dark ? "#86efac" : "#166534") : fieldLabelColor }]}>
+              {connectedPrinterId ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+        </View>
+
+        {selectedPrinter && (
+          <View style={[styles.selectedPrinterSummary, { backgroundColor: inputBg, borderColor: inputBorder }]}>
+            <View style={[styles.printerIcon, { backgroundColor: dark ? "#17345b" : "#e8f0ff" }]}>
+              <Ionicons name="print-outline" size={22} color={dark ? "#93c5fd" : "#17386b"} />
+            </View>
+            <View style={styles.printerDeviceCopy}>
+              <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{selectedPrinter.name}</Text>
+              <Text style={[styles.printerDeviceAddress, { color: fieldLabelColor }]}>{selectedPrinter.address}</Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={21} color="#22a447" />
+          </View>
+        )}
+
+        <View style={styles.printerToolbar}>
+          <TouchableOpacity
+            style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
+            onPress={() => void loadPairedPrinters()}
+            disabled={printerAction !== null}
+          >
+            {printerAction === "refresh" ? (
+              <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />
+            ) : (
+              <Ionicons name="refresh" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            )}
+            <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Refresh paired devices</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
+            onPress={() => void Linking.sendIntent("android.settings.BLUETOOTH_SETTINGS")}
+          >
+            <Ionicons name="bluetooth" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Bluetooth settings</Text>
+          </TouchableOpacity>
+        </View>
+
+        {pairedPrinters.length > 0 ? (
+          <View style={[styles.printerDeviceList, { borderColor: inputBorder }]}>
+            {pairedPrinters.map((printer, index) => {
+              const selected = selectedPrinter?.id === printer.id;
+              return (
+                <TouchableOpacity
+                  key={printer.id}
+                  style={[
+                    styles.printerDeviceRow,
+                    { borderBottomColor: inputBorder },
+                    index === pairedPrinters.length - 1 && styles.printerDeviceRowLast,
+                    selected && { backgroundColor: dark ? "#162845" : "#eef4ff" },
+                  ]}
+                  onPress={() => setSelectedPrinter(printer)}
+                >
+                  <View style={[styles.printerRadio, { borderColor: selected ? "#2563a6" : (dark ? "#64748b" : "#94a3b8") }]}>
+                    {selected && <View style={styles.printerRadioSelected} />}
+                  </View>
+                  <View style={styles.printerDeviceCopy}>
+                    <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{printer.name}</Text>
+                    <Text style={[styles.printerDeviceAddress, { color: fieldLabelColor }]}>{printer.address}</Text>
+                  </View>
+                  {connectedPrinterId === printer.id && <Text style={styles.connectedDeviceLabel}>Connected</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={[styles.printerEmpty, { backgroundColor: dark ? "#101722" : "#f8fafc", borderColor: inputBorder }]}>
+            <Ionicons name="bluetooth-outline" size={20} color={fieldLabelColor} />
+            <Text style={[styles.printerEmptyText, { color: fieldLabelColor }]}>Pair the JK-5802H in Android settings, then refresh this list.</Text>
+          </View>
+        )}
+
+        <View style={styles.printerButtonRow}>
+          {connectedPrinterId === selectedPrinter?.id ? (
+            <Button
+              title="Disconnect"
+              onPress={handleDisconnectPrinter}
+              variant="secondary"
+              loading={printerAction === "disconnect"}
+              disabled={printerAction !== null && printerAction !== "disconnect"}
+              icon="close-circle-outline"
+              style={styles.printerActionButton}
+            />
+          ) : (
+            <Button
+              title="Connect"
+              onPress={handleConnectPrinter}
+              loading={printerAction === "connect"}
+              disabled={!selectedPrinter || (printerAction !== null && printerAction !== "connect")}
+              icon="bluetooth-outline"
+              style={styles.printerActionButton}
+            />
+          )}
+          <Button
+            title="Test Print"
+            onPress={handlePrinterTest}
+            variant="secondary"
+            loading={printerAction === "test"}
+            disabled={!selectedPrinter || connectedPrinterId !== selectedPrinter.id || (printerAction !== null && printerAction !== "test")}
+            icon="print-outline"
+            style={styles.printerActionButton}
+          />
         </View>
       </Card>
 
@@ -2079,6 +2286,138 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  printerHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  printerStatusBadge: {
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  printerStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  printerStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  selectedPrinterSummary: {
+    minHeight: 62,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    marginBottom: 12,
+  },
+  printerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  printerToolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  printerToolButton: {
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  printerToolText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  printerDeviceList: {
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  printerDeviceRow: {
+    minHeight: 58,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderBottomWidth: 1,
+  },
+  printerDeviceRowLast: {
+    borderBottomWidth: 0,
+  },
+  printerRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  printerRadioSelected: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#2563a6",
+  },
+  printerDeviceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  printerDeviceName: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  printerDeviceAddress: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  connectedDeviceLabel: {
+    color: "#22a447",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  printerEmpty: {
+    minHeight: 58,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  printerEmptyText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  printerButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  printerActionButton: {
+    flexGrow: 1,
+    minWidth: 150,
   },
   dangerBtn: {
     marginTop: 16,

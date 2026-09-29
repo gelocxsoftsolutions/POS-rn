@@ -43,7 +43,15 @@ const config = {
       backgroundColor: "#17386b",
       foregroundImage: "./assets/nct-seafoods-logo.png",
     },
-    permissions: ["CAMERA", "NOTIFICATIONS", "INTERNET"],
+    permissions: [
+      "CAMERA",
+      "NOTIFICATIONS",
+      "INTERNET",
+      "android.permission.BLUETOOTH",
+      "android.permission.BLUETOOTH_ADMIN",
+      "android.permission.BLUETOOTH_CONNECT",
+      "android.permission.BLUETOOTH_SCAN",
+    ],
   },
   web: {
     favicon: "./assets/favicon.png",
@@ -51,6 +59,7 @@ const config = {
   },
   plugins: [
     "expo-router",
+    "./plugins/with-bluetooth-printer",
     "expo-audio",
     "expo-sqlite",
     "expo-secure-store",
