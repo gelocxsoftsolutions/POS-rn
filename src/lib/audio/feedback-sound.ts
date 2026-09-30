@@ -12,6 +12,13 @@ export async function playFeedbackSound(
   if (muted || volume <= 0) return;
 
   try {
+    // Native assets load asynchronously; do not drop the first feedback event.
+    for (let attempt = 0; attempt < 10 && !player.isLoaded; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    if (!player.isLoaded) return;
+
+    if (player.playing) player.pause();
     player.muted = false;
     player.volume = Math.min(1, Math.max(0, volume));
     await player.seekTo(0);

@@ -523,9 +523,10 @@ export default function SalesScreen() {
   const handlePrintReceipt = async () => {
     if (!lastReceipt || printing) return;
     setPrinting(true);
-    void playCheckoutSuccessSound();
 
     try {
+      // Start feedback before Bluetooth/print work can occupy the native bridge.
+      await playCheckoutSuccessSound();
       const logoUri = await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
@@ -614,7 +615,6 @@ export default function SalesScreen() {
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
               .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
               .barcode svg { width: 46mm; height: 14mm; display: block; }
-              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
               .qr svg { width: 42mm; height: 42mm; }
             </style>
@@ -641,7 +641,7 @@ export default function SalesScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${lastReceipt.change.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
             ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;

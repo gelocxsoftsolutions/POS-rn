@@ -11,6 +11,7 @@ import {
   Image,
   PanResponder,
   AppState,
+  Modal,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +32,7 @@ import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
 
 const WIDE_BREAKPOINT = 768;
+const AUTO_LOCK_WARNING_SECONDS = 5;
 
 const navItems = [
   {
@@ -465,8 +467,11 @@ export default function POSLayout() {
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const sidebarAnim = useRef(new Animated.Value(1)).current;
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleWarningTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const backgroundedAt = useRef<number | null>(null);
   const autoLockRunning = useRef(false);
+  const [lockCountdown, setLockCountdown] = useState<number | null>(null);
 
   const toggleSidebar = () => {
     const toValue = sidebarOpen ? 0 : 1;
@@ -503,9 +508,20 @@ export default function POSLayout() {
     router.replace("/(auth)");
   };
 
+  const clearAutoLockTimers = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    if (idleWarningTimer.current) clearTimeout(idleWarningTimer.current);
+    if (countdownTimer.current) clearInterval(countdownTimer.current);
+    idleTimer.current = null;
+    idleWarningTimer.current = null;
+    countdownTimer.current = null;
+  }, []);
+
   const performAutoLock = useCallback(async () => {
     if (autoLockRunning.current || !useCashierStore.getState().session) return;
     autoLockRunning.current = true;
+    clearAutoLockTimers();
+    setLockCountdown(null);
     const currentSession = useCashierStore.getState().session;
     if (currentSession?.sessionId) await CashierService.logout(currentSession.sessionId);
     else {
@@ -514,20 +530,47 @@ export default function POSLayout() {
     }
     router.replace("/(auth)");
     autoLockRunning.current = false;
-  }, [router]);
+  }, [clearAutoLockTimers, router]);
+
+  const showAutoLockWarning = useCallback((deadline: number) => {
+    if (countdownTimer.current) clearInterval(countdownTimer.current);
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      if (remaining <= 0) {
+        void performAutoLock();
+        return;
+      }
+      setLockCountdown(remaining);
+    };
+
+    updateCountdown();
+    countdownTimer.current = setInterval(updateCountdown, 250);
+  }, [performAutoLock]);
 
   const resetIdleTimer = useCallback(() => {
-    if (idleTimer.current) clearTimeout(idleTimer.current);
+    clearAutoLockTimers();
+    setLockCountdown(null);
     if (autoLockMinutes <= 0 || !useCashierStore.getState().session) return;
-    idleTimer.current = setTimeout(() => void performAutoLock(), autoLockMinutes * 60 * 1000);
-  }, [autoLockMinutes, performAutoLock]);
+
+    const totalIdleMs = autoLockMinutes * 60 * 1000;
+    const warningMs = AUTO_LOCK_WARNING_SECONDS * 1000;
+    const deadline = Date.now() + totalIdleMs;
+    idleTimer.current = setTimeout(() => void performAutoLock(), totalIdleMs);
+
+    const warningDelay = Math.max(0, totalIdleMs - warningMs);
+    idleWarningTimer.current = setTimeout(
+      () => showAutoLockWarning(deadline),
+      warningDelay
+    );
+  }, [autoLockMinutes, clearAutoLockTimers, performAutoLock, showAutoLockWarning]);
 
   useEffect(() => {
     resetIdleTimer();
     return () => {
-      if (idleTimer.current) clearTimeout(idleTimer.current);
+      clearAutoLockTimers();
     };
-  }, [resetIdleTimer, session?.sessionId]);
+  }, [clearAutoLockTimers, resetIdleTimer, session?.sessionId]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -543,11 +586,12 @@ export default function POSLayout() {
         resetIdleTimer();
       } else {
         backgroundedAt.current = Date.now();
-        if (idleTimer.current) clearTimeout(idleTimer.current);
+        clearAutoLockTimers();
+        setLockCountdown(null);
       }
     });
     return () => subscription.remove();
-  }, [autoLockMinutes, performAutoLock, resetIdleTimer]);
+  }, [autoLockMinutes, clearAutoLockTimers, performAutoLock, resetIdleTimer]);
 
   // Refresh pending sync count on mount
   useEffect(() => {
@@ -687,7 +731,9 @@ export default function POSLayout() {
   return (
     <View
       style={[styles.viewport, dark ? styles.bgDark : styles.bgLight]}
-      onTouchStart={resetIdleTimer}
+      onTouchStart={() => {
+        if (lockCountdown === null) resetIdleTimer();
+      }}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setViewportSize((current) => current.width === width && current.height === height ? current : { width, height });
@@ -811,6 +857,44 @@ export default function POSLayout() {
         />
       )}
       </View>
+
+      <Modal
+        visible={lockCountdown !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {}}
+      >
+        <View style={styles.autoLockOverlay}>
+          <View style={[styles.autoLockCard, dark ? styles.autoLockCardDark : styles.autoLockCardLight]}>
+            <View style={[styles.autoLockIcon, dark ? styles.autoLockIconDark : styles.autoLockIconLight]}>
+              <Ionicons name="lock-closed" size={27} color={dark ? "#93c5fd" : "#17386b"} />
+            </View>
+            <Text style={[styles.autoLockTitle, dark ? styles.autoLockTextDark : styles.autoLockTextLight]}>
+              Locking soon
+            </Text>
+            <Text style={[styles.autoLockMessage, dark ? styles.autoLockMessageDark : styles.autoLockMessageLight]}>
+              NCT POS will lock in
+            </Text>
+            <Text style={[styles.autoLockCountdown, dark ? styles.autoLockTextDark : styles.autoLockTextLight]}>
+              {lockCountdown ?? AUTO_LOCK_WARNING_SECONDS}
+            </Text>
+            <Text style={[styles.autoLockSeconds, dark ? styles.autoLockMessageDark : styles.autoLockMessageLight]}>
+              seconds
+            </Text>
+            <TouchableOpacity
+              style={styles.autoLockConfirm}
+              activeOpacity={0.8}
+              onPress={resetIdleTimer}
+              accessibilityRole="button"
+              accessibilityLabel="Stay signed in"
+            >
+              <Ionicons name="checkmark-circle-outline" size={20} color="#ffffff" />
+              <Text style={styles.autoLockConfirmText}>Stay Signed In</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -828,6 +912,89 @@ const styles = StyleSheet.create({
   },
   bgDark: {
     backgroundColor: "#050a14",
+  },
+  autoLockOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "rgba(2, 6, 23, 0.72)",
+  },
+  autoLockCard: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+    paddingHorizontal: 28,
+    paddingVertical: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  autoLockCardLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#dbe3ee",
+  },
+  autoLockCardDark: {
+    backgroundColor: "#111827",
+    borderColor: "#334155",
+  },
+  autoLockIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  autoLockIconLight: {
+    backgroundColor: "#eaf1ff",
+  },
+  autoLockIconDark: {
+    backgroundColor: "#1e3a5f",
+  },
+  autoLockTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  autoLockMessage: {
+    marginTop: 8,
+    fontSize: 14,
+  },
+  autoLockCountdown: {
+    marginTop: 5,
+    fontSize: 48,
+    fontWeight: "800",
+  },
+  autoLockSeconds: {
+    marginTop: -5,
+    fontSize: 13,
+  },
+  autoLockTextLight: {
+    color: "#172033",
+  },
+  autoLockTextDark: {
+    color: "#f8fafc",
+  },
+  autoLockMessageLight: {
+    color: "#64748b",
+  },
+  autoLockMessageDark: {
+    color: "#aeb9c8",
+  },
+  autoLockConfirm: {
+    width: "100%",
+    minHeight: 48,
+    marginTop: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+  },
+  autoLockConfirmText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   // Header
