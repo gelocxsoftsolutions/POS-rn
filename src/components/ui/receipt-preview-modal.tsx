@@ -127,7 +127,6 @@ export function ReceiptPreviewModal({
               <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
               <View style={styles.receiptBarcode}>
                 <Code128Barcode value={receipt.receiptNumber} height={58} />
-                <Text style={styles.receiptCodeCaption}>{receipt.receiptNumber}</Text>
               </View>
               <View style={styles.receiptQR}>
                 <ReceiptQrCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={176} />
@@ -273,13 +272,6 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 20,
     alignItems: "center",
-  },
-  receiptCodeCaption: {
-    fontSize: 9,
-    color: "#475569",
-    marginTop: 5,
-    letterSpacing: 0.5,
-    textAlign: "center",
   },
   receiptActions: {
     width: "100%",

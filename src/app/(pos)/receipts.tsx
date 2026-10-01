@@ -202,7 +202,6 @@ export default function ReceiptsScreen() {
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
               .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
               .barcode svg { width: 46mm; height: 14mm; display: block; }
-              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
               .qr svg { width: 42mm; height: 42mm; }
             </style>
@@ -230,7 +229,7 @@ export default function ReceiptsScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(receiptSettings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(selected.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
             ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;

@@ -120,6 +120,7 @@ export default function SalesScreen() {
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [productPage, setProductPage] = useState(1);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [catalogToolsExpanded, setCatalogToolsExpanded] = useState(true);
   const [productSectionWidth, setProductSectionWidth] = useState(0);
   const [quantityItem, setQuantityItem] = useState<PosCartItem | null>(null);
   const [quantityInput, setQuantityInput] = useState("");
@@ -523,9 +524,10 @@ export default function SalesScreen() {
   const handlePrintReceipt = async () => {
     if (!lastReceipt || printing) return;
     setPrinting(true);
-    void playCheckoutSuccessSound();
 
     try {
+      // Start feedback before Bluetooth/print work can occupy the native bridge.
+      await playCheckoutSuccessSound();
       const logoUri = await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
@@ -614,7 +616,6 @@ export default function SalesScreen() {
               .footer { margin-top: 3mm; text-align: center; font-size: 8pt; }
               .barcode { margin: 4mm auto 2mm; width: 46mm; text-align: center; }
               .barcode svg { width: 46mm; height: 14mm; display: block; }
-              .barcode-caption { font-size: 7pt; margin-top: 1mm; letter-spacing: 0.4pt; }
               .qr { margin: 4mm 0 2mm; text-align: center; }
               .qr svg { width: 42mm; height: 42mm; }
             </style>
@@ -641,7 +642,7 @@ export default function SalesScreen() {
             <div class="total-row"><span>Change</span><span>&#8369;${lastReceipt.change.toFixed(2)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
-            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}<div class="barcode-caption">${escapeHtml(lastReceipt.receiptNumber)}</div></div>` : ""}
+            ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
             ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
         </html>`;
@@ -763,6 +764,27 @@ export default function SalesScreen() {
     }
   }, [handleAddToCart]);
 
+  const handleProductLongPress = useCallback((item: PosCartItem) => {
+    const maxQuantity = stockMap.get(item.productId) ?? item.maxQuantity;
+    if (maxQuantity <= 1) return;
+
+    const existing = cart.items.find((cartItem) => cartItem.productId === item.productId);
+    if (!existing) cart.addItem({ ...item, maxQuantity });
+    openQuantityModal({
+      ...item,
+      maxQuantity,
+      quantity: existing?.quantity ?? 1,
+    });
+  }, [cart, openQuantityModal, stockMap]);
+
+  const handleGroupLongPress = useCallback((group: PosCartItem[]) => {
+    if (group.length === 1) {
+      handleProductLongPress(group[0]);
+      return;
+    }
+    setVariationGroup(group);
+  }, [handleProductLongPress]);
+
   const renderGroup = ({ item: group }: { item: PosCartItem[] }) => {
     const isMulti = group.length > 1;
     const base = group[0];
@@ -783,6 +805,8 @@ export default function SalesScreen() {
             { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
           ]}
           onPress={() => handleGroupPress(group)}
+          onLongPress={() => handleGroupLongPress(group)}
+          delayLongPress={350}
           activeOpacity={0.7}
           disabled={effectiveTotal <= 0 && !isMulti}
         >
@@ -822,6 +846,8 @@ export default function SalesScreen() {
           { width: productCardWidth, backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
         ]}
         onPress={() => handleGroupPress(group)}
+        onLongPress={() => handleGroupLongPress(group)}
+        delayLongPress={350}
         activeOpacity={0.7}
         disabled={effectiveTotal <= 0 && !isMulti}
       >
@@ -853,80 +879,110 @@ export default function SalesScreen() {
           style={styles.productSection}
           onLayout={(event) => setProductSectionWidth(event.nativeEvent.layout.width)}
         >
-          <View style={styles.pageHeading}>
+          <View style={[styles.pageHeading, !catalogToolsExpanded && styles.pageHeadingCollapsed]}>
             <View>
               <Text style={[styles.pageTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>New Sale</Text>
-              <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Select products and review the cart</Text>
-            </View>
-            <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
-              <TouchableOpacity
-                style={[styles.viewToggleButton, viewMode === "grid" && styles.viewToggleButtonActive]}
-                onPress={() => setViewMode("grid")}
-                accessibilityLabel="Grid view"
-              >
-                <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.viewToggleButton, viewMode === "list" && styles.viewToggleButtonActive]}
-                onPress={() => setViewMode("list")}
-                accessibilityLabel="List view"
-              >
-                <Ionicons name="list" size={19} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.searchTools}>
-            <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-              <Ionicons name="search" size={18} color="#8e99a4" />
-              <TextInput
-                style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
-                placeholder="Search products..."
-                placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
-                value={search}
-                onChangeText={setSearch}
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch("")}>
-                  <Ionicons name="close-circle" size={18} color="#8e99a4" />
-                </TouchableOpacity>
+              {catalogToolsExpanded && (
+                <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Select products and review the cart</Text>
               )}
             </View>
-            <UsbBarcodeScannerInput
-              onScan={handleBarcodeScan}
-              dark={dark}
-              disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
-            />
-            <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
-              <Ionicons name="camera-outline" size={20} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            horizontal
-            style={styles.sortScroller}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.sortBar}
-          >
-            {SORT_OPTIONS.map((opt) => (
+            <View style={styles.pageHeadingActions}>
+              <UsbBarcodeScannerInput
+                onScan={handleBarcodeScan}
+                dark={dark}
+                compact
+                disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
+              />
+              {catalogToolsExpanded && (
+                <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+                  <TouchableOpacity
+                    style={[styles.viewToggleButton, viewMode === "grid" && styles.viewToggleButtonActive]}
+                    onPress={() => setViewMode("grid")}
+                    accessibilityLabel="Grid view"
+                  >
+                    <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.viewToggleButton, viewMode === "list" && styles.viewToggleButtonActive]}
+                    onPress={() => setViewMode("list")}
+                    accessibilityLabel="List view"
+                  >
+                    <Ionicons name="list" size={19} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                  </TouchableOpacity>
+                </View>
+              )}
               <TouchableOpacity
-                key={opt.value}
                 style={[
-                  styles.sortBtn,
-                  { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" },
-                  sort === opt.value && styles.sortBtnActive,
+                  styles.catalogCollapseButton,
+                  {
+                    backgroundColor: dark ? "#18202c" : "#ffffff",
+                    borderColor: dark ? "#28303d" : "#dde3ea",
+                  },
                 ]}
-                onPress={() => setSort(opt.value)}
+                onPress={() => setCatalogToolsExpanded((expanded) => !expanded)}
+                accessibilityRole="button"
+                accessibilityLabel={catalogToolsExpanded ? "Collapse sale controls" : "Expand sale controls"}
+                accessibilityState={{ expanded: catalogToolsExpanded }}
               >
-                <Text style={[
-                  styles.sortBtnText,
-                  { color: dark ? "#9ca3af" : "#6b7b8d" },
-                  sort === opt.value && styles.sortBtnTextActive,
-                ]}>
-                  {opt.label}
-                </Text>
+                <Ionicons
+                  name={catalogToolsExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={dark ? "#cbd5e1" : "#17386b"}
+                />
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            </View>
+          </View>
+          {catalogToolsExpanded && (
+            <>
+              <View style={styles.searchTools}>
+                <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
+                  <Ionicons name="search" size={18} color="#8e99a4" />
+                  <TextInput
+                    style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+                    placeholder="Search products..."
+                    placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
+                    value={search}
+                    onChangeText={setSearch}
+                  />
+                  {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch("")}>
+                      <Ionicons name="close-circle" size={18} color="#8e99a4" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
+                  <Ionicons name="camera-outline" size={20} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                horizontal
+                style={styles.sortScroller}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sortBar}
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.sortBtn,
+                      { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" },
+                      sort === opt.value && styles.sortBtnActive,
+                    ]}
+                    onPress={() => setSort(opt.value)}
+                  >
+                    <Text style={[
+                      styles.sortBtnText,
+                      { color: dark ? "#9ca3af" : "#6b7b8d" },
+                      sort === opt.value && styles.sortBtnTextActive,
+                    ]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </>
+          )}
 
           {loading ? (
             <View style={styles.loadingContainer}>
@@ -1130,6 +1186,12 @@ export default function SalesScreen() {
                       handleAddToCart(variant);
                       setVariationGroup(null);
                     }}
+                    onLongPress={() => {
+                      if (stock <= 1) return;
+                      handleProductLongPress(variant);
+                      setVariationGroup(null);
+                    }}
+                    delayLongPress={350}
                     disabled={effective <= 0}
                     activeOpacity={0.7}
                   >
@@ -1348,6 +1410,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  pageHeadingCollapsed: {
+    minHeight: 42,
+    paddingBottom: 6,
+  },
+  pageHeadingActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   pageTitle: {
     fontSize: 22,
     fontWeight: "800",
@@ -1372,6 +1443,15 @@ const styles = StyleSheet.create({
   },
   viewToggleButtonActive: {
     backgroundColor: "#17386b",
+  },
+  catalogCollapseButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   loadingContainer: {
     flex: 1,

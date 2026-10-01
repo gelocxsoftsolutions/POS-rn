@@ -671,8 +671,8 @@ export default function ProductsScreen() {
         onRequestClose={() => setDetailProduct(null)}
       >
         {detailLoading ? (
-          <View style={styles.detailLoadingContainer}>
-            <ActivityIndicator size="large" color="#17386b" />
+          <View style={[styles.detailLoadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
+            <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
           </View>
         ) : detailProduct ? (
           <View style={[styles.detailContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
