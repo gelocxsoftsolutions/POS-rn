@@ -764,6 +764,27 @@ export default function SalesScreen() {
     }
   }, [handleAddToCart]);
 
+  const handleProductLongPress = useCallback((item: PosCartItem) => {
+    const maxQuantity = stockMap.get(item.productId) ?? item.maxQuantity;
+    if (maxQuantity <= 1) return;
+
+    const existing = cart.items.find((cartItem) => cartItem.productId === item.productId);
+    if (!existing) cart.addItem({ ...item, maxQuantity });
+    openQuantityModal({
+      ...item,
+      maxQuantity,
+      quantity: existing?.quantity ?? 1,
+    });
+  }, [cart, openQuantityModal, stockMap]);
+
+  const handleGroupLongPress = useCallback((group: PosCartItem[]) => {
+    if (group.length === 1) {
+      handleProductLongPress(group[0]);
+      return;
+    }
+    setVariationGroup(group);
+  }, [handleProductLongPress]);
+
   const renderGroup = ({ item: group }: { item: PosCartItem[] }) => {
     const isMulti = group.length > 1;
     const base = group[0];
@@ -784,6 +805,8 @@ export default function SalesScreen() {
             { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
           ]}
           onPress={() => handleGroupPress(group)}
+          onLongPress={() => handleGroupLongPress(group)}
+          delayLongPress={350}
           activeOpacity={0.7}
           disabled={effectiveTotal <= 0 && !isMulti}
         >
@@ -823,6 +846,8 @@ export default function SalesScreen() {
           { width: productCardWidth, backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
         ]}
         onPress={() => handleGroupPress(group)}
+        onLongPress={() => handleGroupLongPress(group)}
+        delayLongPress={350}
         activeOpacity={0.7}
         disabled={effectiveTotal <= 0 && !isMulti}
       >
@@ -862,6 +887,12 @@ export default function SalesScreen() {
               )}
             </View>
             <View style={styles.pageHeadingActions}>
+              <UsbBarcodeScannerInput
+                onScan={handleBarcodeScan}
+                dark={dark}
+                compact
+                disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
+              />
               {catalogToolsExpanded && (
                 <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
                   <TouchableOpacity
@@ -919,11 +950,6 @@ export default function SalesScreen() {
                     </TouchableOpacity>
                   )}
                 </View>
-                <UsbBarcodeScannerInput
-                  onScan={handleBarcodeScan}
-                  dark={dark}
-                  disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
-                />
                 <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
                   <Ionicons name="camera-outline" size={20} color="#ffffff" />
                 </TouchableOpacity>
@@ -1160,6 +1186,12 @@ export default function SalesScreen() {
                       handleAddToCart(variant);
                       setVariationGroup(null);
                     }}
+                    onLongPress={() => {
+                      if (stock <= 1) return;
+                      handleProductLongPress(variant);
+                      setVariationGroup(null);
+                    }}
+                    delayLongPress={350}
                     disabled={effective <= 0}
                     activeOpacity={0.7}
                   >
