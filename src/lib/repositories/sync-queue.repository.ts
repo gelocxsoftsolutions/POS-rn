@@ -41,7 +41,18 @@ export const SyncQueueRepository = {
        LIMIT 1`,
       [input.entityType, input.entityId, input.operation]
     );
-    if (existing) return existing;
+    if (existing) {
+      // Refresh a stale queued payload (e.g. re-priced sale) instead of replaying the old one.
+      if (input.payload && input.payload !== existing.payload) {
+        const now = new Date().toISOString();
+        await execute(
+          "UPDATE SyncQueue SET payload = ?, updatedAt = ? WHERE id = ?",
+          [input.payload, now, existing.id]
+        );
+        return { ...existing, payload: input.payload, updatedAt: now };
+      }
+      return existing;
+    }
 
     const id = uuid();
     const now = new Date().toISOString();
@@ -111,6 +122,33 @@ export const SyncQueueRepository = {
        SET status = 'FAILED', error = ?, retryCount = maxRetries, updatedAt = ?
        WHERE entityType = ? AND entityId = ? AND status <> 'SYNCED'`,
       [error, now, entityType, entityId]
+    );
+  },
+
+  async markEntitySynced(entityType: string, entityId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE SyncQueue SET status = 'SYNCED', error = NULL, updatedAt = ?
+       WHERE entityType = ? AND entityId = ?`,
+      [now, entityType, entityId]
+    );
+  },
+
+  async reopen(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE SyncQueue SET status = 'PENDING', retryCount = 0, error = NULL, updatedAt = ? WHERE id = ?`,
+      [now, id]
+    );
+  },
+
+  async reopenByEntity(entityType: string, entityId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE SyncQueue
+       SET status = 'PENDING', retryCount = 0, error = NULL, updatedAt = ?
+       WHERE entityType = ? AND entityId = ? AND status IN ('PENDING', 'FAILED')`,
+      [now, entityType, entityId]
     );
   },
 

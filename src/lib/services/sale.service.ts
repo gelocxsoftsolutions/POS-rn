@@ -11,20 +11,40 @@ import type { SaleDTO } from "@/lib/types/sales";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 
+interface UnmappableItem {
+  productId?: string;
+  productName?: string;
+  sku?: string | null;
+}
+
 async function resolveSalePayload(
   input: SaleInput,
-  saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
+  saleItems: Array<{ productId?: string; productName?: string; quantity: number; unitPrice: number; lineTotal: number }>,
   total: number,
   receiptNumber: string
 ) {
   const mappedItems: Array<{ variationId: number; qty: number }> = [];
+  const unmappable: UnmappableItem[] = [];
   for (const item of saleItems) {
-    if (!item.productId) continue;
+    if (!item.productId) {
+      unmappable.push({ productName: item.productName, sku: null });
+      continue;
+    }
     // Product.sku holds OMS variation.id as string (set in upsertProductFromVariation)
-    const row = await queryFirst<{ sku: string | null }>("SELECT sku FROM Product WHERE id = ?", [item.productId]);
+    const row = await queryFirst<{ sku: string | null; name: string | null }>(
+      "SELECT sku, name FROM Product WHERE id = ?",
+      [item.productId]
+    );
     const sku = row?.sku?.trim();
     const vid = sku ? Number(sku) : NaN;
-    if (!Number.isFinite(vid) || vid <= 0) continue;
+    if (!Number.isFinite(vid) || vid <= 0) {
+      unmappable.push({
+        productId: item.productId,
+        productName: item.productName ?? row?.name ?? undefined,
+        sku: sku ?? null,
+      });
+      continue;
+    }
     mappedItems.push({ variationId: Math.trunc(vid), qty: item.quantity });
   }
   return {
@@ -37,6 +57,9 @@ async function resolveSalePayload(
     total,
     items: mappedItems,
     payments: [{ method: input.paymentMethod, amount: total }],
+    deviceId: input.deviceId ?? null,
+    branchId: input.branchId ?? null,
+    unmappable,
   };
 }
 
@@ -293,6 +316,12 @@ export const SaleService = {
             error: `Not enough stock for this product group. Available: ${available}, requested: ${requested}. Please adjust quantity and try again. (Group: ${group})`,
           };
         }
+
+        // Non-retryable failure (e.g. items not linked to OMS products): the sale is kept
+        // locally as Failed. Surface a warning so the cashier is informed, but don't block checkout.
+        if ((pushResult as any).warning) {
+          return { success: true as const, sale, warning: (pushResult as any).warning };
+        }
       }
 
       return { success: true, sale };
@@ -305,15 +334,23 @@ export const SaleService = {
     saleId: string,
     receiptNumber: string,
     input: SaleInput,
-    saleItems: Array<{ productId?: string; quantity: number; unitPrice: number; lineTotal: number }>,
+    saleItems: Array<{ productId?: string; productName?: string; quantity: number; unitPrice: number; lineTotal: number }>,
     total: number
-  ): Promise<import("@/lib/services/oms-sync.service").SalePushResult> {
+  ): Promise<import("@/lib/services/oms-sync.service").SalePushResult & { warning?: string }> {
     const payload = await resolveSalePayload(input, saleItems, total, receiptNumber);
-    if (payload.items.length === 0) {
-      // Nothing mappable to OMS (e.g. legacy mock SKUs like SHR-001) -> keep locally, mark synced to stop 400 loop
-      console.warn("[Sale] No mappable OMS variations for sale", saleId, "- skipping OMS push (mock/unknown SKUs)");
-      await SaleRepository.markSynced(saleId);
-      return { success: true, status: 200, retryable: false };
+    const unmappable = payload.unmappable as UnmappableItem[];
+    if (unmappable.length > 0 || payload.items.length === 0) {
+      // Never send a partial sale and never mark it Synced. Keep it locally as Failed
+      // with a visible reason so the cashier knows it was not recorded in the OMS.
+      const labels = unmappable.map((u) => u.sku ?? u.productName ?? u.productId ?? "unknown item");
+      const reason = labels.length > 0
+        ? `Not recorded in OMS: ${labels.join(", ")} ${labels.length === 1 ? "is" : "are"} not linked to an OMS product.`
+        : "Not recorded in OMS: sale has no items linked to OMS products.";
+      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
+      const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+      await SyncQueueRepository.markEntityFailed("Sale", saleId, reason);
+      console.warn("[Sale] Not pushing unmappable sale", saleId, labels);
+      return { success: false, status: 422, error: reason, retryable: false, warning: reason };
     }
     try {
       const pushResult = await OmsSyncService.pushSale(payload as any);

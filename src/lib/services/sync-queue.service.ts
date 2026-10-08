@@ -77,17 +77,26 @@ export const SyncQueueService = {
                   mapped.push({ variationId: Math.trunc(vid), qty: (it as any).quantity ?? (it as any).qty ?? 1 });
                 }
                 if (mapped.length > 0) {
-                  body = { items: mapped, paymentMethod: body.payments?.[0]?.method ?? body.paymentMethod, cashierUserId: body.cashierId ?? body.cashierUserId };
+                  body = {
+                    items: mapped,
+                    paymentMethod: body.payments?.[0]?.method ?? body.paymentMethod,
+                    cashierUserId: body.cashierId ?? body.cashierUserId,
+                    receiptNumber: body.receiptNumber,
+                    cashierName: body.cashierName,
+                    total: body.total,
+                    payments: body.payments,
+                    deviceId: body.deviceId,
+                    branchId: body.branchId,
+                  };
                 } else {
-                  // All items unmappable (mock, deleted product, or invalid sku) -> discard to stop 400 loop
-                  console.warn("[SyncQueue] Discarding unmappable sale", item.id, body.items);
-                  await SyncQueueRepository.markSynced(item.id);
-                  // Also mark original Sale as synced to avoid re-enqueue
-                  try {
-                    const { execute } = await import("@/lib/db/connection");
-                    await execute("UPDATE Sale SET synced = 1 WHERE id = ?", [item.entityId]);
-                  } catch {}
-                  processed++;
+                  // All items unmappable (mock, deleted product, or invalid sku) -> keep as Failed with a reason
+                  console.warn("[SyncQueue] Sale has no items linked to OMS variations", item.id, body.items);
+                  await SyncQueueRepository.markEntityFailed(
+                    "Sale",
+                    item.entityId,
+                    "Not recorded in OMS: no items linked to OMS products."
+                  );
+                  failed++;
                   continue;
                 }
               } catch {}
@@ -97,9 +106,13 @@ export const SyncQueueService = {
               else discardAsMock = true;
             }
             if (discardAsMock || (Array.isArray(body.items) && body.items.length === 0)) {
-              console.warn("[SyncQueue] Discarding empty sale payload", item.id);
-              await SyncQueueRepository.markSynced(item.id);
-              processed++;
+              console.warn("[SyncQueue] Sale has no items linked to OMS variations", item.id);
+              await SyncQueueRepository.markEntityFailed(
+                "Sale",
+                item.entityId,
+                "Not recorded in OMS: sale has no items linked to OMS products."
+              );
+              failed++;
               continue;
             }
           }

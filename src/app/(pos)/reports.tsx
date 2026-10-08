@@ -19,8 +19,9 @@ import dayjs from "dayjs";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
+import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { SettingsService } from "@/lib/services/settings.service";
-import type { SalesReport, SalesTrendPoint } from "@/lib/types/reports";
+import type { ReportSaleRow, SalesReport, SalesTrendPoint } from "@/lib/types/reports";
 import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { EndOfDayReportModal } from "@/components/ui/end-of-day-report-modal";
 import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
@@ -100,6 +101,7 @@ export default function ReportsScreen() {
   const [eodVisible, setEodVisible] = useState(false);
   const [printingEod, setPrintingEod] = useState(false);
   const [settings, setSettings] = useState<StoreSettingsRow | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
 
   const colors = useMemo(() => ({
@@ -156,6 +158,43 @@ export default function ReportsScreen() {
     }
   };
 
+  const syncStatusInfo = (sale: ReportSaleRow) => {
+    const status = sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED");
+    switch (status) {
+      case "SYNCED": return { label: "Synced", color: "#16a34a" };
+      case "FAILED": return { label: "Not synced", color: "#dc2626" };
+      case "PENDING": return { label: "Pending", color: "#d97706" };
+      default: return { label: "Not synced", color: "#64748b" };
+    }
+  };
+
+  const retrySale = useCallback(
+    async (saleId: string) => {
+      setRetryingId(saleId);
+      try {
+        await SaleSyncService.retrySale(saleId);
+        await loadReport();
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [loadReport]
+  );
+
+  const retryFailedSales = useCallback(async () => {
+    const failed = report.sales.filter((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED");
+    if (!failed.length) return;
+    setRetryingId("all");
+    try {
+      for (const sale of failed) {
+        await SaleSyncService.retrySale(sale.id);
+      }
+      await loadReport();
+    } finally {
+      setRetryingId(null);
+    }
+  }, [report.sales, loadReport]);
+
   const exportCsv = async () => {
     if (!report.sales.length || exporting) return;
     setExporting(true);
@@ -163,8 +202,11 @@ export default function ReportsScreen() {
       const headers = ["Receipt Number", "Timestamp", "Cashier", "Customer", "Payment Method", "Item Count", "Subtotal", "Discount", "Tax", "Total", "Sync Status"];
       const rows = report.sales.map((sale) => [
         sale.receiptNumber, sale.createdAt, sale.cashierName, sale.customerName ?? "", sale.paymentMethod,
-        sale.itemCount, sale.subtotal, sale.discount, sale.tax, sale.total, sale.synced ? "Synced" : "Pending",
+        sale.itemCount, sale.subtotal, sale.discount, sale.tax, sale.total,
+        sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED"),
+        sale.syncError ?? "",
       ]);
+      headers.push("Sync Error");
       const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
       const file = new File(Paths.cache, `sales-report-${dayjs(startDate).format("YYYYMMDD")}-${dayjs(endDate).format("YYYYMMDD")}.csv`);
       file.create({ overwrite: true, intermediates: true });
@@ -387,6 +429,67 @@ export default function ReportsScreen() {
               </View>
             </ScrollView>
           </View>
+
+          <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.border }]}>
+            <View style={styles.rowBetween}>
+              <View style={styles.flex}>
+                <Text style={[styles.panelTitle, { color: colors.text }]}>Sales &amp; Sync Status</Text>
+                <Text style={[styles.panelCaption, { color: colors.muted }]}>Every recorded sale and whether it reached the OMS</Text>
+              </View>
+              {report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
+                <TouchableOpacity
+                  style={[styles.retryAllButton, { borderColor: colors.border }]}
+                  onPress={retryFailedSales}
+                  disabled={retryingId !== null}
+                >
+                  {retryingId === "all" ? (
+                    <ActivityIndicator size="small" color="#17386b" />
+                  ) : (
+                    <Ionicons name="refresh" size={15} color="#17386b" />
+                  )}
+                  <Text style={styles.retryAllText}>Retry failed</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.salesTable}>
+                <View style={[styles.salesRow, { backgroundColor: colors.panelAlt }]}>
+                  {["Receipt", "Date", "Cashier", "Total", "Status", "Reason", ""].map((label, index) => (
+                    <Text key={`${label}-${index}`} style={[styles.salesCell, styles.salesHeader, { color: colors.muted }]}>{label}</Text>
+                  ))}
+                </View>
+                {report.sales.map((sale) => {
+                  const info = syncStatusInfo(sale);
+                  const canRetry = sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED";
+                  return (
+                    <View key={sale.id} style={[styles.salesRow, { borderBottomColor: colors.border }]}>
+                      <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{sale.receiptNumber}</Text>
+                      <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{dayjs(sale.createdAt).format("MMM D, HH:mm")}</Text>
+                      <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{sale.cashierName}</Text>
+                      <Text style={[styles.salesCell, { color: colors.text }]}>{currency(sale.total)}</Text>
+                      <Text style={[styles.salesCell, { color: info.color, fontWeight: "700" }]} numberOfLines={1}>{info.label}</Text>
+                      <Text style={[styles.salesReasonCell, { color: colors.muted }]} numberOfLines={2}>{sale.syncError ?? ""}</Text>
+                      <View style={styles.salesCell}>
+                        {canRetry && (
+                          <TouchableOpacity
+                            style={styles.retryRowButton}
+                            onPress={() => retrySale(sale.id)}
+                            disabled={retryingId !== null}
+                          >
+                            {retryingId === sale.id ? (
+                              <ActivityIndicator size="small" color="#17386b" />
+                            ) : (
+                              <Text style={styles.retryRowText}>Retry</Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
         </>
       )}
       <EndOfDayReportModal
@@ -453,4 +556,13 @@ const styles = StyleSheet.create({
   cashierRow: { minHeight: 44, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth },
   cashierCell: { width: 180, paddingHorizontal: 10, fontSize: 12 },
   cashierHeader: { fontWeight: "800", textTransform: "uppercase", fontSize: 10 },
+  retryAllButton: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 7, paddingHorizontal: 12, paddingVertical: 8 },
+  retryAllText: { color: "#17386b", fontSize: 12, fontWeight: "700" },
+  salesTable: { minWidth: 880, marginTop: 12 },
+  salesRow: { minHeight: 46, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth },
+  salesCell: { width: 130, paddingHorizontal: 10, fontSize: 12 },
+  salesReasonCell: { width: 240, paddingHorizontal: 10, fontSize: 11 },
+  salesHeader: { fontWeight: "800", textTransform: "uppercase", fontSize: 10 },
+  retryRowButton: { borderWidth: 1, borderColor: "#17386b", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 5, alignItems: "center", justifyContent: "center", minWidth: 60 },
+  retryRowText: { color: "#17386b", fontSize: 12, fontWeight: "700" },
 });
