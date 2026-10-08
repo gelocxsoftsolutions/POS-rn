@@ -15,6 +15,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import * as Print from "expo-print";
 import { useAudioPlayer } from "expo-audio";
 import QRCodeLib from "qrcode";
@@ -138,6 +139,8 @@ export default function SalesScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortrait = windowHeight > windowWidth;
   const isWideLayout = !isPortrait && windowWidth >= 768;
+  const salesHandedness = useUiStore((state) => state.salesHandedness ?? "right");
+  const isCartOnLeft = isWideLayout && salesHandedness === "left";
   const alertShowingRef = React.useRef(false);
 
   const loadProducts = useCallback(async () => {
@@ -196,6 +199,23 @@ export default function SalesScreen() {
   useEffect(() => {
     if (lastSyncTime) void loadProducts();
   }, [lastSyncTime, loadProducts]);
+
+  // Reload the catalog whenever the screen regains focus (e.g. returning
+  // from Transfers after a receive) so displayed stock and quantity caps
+  // never go stale.
+  useFocusEffect(
+    useCallback(() => {
+      void loadProducts();
+    }, [loadProducts])
+  );
+
+  // Keep cart quantity caps in sync with fresh stock. Cart items snapshot
+  // maxQuantity when added; without this, edits stay clamped to that stale
+  // value even after stock changes.
+  const refreshCartMaxQuantities = useCartStore((s) => s.refreshMaxQuantities);
+  useEffect(() => {
+    refreshCartMaxQuantities((productId) => stockMap.get(productId));
+  }, [stockMap, refreshCartMaxQuantities]);
 
   const cartQtyByProductId = useMemo(
     () =>
@@ -878,7 +898,7 @@ export default function SalesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
-      <View style={[styles.layout, { flexDirection: isPortrait ? "column" : isWideLayout ? "row" : "column" }]}>
+      <View style={[styles.layout, { flexDirection: isPortrait ? "column" : isWideLayout ? (isCartOnLeft ? "row-reverse" : "row") : "column" }]}>
         <View
           style={styles.productSection}
           onLayout={(event) => setProductSectionWidth(event.nativeEvent.layout.width)}

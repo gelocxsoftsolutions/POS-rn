@@ -12,6 +12,7 @@ import {
   PanResponder,
   AppState,
   Modal,
+  Alert,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -84,12 +85,12 @@ const navItems = [
     requiredPermission: "POS_TRANSFERS",
   },
   {
-    name: "settings",
-    label: "Settings",
-    icon: "settings-outline" as const,
-    activeIcon: "settings" as const,
-    href: "/(pos)/settings",
-    requiredPermission: "POS_SETTINGS",
+    name: "customers",
+    label: "Customers",
+    icon: "people-outline" as const,
+    activeIcon: "people" as const,
+    href: "/(pos)/customers",
+    requiredPermission: "DASHBOARD",
   },
 ];
 
@@ -253,6 +254,7 @@ function POSHeader({
   sidebarOpen,
   onToggleSidebar,
   onAccountPress,
+  onLogoutPress,
 }: {
   transferCount: number;
   transfers: InventoryTransferDTO[];
@@ -262,8 +264,11 @@ function POSHeader({
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onAccountPress: () => void;
+  onLogoutPress: () => void;
 }) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [overflowVisible, setOverflowVisible] = useState(false);
+  const [syncingNow, setSyncingNow] = useState(false);
   const omsStatus = useOmsConnectionStore((state) => state.status);
   const pendingCount = useSyncStore((s) => s.pendingCount);
   const isSyncing = useSyncStore((s) => s.isSyncing);
@@ -304,9 +309,49 @@ function POSHeader({
   ).current;
 
   const router = useRouter();
+  const syncLabel = isSyncing || syncingNow
+    ? "Syncing..."
+    : omsStatus === "connecting"
+      ? "Checking..."
+      : omsStatus === "connected"
+        ? "Online"
+        : "Offline";
+  const syncColor =
+    omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545";
   const handleBadgePress = () => {
     setTransferDialogOpen(true);
     onTransferPress();
+  };
+  const handleOverflowSyncNow = async () => {
+    if (syncingNow || isSyncing) return;
+    setSyncingNow(true);
+    try {
+      await useOmsConnectionStore.getState().checkConnection();
+      try {
+        const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
+        await SyncQueueService.processPending();
+      } catch {
+        // queue flush is best-effort from the header
+      }
+      await useSyncStore.getState().refreshPendingCount();
+    } finally {
+      setSyncingNow(false);
+    }
+  };
+  const handleOverflowAccount = () => {
+    setOverflowVisible(false);
+    onAccountPress();
+  };
+  const handleOverflowSettings = () => {
+    setOverflowVisible(false);
+    router.push("/(pos)/settings" as any);
+  };
+  const handleOverflowLogout = () => {
+    setOverflowVisible(false);
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: () => onLogoutPress() },
+    ]);
   };
 
   return (
@@ -359,31 +404,47 @@ function POSHeader({
           </Text>
         </View>
         <View style={styles.headerRight} {...(!isWide ? panResponder.panHandlers : {})}>
-          {isWide ? (
-            <SessionIndicator
-              dark={dark}
-              onPress={onAccountPress}
-              statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
-              statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
-              pendingCount={pendingCount}
-            />
-          ) : (
-            <View style={styles.headerSliderClip}>
-              <Animated.View style={[styles.headerSliderItem, { transform: [{ translateX: slideAnim }] }]}>
-                {showUserTag ? (
-                  <SessionIndicator
-                    dark={dark}
-                    onPress={onAccountPress}
-                    statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
-                    statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
-                    pendingCount={pendingCount}
-                  />
-                ) : (
-                  <HeaderDateTime dark={dark} />
-                )}
-              </Animated.View>
-            </View>
-          )}
+          <View style={styles.headerActionsRow}>
+            {isWide ? (
+              <SessionIndicator
+                dark={dark}
+                onPress={onAccountPress}
+                statusLabel={syncLabel}
+                statusColor={syncColor}
+                pendingCount={pendingCount}
+              />
+            ) : (
+              <View style={styles.headerSliderClip}>
+                <Animated.View style={[styles.headerSliderItem, { transform: [{ translateX: slideAnim }] }]}>
+                  {showUserTag ? (
+                    <SessionIndicator
+                      dark={dark}
+                      onPress={onAccountPress}
+                      statusLabel={syncLabel}
+                      statusColor={syncColor}
+                      pendingCount={pendingCount}
+                    />
+                  ) : (
+                    <HeaderDateTime dark={dark} />
+                  )}
+                </Animated.View>
+              </View>
+            )}
+            <TouchableOpacity
+              onPress={() => setOverflowVisible(true)}
+              style={styles.overflowBtn}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="More actions"
+            >
+              <Ionicons
+                name="ellipsis-vertical"
+                size={20}
+                color={dark ? "#e2e8f0" : "#17386b"}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       <TransferDialog
@@ -396,6 +457,78 @@ function POSHeader({
           router.push(`/(pos)/transfers?highlight=${id}` as any);
         }}
       />
+      <Modal
+        visible={overflowVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setOverflowVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.overflowBackdrop}
+          activeOpacity={1}
+          onPress={() => setOverflowVisible(false)}
+          accessibilityLabel="Close menu"
+        />
+        <View
+          style={[
+            styles.overflowMenu,
+            dark ? styles.overflowMenuDark : styles.overflowMenuLight,
+          ]}
+        >
+          <View style={styles.overflowStatusRow}>
+            <View style={[styles.overflowStatusDot, { backgroundColor: syncColor }]} />
+            <Text style={[styles.overflowStatusText, dark && { color: "#e2e8f0" }]}>
+              {syncLabel}
+            </Text>
+            {pendingCount > 0 && (
+              <View style={styles.overflowPendingBadge}>
+                <Text style={styles.overflowPendingText}>{pendingCount > 99 ? "99+" : pendingCount}</Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={() => void handleOverflowSyncNow()}
+            disabled={syncingNow || isSyncing}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="sync-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
+            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>
+              {syncingNow || isSyncing ? "Syncing..." : "Sync now"}
+            </Text>
+            {(syncingNow || isSyncing) && <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={handleOverflowAccount}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-circle-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
+            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>My account</Text>
+            <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={handleOverflowSettings}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
+            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>Settings</Text>
+            <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.overflowItem, styles.overflowItemLast]}
+            onPress={handleOverflowLogout}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+          >
+            <Ionicons name="log-out-outline" size={18} color="#dc3545" />
+            <Text style={[styles.overflowItemLabel, styles.overflowItemLabelDanger]}>Log out</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -720,6 +853,7 @@ export default function POSLayout() {
           sidebarOpen={true}
           onToggleSidebar={() => {}}
           onAccountPress={() => router.push("/(pos)/user" as any)}
+          onLogoutPress={() => {}}
         />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#17386b" />
@@ -761,6 +895,7 @@ export default function POSLayout() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         onAccountPress={() => router.push("/(pos)/user" as any)}
+        onLogoutPress={() => void handleLogout()}
       />
 
       <View style={styles.body}>
@@ -1070,11 +1205,112 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   headerRight: {
-    width: 240,
-    height: 34,
+    width: 286,
+    height: 36,
     marginLeft: "auto",
     justifyContent: "center",
     alignItems: "flex-end",
+  },
+  headerActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  overflowBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+    flexShrink: 0,
+  },
+  overflowBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(2, 6, 23, 0.35)",
+  },
+  overflowMenu: {
+    position: "absolute",
+    top: 104,
+    right: 12,
+    minWidth: 248,
+    maxWidth: 300,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  overflowMenuLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+  },
+  overflowMenuDark: {
+    backgroundColor: "#11151d",
+    borderColor: "#28303d",
+  },
+  overflowStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.25)",
+    marginBottom: 4,
+  },
+  overflowStatusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  overflowStatusText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1a202c",
+  },
+  overflowPendingBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    minWidth: 22,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  overflowPendingText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  overflowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  overflowItemLast: {
+    marginBottom: 2,
+  },
+  overflowItemLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1a202c",
+  },
+  overflowItemLabelDanger: {
+    color: "#dc3545",
   },
   headerSliderClip: {
     width: 240,

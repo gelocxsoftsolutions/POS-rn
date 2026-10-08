@@ -5,6 +5,7 @@ import { useColorScheme } from "react-native";
 
 type NavigationMode = "sidebar" | "bottom" | "auto";
 type ThemeMode = "light" | "dark" | "system";
+export type SalesHandedness = "right" | "left";
 export type FeedbackSound = "checkout" | "transferReceived" | "omsConnected" | "omsConnectionFailed";
 export type PaginatedScreen = "sales" | "receipts" | "products" | "stock" | "transfers";
 
@@ -26,6 +27,7 @@ const DEFAULT_PAGE_SIZES: Record<PaginatedScreen, number> = {
 interface UiState {
   themeMode: ThemeMode;
   navigationMode: NavigationMode;
+  salesHandedness: SalesHandedness;
   uiScale: number;
   soundMuted: boolean;
   soundVolume: number;
@@ -33,6 +35,7 @@ interface UiState {
   pageSizes: Record<PaginatedScreen, number>;
   setThemeMode: (mode: ThemeMode) => void;
   setNavigationMode: (mode: NavigationMode) => void;
+  setSalesHandedness: (mode: SalesHandedness) => void;
   setUiScale: (scale: number) => void;
   setSoundMuted: (muted: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -47,6 +50,7 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       themeMode: "system",
       navigationMode: "auto",
+      salesHandedness: "right",
       uiScale: 1,
       soundMuted: false,
       soundVolume: 1,
@@ -55,6 +59,7 @@ export const useUiStore = create<UiState>()(
       hydrated: false,
       setThemeMode: (themeMode) => set({ themeMode }),
       setNavigationMode: (navigationMode) => set({ navigationMode }),
+      setSalesHandedness: (salesHandedness) => set({ salesHandedness }),
       setUiScale: (uiScale) => set({ uiScale: Math.min(1.5, Math.max(0.5, uiScale)) }),
       setSoundMuted: (soundMuted) => set({ soundMuted }),
       setSoundVolume: (soundVolume) =>
@@ -78,6 +83,7 @@ export const useUiStore = create<UiState>()(
       partialize: (state) => ({
         themeMode: state.themeMode,
         navigationMode: state.navigationMode,
+        salesHandedness: state.salesHandedness,
         uiScale: state.uiScale,
         soundMuted: state.soundMuted,
         soundVolume: state.soundVolume,
