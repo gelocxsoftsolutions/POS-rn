@@ -443,6 +443,10 @@ export default function SalesScreen() {
         setCheckoutVisible(false);
         setReceiptVisible(true);
 
+        if (result.warning) {
+          Alert.alert("Recorded locally - not yet in OMS", result.warning);
+        }
+
         if (settings) {
           try {
             await ReceiptService.create(

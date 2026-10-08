@@ -72,6 +72,8 @@ export interface SalePushResult {
   status: number;
   error?: string;
   retryable: boolean;
+  saleId?: number;
+  receiptNumber?: string;
 }
 
 function parsePrice(value: unknown): number | undefined {
@@ -301,18 +303,25 @@ async function deleteLegacyMockProducts(): Promise<void> {
   for (const c of orphanCategories) {
     await execute("DELETE FROM Category WHERE id = ?", [c.id]);
   }
-  // Purge legacy/unmappable sales from SyncQueue to stop 400 loop
+  // Flag legacy/unmappable queued sales as FAILED (never silently mark them Synced)
   try {
     for (const sku of LEGACY_MOCK_SKUS) {
-      await execute(`DELETE FROM SyncQueue WHERE payload LIKE ? AND entityType = 'Sale'`, [`%${sku}%`]);
+      await execute(
+        `UPDATE SyncQueue
+         SET status = 'FAILED', error = ?, retryCount = maxRetries, updatedAt = ?
+         WHERE entityType = 'Sale' AND status <> 'SYNCED' AND payload LIKE ?`,
+        [`Legacy mock SKU ${sku} is not linked to an OMS variation`, new Date().toISOString(), `%${sku}%`]
+      );
     }
     const pendingSales = await query<{ id: string; payload: string | null; entityId: string }>(`SELECT id, payload, entityId FROM SyncQueue WHERE entityType = 'Sale' AND status IN ('PENDING','FAILED')`);
     for (const row of pendingSales) {
       try {
         const body = row.payload ? JSON.parse(row.payload) : null;
         if (!body?.items || !Array.isArray(body.items) || body.items.length === 0) {
-          await execute(`UPDATE SyncQueue SET status = 'SYNCED', updatedAt = ? WHERE id = ?`, [new Date().toISOString(), row.id]);
-          await execute(`UPDATE Sale SET synced = 1 WHERE id = ?`, [row.entityId]);
+          await execute(
+            `UPDATE SyncQueue SET status = 'FAILED', error = ?, retryCount = maxRetries, updatedAt = ? WHERE id = ?`,
+            ["Sale has no items linked to OMS variations", new Date().toISOString(), row.id]
+          );
           continue;
         }
         let mappable = 0;
@@ -326,9 +335,11 @@ async function deleteLegacyMockProducts(): Promise<void> {
           if (Number.isFinite(vid) && vid > 0) mappable++;
         }
         if (mappable === 0) {
-          console.warn("[OmsSync] Purging unmappable SyncQueue sale", row.id);
-          await execute(`UPDATE SyncQueue SET status = 'SYNCED', updatedAt = ? WHERE id = ?`, [new Date().toISOString(), row.id]);
-          await execute(`UPDATE Sale SET synced = 1 WHERE id = ?`, [row.entityId]);
+          console.warn("[OmsSync] Sale", row.entityId, "has no items linked to OMS variations");
+          await execute(
+            `UPDATE SyncQueue SET status = 'FAILED', error = ?, retryCount = maxRetries, updatedAt = ? WHERE id = ?`,
+            ["No items linked to OMS variations", new Date().toISOString(), row.id]
+          );
         }
       } catch {}
     }
@@ -459,17 +470,33 @@ export const OmsSyncService = {
     total?: number;
     items: Array<{ variationId: number; qty: number }>;
     payments?: Array<{ method: string; amount: number }>;
+    deviceId?: string | null;
+    branchId?: number | null;
   }): Promise<SalePushResult> {
     try {
-      // Normalize to OMS canonical schema: items[{variationId, qty}], paymentMethod, cashierUserId
+      // Canonical OMS schema: items[{variationId, qty}], paymentMethod, cashierUserId, plus the
+      // fields the OMS needs to attribute and cross-reference the sale (device/branch/receipt).
       const body: any = {
         items: sale.items,
         paymentMethod: sale.paymentMethod ?? sale.payments?.[0]?.method,
         cashierUserId: sale.cashierUserId ?? sale.cashierId,
+        cashierName: sale.cashierName,
+        receiptNumber: sale.receiptNumber,
+        total: sale.total,
+        payments: sale.payments,
+        deviceId: sale.deviceId ?? undefined,
+        branchId: sale.branchId ?? undefined,
       };
       const res = await api.post("/api/pos/sales", body);
       if (res.ok) {
-        return { success: true, status: res.status, retryable: false };
+        const data = (res.data as any)?.data;
+        return {
+          success: true,
+          status: res.status,
+          retryable: false,
+          saleId: data?.saleId,
+          receiptNumber: data?.receiptNumber ?? sale.receiptNumber,
+        };
       }
       const error = String(
         (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`

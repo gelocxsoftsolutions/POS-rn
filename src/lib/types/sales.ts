@@ -1,3 +1,5 @@
+export type SaleSyncStatus = "SYNCED" | "PENDING" | "FAILED" | "UNSYNCED";
+
 export interface SaleDTO {
   id: string;
   receiptNumber: string;
@@ -18,6 +20,8 @@ export interface SaleDTO {
   deviceId: string | null;
   branchId: number | null;
   synced: boolean;
+  syncStatus?: SaleSyncStatus;
+  syncError?: string | null;
   createdAt: string;
   items: SaleItemDTO[];
   payments: PaymentDTO[];
@@ -75,6 +79,7 @@ export interface CreateSaleResult {
   success: boolean;
   sale?: SaleDTO;
   error?: string;
+  warning?: string;
 }
 
 export interface DiscountDTO {

@@ -42,6 +42,7 @@ export interface CashierPerformance {
 }
 
 export interface ReportSaleRow {
+  id: string;
   receiptNumber: string;
   createdAt: string;
   cashierName: string;
@@ -53,6 +54,8 @@ export interface ReportSaleRow {
   tax: number;
   total: number;
   synced: number | boolean;
+  syncStatus?: import("@/lib/types/sales").SaleSyncStatus;
+  syncError?: string | null;
 }
 
 export interface SalesReport {

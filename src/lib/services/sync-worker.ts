@@ -12,14 +12,31 @@ async function pushUnsyncedSales(): Promise<void> {
   try {
     const unsynced = await SaleRepository.findUnsynced(50);
     for (const sale of unsynced) {
-      const items = (sale.items ?? [])
+      const rawItems = sale.items ?? [];
+      const items = rawItems
         .map((item) => ({
           variationId: Number(item.sku),
           qty: Number(item.quantity),
         }))
         .filter((item) => Number.isFinite(item.variationId) && item.variationId > 0 && item.qty > 0);
 
-      if (items.length === 0) continue;
+      // Never push a partial sale. If any line is not linked to an OMS variation,
+      // keep the whole sale as Failed with a visible reason.
+      if (rawItems.length === 0 || items.length !== rawItems.length) {
+        const bad = rawItems
+          .filter((item) => !Number.isFinite(Number(item.sku)) || Number(item.sku) <= 0)
+          .map((item) => item.sku ?? item.productName ?? "unknown item");
+        const reason = `Not recorded in OMS: ${bad.length > 0 ? bad.join(", ") : "sale has no items"} not linked to an OMS product.`;
+        const queued = await SyncQueueService.enqueue("Sale", sale.id, "CREATE", {
+          receiptNumber: sale.receiptNumber,
+          items: [],
+        });
+        if (queued) {
+          const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+          await SyncQueueRepository.markEntityFailed("Sale", sale.id, reason);
+        }
+        continue;
+      }
 
       const payload = {
         receiptNumber: sale.receiptNumber,
@@ -33,6 +50,8 @@ async function pushUnsyncedSales(): Promise<void> {
           method: p.method,
           amount: p.amount,
         })) ?? [{ method: sale.paymentMethod, amount: sale.total }],
+        deviceId: sale.deviceId ?? null,
+        branchId: sale.branchId ?? null,
       };
 
       const pushResult = await OmsSyncService.pushSale(payload);

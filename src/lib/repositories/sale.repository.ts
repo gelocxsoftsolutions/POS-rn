@@ -1,6 +1,42 @@
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, PaginatedResult } from "@/lib/types/sales";
+import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, PaginatedResult, SaleSyncStatus } from "@/lib/types/sales";
+
+interface SaleSyncRow {
+  entityId: string;
+  status: string;
+  error: string | null;
+}
+
+async function loadSaleSyncStatus(
+  ids: string[]
+): Promise<Map<string, { status: string; error: string | null }>> {
+  const map = new Map<string, { status: string; error: string | null }>();
+  if (ids.length === 0) return map;
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = await query<SaleSyncRow>(
+    `SELECT entityId, status, error FROM SyncQueue
+     WHERE entityType = 'Sale' AND entityId IN (${placeholders})
+     ORDER BY updatedAt DESC`,
+    ids
+  );
+  for (const row of rows) {
+    if (!map.has(row.entityId)) map.set(row.entityId, { status: row.status, error: row.error });
+  }
+  return map;
+}
+
+function resolveSyncStatus(
+  synced: unknown,
+  queue?: { status: string; error: string | null }
+): { syncStatus: SaleSyncStatus; syncError: string | null } {
+  if (queue) {
+    if (queue.status === "SYNCED") return { syncStatus: "SYNCED", syncError: null };
+    if (queue.status === "FAILED") return { syncStatus: "FAILED", syncError: queue.error };
+    return { syncStatus: "PENDING", syncError: queue.error };
+  }
+  return { syncStatus: synced ? "SYNCED" : "UNSYNCED", syncError: null };
+}
 
 export interface CreateSaleInput {
   receiptNumber: string;
@@ -56,7 +92,8 @@ export const SaleRepository = {
       [id]
     );
 
-    return { ...sale, items, payments };
+    const syncMap = await loadSaleSyncStatus([id]);
+    return { ...sale, items, payments, ...resolveSyncStatus(sale.synced, syncMap.get(id)) };
   },
 
   async findByReceiptNumber(receiptNumber: string): Promise<SaleDTO | null> {
@@ -75,7 +112,8 @@ export const SaleRepository = {
       [sale.id]
     );
 
-    return { ...sale, items, payments };
+    const syncMap = await loadSaleSyncStatus([sale.id]);
+    return { ...sale, items, payments, ...resolveSyncStatus(sale.synced, syncMap.get(sale.id)) };
   },
 
   async findMany(filter: SaleFilter): Promise<PaginatedResult<SaleDTO>> {
@@ -148,8 +186,14 @@ export const SaleRepository = {
       payments: payments.filter((p) => p.saleId === sale.id),
     }));
 
+    const syncMap = await loadSaleSyncStatus(salesWithDetails.map((s) => s.id));
+    const enriched = salesWithDetails.map((sale) => ({
+      ...sale,
+      ...resolveSyncStatus(sale.synced, syncMap.get(sale.id)),
+    }));
+
     return {
-      items: salesWithDetails,
+      items: enriched,
       total,
       page,
       pageSize,
@@ -252,6 +296,30 @@ export const SaleRepository = {
         "SELECT * FROM Payment WHERE saleId = ?",
         [sale.id]
       );
+    }
+    return sales;
+  },
+
+  async findFailed(limit: number = 100): Promise<SaleDTO[]> {
+    const sales = await query<SaleDTO>(
+      `SELECT s.* FROM Sale s
+       WHERE s.synced = 0
+         AND s.status = 'COMPLETED'
+         AND EXISTS (
+           SELECT 1 FROM SyncQueue q
+           WHERE q.entityType = 'Sale'
+             AND q.entityId = s.id
+             AND q.status = 'FAILED'
+         )
+       ORDER BY s.createdAt DESC
+       LIMIT ?`,
+      [limit]
+    );
+    const syncMap = await loadSaleSyncStatus(sales.map((s) => s.id));
+    for (const sale of sales) {
+      sale.items = await query<SaleItemDTO>("SELECT * FROM SaleItem WHERE saleId = ?", [sale.id]);
+      sale.payments = await query<PaymentDTO>("SELECT * FROM Payment WHERE saleId = ?", [sale.id]);
+      Object.assign(sale, resolveSyncStatus(sale.synced, syncMap.get(sale.id)));
     }
     return sales;
   },

@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SaleService } from "@/lib/services/sale.service";
+import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
@@ -59,6 +60,7 @@ export default function ReceiptsScreen() {
   const [receiptSettings, setReceiptSettings] = useState<StoreSettingsRow | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const dark = useIsDarkTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
@@ -106,6 +108,32 @@ export default function ReceiptsScreen() {
       default: return "#6b7b8d";
     }
   };
+
+  const syncInfo = (item: SaleDTO): { label: string; color: string } | null => {
+    switch (item.syncStatus) {
+      case "SYNCED": return { label: "Synced", color: "#28a745" };
+      case "FAILED": return { label: "Not synced", color: "#dc3545" };
+      case "PENDING": return { label: "Pending sync", color: "#f0ad4e" };
+      case "UNSYNCED": return { label: "Not synced", color: "#6b7b8d" };
+      default: return null;
+    }
+  };
+
+  const retrySale = useCallback(
+    async (saleId: string) => {
+      setRetryingId(saleId);
+      try {
+        const result = await SaleSyncService.retrySale(saleId);
+        await loadReceipts();
+        if (!result.success) {
+          Alert.alert("Retry failed", result.error ?? "Could not record this sale in the OMS.");
+        }
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [loadReceipts]
+  );
 
   const handlePrintReceipt = useCallback(async () => {
     if (!selected || printing) return;
@@ -314,6 +342,9 @@ export default function ReceiptsScreen() {
             </Text>
             <Text style={[styles.receiptDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
+            {item.syncStatus === "FAILED" && item.syncError ? (
+              <Text style={styles.syncError} numberOfLines={2}>{item.syncError}</Text>
+            ) : null}
           </View>
           <View style={styles.receiptRight}>
             <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
@@ -323,6 +354,31 @@ export default function ReceiptsScreen() {
               size="sm"
               style={styles.receiptPaymentBadge}
             />
+            {(() => {
+              const info = syncInfo(item);
+              if (!info) return null;
+              return (
+                <Badge
+                  label={info.label}
+                  color={info.color}
+                  size="sm"
+                  style={styles.receiptPaymentBadge}
+                />
+              );
+            })()}
+            {(item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => retrySale(item.id)}
+                disabled={retryingId === item.id}
+              >
+                {retryingId === item.id ? (
+                  <ActivityIndicator size="small" color="#17386b" />
+                ) : (
+                  <Text style={styles.retryBtnText}>Retry</Text>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Card>
@@ -568,6 +624,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#8e99a4",
     marginTop: 2,
+  },
+  syncError: {
+    fontSize: 11,
+    color: "#dc3545",
+    marginTop: 2,
+  },
+  retryBtn: {
+    marginTop: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#17386b",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 64,
+  },
+  retryBtnText: {
+    color: "#17386b",
+    fontSize: 12,
+    fontWeight: "700",
   },
   receiptRight: {
     width: 132,

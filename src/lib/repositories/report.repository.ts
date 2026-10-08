@@ -79,12 +79,24 @@ export const ReportRepository = {
       params
     );
 
-    const sales = await query<ReportSaleRow>(
-      `SELECT s.receiptNumber, s.createdAt, s.cashierName, s.customerName,
-        s.paymentMethod, s.itemCount, s.subtotal, s.discount, s.tax, s.total, s.synced
+    const rawSales = await query<ReportSaleRow & { queueStatus: string | null; queueError: string | null }>(
+      `SELECT s.id, s.receiptNumber, s.createdAt, s.cashierName, s.customerName,
+        s.paymentMethod, s.itemCount, s.subtotal, s.discount, s.tax, s.total, s.synced,
+        (SELECT q.status FROM SyncQueue q WHERE q.entityType = 'Sale' AND q.entityId = s.id ORDER BY q.updatedAt DESC LIMIT 1) AS queueStatus,
+        (SELECT q.error FROM SyncQueue q WHERE q.entityType = 'Sale' AND q.entityId = s.id ORDER BY q.updatedAt DESC LIMIT 1) AS queueError
        FROM Sale s WHERE ${completedRange} ORDER BY s.createdAt DESC`,
       params
     );
+
+    const sales: ReportSaleRow[] = rawSales.map((sale) => {
+      const { queueStatus, queueError, ...rest } = sale;
+      let syncStatus: ReportSaleRow["syncStatus"];
+      if (queueStatus === "SYNCED" || (!queueStatus && rest.synced)) syncStatus = "SYNCED";
+      else if (queueStatus === "FAILED") syncStatus = "FAILED";
+      else if (queueStatus === "PENDING" || queueStatus === "PROCESSING") syncStatus = "PENDING";
+      else syncStatus = "UNSYNCED";
+      return { ...rest, syncStatus, syncError: queueError ?? null };
+    });
 
     return {
       summary: summary ?? { revenue: 0, transactionCount: 0, averageBasket: 0, itemsSold: 0, tax: 0, discounts: 0 },
