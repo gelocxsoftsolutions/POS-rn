@@ -16,6 +16,14 @@ export interface TransferQrPayload {
   transferNumber: string;
 }
 
+// Transfers in a final state must never change stock again. Receiving an
+// already-received transfer (double-tap, double QR scan) would otherwise add
+// the quantities a second time and inflate inventory.
+const RECEIVE_FINAL_STATUSES = ["RECEIVED", "REJECTED", "CANCELLED", "COMPLETED"];
+// Guards against two receive() calls for the same transfer running at the
+// same time (e.g. the QR scanner firing twice before state updates).
+const receiveInFlight = new Set<string>();
+
 export const TransferService = {
   async list(filters: TransferFilter): Promise<PaginatedResult<InventoryTransferDTO>> {
     try {
@@ -44,9 +52,18 @@ export const TransferService = {
     maybeName?: string,
     omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
+    if (receiveInFlight.has(id)) {
+      try {
+        return await TransferRepository.findById(id);
+      } catch {
+        return null;
+      }
+    }
+    receiveInFlight.add(id);
     try {
       const transfer = await TransferRepository.findById(id);
       if (!transfer) return null;
+      if (RECEIVE_FINAL_STATUSES.includes(transfer.status)) return transfer;
 
       let checklist: Array<{ itemId: string; actualQty: number; notes?: string }> | undefined;
       let receivedByName: string;
@@ -241,6 +258,8 @@ export const TransferService = {
     } catch (e: any) {
       console.error("[Transfer] receive failed", e?.message ?? e, e);
       return null;
+    } finally {
+      receiveInFlight.delete(id);
     }
   },
 

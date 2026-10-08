@@ -186,6 +186,8 @@ export default function SettingsScreen() {
     setThemeMode,
     navigationMode,
     setNavigationMode,
+    salesHandedness,
+    setSalesHandedness,
     uiScale,
     setUiScale,
     soundMuted,
@@ -1317,6 +1319,52 @@ export default function SettingsScreen() {
                 {opt.label}
               </Text>
               <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, navigationMode === opt.key && styles.navDescActive]}>
+                {opt.desc}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Card>
+
+      {/* Sales Layout Card */}
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("sales layout handed left right cart dominant hand") && styles.hidden]}>
+        <View style={styles.autoLockHeading}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Sales Layout</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Move the cart to the left side for left-handed use, or keep it on the right.</Text>
+          </View>
+          <Switch
+            value={salesHandedness === "left"}
+            onValueChange={(enabled) => setSalesHandedness(enabled ? "left" : "right")}
+            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
+            thumbColor={salesHandedness === "left" ? "#17386b" : "#f8fafc"}
+            accessibilityLabel="Left-handed sales layout"
+          />
+        </View>
+
+        <View style={styles.navGrid}>
+          {([
+            { key: "right" as const, label: "Right-handed", icon: "arrow-forward-circle-outline" as const, desc: "Products left, cart right" },
+            { key: "left" as const, label: "Left-handed", icon: "arrow-back-circle-outline" as const, desc: "Cart left, products right" },
+          ]).map((opt) => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[
+                styles.navCard,
+                { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+                salesHandedness === opt.key && styles.navCardActive,
+              ]}
+              onPress={() => setSalesHandedness(opt.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: salesHandedness === opt.key }}
+            >
+              <View style={[styles.navIconWrap, salesHandedness === opt.key && styles.navIconWrapActive]}>
+                <Ionicons name={opt.icon} size={22} color={salesHandedness === opt.key ? "#fff" : dark ? "#94a3b8" : "#17386b"} />
+              </View>
+              <Text style={[styles.navLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, salesHandedness === opt.key && styles.navLabelActive]}>
+                {opt.label}
+              </Text>
+              <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, salesHandedness === opt.key && styles.navDescActive]}>
                 {opt.desc}
               </Text>
             </TouchableOpacity>

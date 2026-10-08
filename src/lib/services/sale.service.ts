@@ -133,9 +133,13 @@ export const SaleService = {
         groupRequested.set(groupKey, (groupRequested.get(groupKey) ?? 0) + it.quantity);
       }
       for (const [groupKey, requested] of groupRequested) {
-        // Group stock is per-group, not sum of variations (each variation in same productCode shares same qty)
+        // Group stock is the total across member rows: each variation keeps
+        // its own PosInventory row (transfer receive and OMS sync both stock
+        // per variation), and the sales UI displays the summed group stock.
+        // Comparing the summed request against a single row (MAX) falsely
+        // rejects valid sales, e.g. two variations with 1 unit each.
         const groupStock = await queryFirst<{ totalAvail: number }>(
-          `SELECT COALESCE(MAX(pi.availableQty),0) as totalAvail FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
+          `SELECT COALESCE(SUM(pi.availableQty),0) as totalAvail FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
           [groupKey, groupKey]
         );
         const available = groupStock?.totalAvail ?? 0;
@@ -168,7 +172,9 @@ export const SaleService = {
             const omsGroupMap = new Map<string, number>();
             const omsVarMap = new Map<string, number>();
             for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
-              if (it.groupKey) omsGroupMap.set(it.groupKey, Number(it.qty ?? 0));
+              // OMS sends one row per variation: accumulate so the group
+              // total matches the summed local group stock model.
+              if (it.groupKey) omsGroupMap.set(it.groupKey, (omsGroupMap.get(it.groupKey) ?? 0) + Number(it.qty ?? 0));
               if (it.variation?.id) omsVarMap.set(String(it.variation.id), Number(it.qty ?? 0));
             }
             // Group check
