@@ -37,6 +37,76 @@ interface CashierPin {
   pin: string;
 }
 
+function normalizeServerUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const normalized = raw.trim().replace(/\/+$/, "");
+  return normalized || undefined;
+}
+
+function asCleanString(raw: unknown): string | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw).trim() || undefined;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+// QR scanners routinely append trailing newlines/whitespace, OMS QR payloads
+// use varying key names, and the api client joins baseUrl + path verbatim
+// (a trailing slash becomes a double-slash 404). The manual form trims and
+// the user types a clean URL, which is why manual entry worked while QR
+// scans failed with "Invalid activation token".
+function extractQrPayload(data: string): { activationToken?: string; url?: string } {
+  const text = data.trim();
+
+  if (text.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      const source = parsed && typeof parsed === "object" ? parsed : null;
+      const obj =
+        source && source.data && typeof source.data === "object" && !Array.isArray(source.data)
+          ? source.data
+          : source;
+      if (obj) {
+        const token =
+          asCleanString(obj.activationToken) ??
+          asCleanString(obj.token) ??
+          asCleanString(obj.activation_token) ??
+          asCleanString(obj.activationCode) ??
+          asCleanString(obj.code);
+        const url = normalizeServerUrl(
+          obj.serverUrl ?? obj.server ?? obj.url ?? obj.server_url ?? obj.omsUrl ?? obj.baseUrl ?? obj.host
+        );
+        // Valid JSON object: return what we found (possibly no token, which
+        // the caller reports as an invalid QR instead of sending garbage).
+        return { activationToken: token, url };
+      }
+    } catch {
+      // fall through to raw handling below
+    }
+  }
+
+  // Activation link, e.g. https://oms.example.com/activate?token=ABC123
+  const tokenMatch = text.match(/[?&](token|activationToken|activation_token|activationCode|code)=([^&#\s]+)/i);
+  if (tokenMatch) {
+    let server: string | undefined;
+    try {
+      const parsedUrl = new URL(text);
+      server = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    } catch {
+      server = undefined;
+    }
+    try {
+      const token = decodeURIComponent(tokenMatch[2]).trim() || undefined;
+      if (token) return { activationToken: token, url: normalizeServerUrl(server) };
+    } catch {
+      const token = tokenMatch[2].trim() || undefined;
+      if (token) return { activationToken: token, url: normalizeServerUrl(server) };
+    }
+  }
+
+  return { activationToken: text || undefined };
+}
+
 export default function RegisterDevice() {
   const [step, setStep] = useState<Step>("choose");
   const [token, setToken] = useState("");
@@ -107,10 +177,15 @@ export default function RegisterDevice() {
     registering.current = true;
     setLoading(true);
     try {
-      const serverUrl = url || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
+      // Defense in depth: never send a token with scanner whitespace or a
+      // server URL with a trailing slash (the api client concatenates
+      // baseUrl + path verbatim, so "host//api/..." 404s).
+      const cleanToken = activationToken.trim();
+      const serverUrl =
+        normalizeServerUrl(url) || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
       const keys = generateEd25519Keypair();
       const result = await DeviceService.register({
-        activationToken,
+        activationToken: cleanToken,
         publicKey: keys.publicKey,
         privateKey: keys.privateKey,
         machineIdentifier: Constants.default?.sessionId ?? "unknown",
@@ -199,16 +274,7 @@ export default function RegisterDevice() {
     if (scanned) return;
     setScanned(true);
     try {
-      let activationToken: string | undefined;
-      let url: string | undefined;
-
-      try {
-        const parsed = JSON.parse(data);
-        activationToken = parsed.activationToken ?? parsed.token;
-        url = parsed.serverUrl ?? parsed.url;
-      } catch {
-        activationToken = data.trim();
-      }
+      const { activationToken, url } = extractQrPayload(data);
 
       if (!activationToken) {
         Alert.alert("Invalid QR", "QR code does not contain an activation token.");
