@@ -50,6 +50,8 @@ type Props = {
   settings: ReceiptPreviewSettings | null;
   onPrint?: () => void;
   printing?: boolean;
+  onOpenCashRegister?: () => void;
+  openingCashRegister?: boolean;
 };
 
 const paymentMethodLabel = (method: string) =>
@@ -62,6 +64,8 @@ export function ReceiptPreviewModal({
   settings,
   onPrint,
   printing = false,
+  onOpenCashRegister,
+  openingCashRegister = false,
 }: Props) {
   if (!receipt) return null;
 
@@ -132,12 +136,24 @@ export function ReceiptPreviewModal({
                 <ReceiptQrCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={176} />
               </View>
               <View style={styles.receiptActions}>
+                {onOpenCashRegister && (
+                  <Button
+                    title={openingCashRegister ? "Opening..." : "Open Cash Register"}
+                    onPress={onOpenCashRegister}
+                    icon="cash-outline"
+                    loading={openingCashRegister}
+                    disabled={printing}
+                    variant="secondary"
+                    style={styles.openCashRegisterButton}
+                  />
+                )}
                 {onPrint && (
                   <Button
                     title={printing ? "Printing..." : "Print Receipt"}
                     onPress={onPrint}
                     icon="print-outline"
                     loading={printing}
+                    disabled={openingCashRegister}
                     style={styles.printReceiptButton}
                   />
                 )}
@@ -279,6 +295,10 @@ const styles = StyleSheet.create({
   },
   printReceiptButton: {
     width: "100%",
+  },
+  openCashRegisterButton: {
+    width: "100%",
+    marginBottom: 8,
   },
   receiptDoneButton: {
     width: "100%",

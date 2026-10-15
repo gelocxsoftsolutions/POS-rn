@@ -14,6 +14,9 @@ export interface CashierRow {
   active: number;
   pinLoginEnabled: number;
   passwordLoginEnabled: number;
+  failedPinAttempts: number;
+  accountLocked: number;
+  accountLockedAt: string | null;
   lastLogin: string | null;
   lastActivity: string | null;
   createdAt: string;
@@ -42,6 +45,9 @@ export interface UpdateCashierInput {
   pinLoginEnabled?: boolean;
   passwordLoginEnabled?: boolean;
   lastLogin?: string;
+  failedPinAttempts?: number;
+  accountLocked?: boolean;
+  accountLockedAt?: string | null;
 }
 
 export const CashierRepository = {
@@ -56,6 +62,12 @@ export const CashierRepository = {
     return queryFirst<CashierRow>(
       "SELECT * FROM Cashier WHERE pinHash = ? AND active = 1",
       [pinHash]
+    );
+  },
+
+  async findLoginUsers(): Promise<CashierRow[]> {
+    return query<CashierRow>(
+      "SELECT * FROM Cashier WHERE active = 1 AND pinLoginEnabled = 1 ORDER BY displayName COLLATE NOCASE ASC"
     );
   },
 
@@ -109,6 +121,9 @@ export const CashierRepository = {
     if (input.pinLoginEnabled !== undefined) { fields.push("pinLoginEnabled = ?"); values.push(input.pinLoginEnabled ? 1 : 0); }
     if (input.passwordLoginEnabled !== undefined) { fields.push("passwordLoginEnabled = ?"); values.push(input.passwordLoginEnabled ? 1 : 0); }
     if (input.lastLogin !== undefined) { fields.push("lastLogin = ?"); values.push(input.lastLogin); }
+    if (input.failedPinAttempts !== undefined) { fields.push("failedPinAttempts = ?"); values.push(Math.max(0, input.failedPinAttempts)); }
+    if (input.accountLocked !== undefined) { fields.push("accountLocked = ?"); values.push(input.accountLocked ? 1 : 0); }
+    if (input.accountLockedAt !== undefined) { fields.push("accountLockedAt = ?"); values.push(input.accountLockedAt); }
 
     if (fields.length === 0) return this.findById(id);
 
@@ -119,6 +134,29 @@ export const CashierRepository = {
     await execute(
       `UPDATE Cashier SET ${fields.join(", ")} WHERE id = ?`,
       values
+    );
+    return this.findById(id);
+  },
+
+  async recordFailedPinAttempt(id: string, maximumAttempts: number): Promise<CashierRow | null> {
+    const max = Math.max(1, Math.floor(maximumAttempts));
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE Cashier
+       SET failedPinAttempts = COALESCE(failedPinAttempts, 0) + 1,
+           accountLocked = CASE WHEN COALESCE(failedPinAttempts, 0) + 1 >= ? THEN 1 ELSE accountLocked END,
+           accountLockedAt = CASE WHEN COALESCE(failedPinAttempts, 0) + 1 >= ? THEN ? ELSE accountLockedAt END,
+           updatedAt = ?
+       WHERE id = ? AND active = 1`,
+      [max, max, now, now, id]
+    );
+    return this.findById(id);
+  },
+
+  async resetPinFailures(id: string): Promise<CashierRow | null> {
+    await execute(
+      "UPDATE Cashier SET failedPinAttempts = 0, accountLocked = 0, accountLockedAt = NULL, updatedAt = ? WHERE id = ?",
+      [new Date().toISOString(), id]
     );
     return this.findById(id);
   },

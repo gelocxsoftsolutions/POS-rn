@@ -8,6 +8,7 @@ export interface CashierProfile {
   pin: string;
   role: string;
   avatarUrl?: string;
+  isSuperAdmin?: boolean;
 }
 
 export interface StoreSettings {

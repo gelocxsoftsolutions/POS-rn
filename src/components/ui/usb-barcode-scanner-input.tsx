@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 type Props = {
   onScan: (barcode: string) => void | Promise<void>;
@@ -9,7 +10,7 @@ type Props = {
   compact?: boolean;
 };
 
-const SCAN_SETTLE_MS = 100;
+const SCAN_SETTLE_MS = 500;
 
 export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false, compact = false }: Props) {
   const inputRef = useRef<TextInput>(null);
@@ -24,19 +25,19 @@ export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false,
   }, [disabled]);
 
   const submitScan = useCallback((candidate: string) => {
-    const barcode = candidate.replace(/[\r\n\t]/g, "").trim();
+    const barcode = normalizeScannedCode(candidate);
     setValue("");
     if (!barcode || disabled) return;
 
     const now = Date.now();
-    if (lastScanRef.current.value === barcode && now - lastScanRef.current.at < 500) return;
+    if (lastScanRef.current.value === barcode && now - lastScanRef.current.at < 750) return;
     lastScanRef.current = { value: barcode, at: now };
     void onScan(barcode);
   }, [disabled, onScan]);
 
   const handleChangeText = useCallback((nextValue: string) => {
     const hasTerminator = /[\r\n\t]/.test(nextValue);
-    const cleanValue = nextValue.replace(/[\r\n\t]/g, "");
+    const cleanValue = normalizeScannedCode(nextValue);
     setValue(cleanValue);
 
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);

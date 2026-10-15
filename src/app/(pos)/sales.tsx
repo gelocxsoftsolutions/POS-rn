@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  ToastAndroid,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -45,7 +46,9 @@ import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
 import { createCode128Svg } from "@/lib/barcodes/code128";
+import { groupByVariation } from "@/lib/products/group-variations";
 import { usePrinterStore } from "@/lib/stores/printer-store";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 const GRID_COLUMNS = 5;
 const RECEIPT_WIDTH_MM = 58;
@@ -108,6 +111,7 @@ export default function SalesScreen() {
   const [sort, setSort] = useState<ProductSort>("popular");
   const [checkoutVisible, setCheckoutVisible] = useState(false);
   const [receiptVisible, setReceiptVisible] = useState(false);
+  const [openingCashRegister, setOpeningCashRegister] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("CASH");
   const [customerName, setCustomerName] = useState("");
@@ -249,14 +253,7 @@ export default function SalesScreen() {
   }, [products, search, sort]);
 
   const groupedProducts = useMemo(() => {
-    const groups = new Map<string, PosCartItem[]>();
-    for (const p of sortedProducts) {
-      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
-      const arr = groups.get(key);
-      if (arr) arr.push(p);
-      else groups.set(key, [p]);
-    }
-    const grouped = Array.from(groups.values()).map((group) => {
+    const grouped = groupByVariation(sortedProducts).map((group) => {
       group.sort((a, b) => a.name.localeCompare(b.name) || a.unitPrice - b.unitPrice);
       return group;
     });
@@ -351,10 +348,15 @@ export default function SalesScreen() {
 
   const handleBarcodeScan = useCallback(
     async (barcode: string) => {
+      const normalized = normalizeScannedCode(barcode);
+      if (!normalized) return;
+
       try {
-        const product = await ProductService.getByBarcode(barcode);
+        const product = await ProductService.getByBarcode(normalized);
         if (!product) {
-          Alert.alert("Not Found", "No product matched that barcode.");
+          const message = `No product matched barcode ${normalized}.`;
+          if (Platform.OS === "android") ToastAndroid.show(message, ToastAndroid.LONG);
+          else Alert.alert("Not Found", message);
           return;
         }
 
@@ -691,6 +693,31 @@ export default function SalesScreen() {
       Alert.alert("Print Receipt", message);
     } finally {
       setPrinting(false);
+    }
+  };
+
+  const handleOpenCashRegister = async () => {
+    if (openingCashRegister) return;
+    if (Platform.OS !== "android") {
+      Alert.alert("Open Cash Register", "Cash register control is currently available on Android only.");
+      return;
+    }
+    if (!selectedPrinter) {
+      Alert.alert("Open Cash Register", "Select a Bluetooth thermal printer in Settings first.");
+      return;
+    }
+
+    setOpeningCashRegister(true);
+    try {
+      await BluetoothPrinter.openCashDrawer(selectedPrinter.address);
+      ToastAndroid.show("Cash register command sent.", ToastAndroid.SHORT);
+    } catch (error: any) {
+      Alert.alert(
+        "Open Cash Register",
+        error?.message ?? "The cash register could not be opened. Check its cable and printer connection, then try again."
+      );
+    } finally {
+      setOpeningCashRegister(false);
     }
   };
 
@@ -1416,6 +1443,8 @@ export default function SalesScreen() {
         }
         onPrint={handlePrintReceipt}
         printing={printing}
+        onOpenCashRegister={handleOpenCashRegister}
+        openingCashRegister={openingCashRegister}
       />
     </View>
   );

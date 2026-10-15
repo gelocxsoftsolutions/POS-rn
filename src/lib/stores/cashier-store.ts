@@ -12,6 +12,7 @@ interface CashierSessionData {
   loginTime: string;
   locked: boolean;
   lockedAt: string | null;
+  isSuperAdmin?: boolean;
 }
 
 interface CashierState {

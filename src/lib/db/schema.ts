@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -55,6 +55,9 @@ export const CREATE_TABLES = [
     active INTEGER DEFAULT 1,
     pinLoginEnabled INTEGER DEFAULT 1,
     passwordLoginEnabled INTEGER DEFAULT 0,
+    failedPinAttempts INTEGER DEFAULT 0,
+    accountLocked INTEGER DEFAULT 0,
+    accountLockedAt TEXT,
     lastLogin TEXT,
     lastActivity TEXT,
     createdAt TEXT DEFAULT (datetime('now')),

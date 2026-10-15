@@ -21,6 +21,7 @@ import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { groupByVariation } from "@/lib/products/group-variations";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
@@ -326,14 +327,7 @@ export default function ProductsScreen() {
   const allCategories = [{ id: null, name: "All" } as any, ...categories];
 
   const groupedProducts = React.useMemo(() => {
-    const groups = new Map<string, ProductDTO[]>();
-    for (const p of products) {
-      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
-      const arr = groups.get(key);
-      if (arr) arr.push(p);
-      else groups.set(key, [p]);
-    }
-    const grouped = Array.from(groups.values()).map((g) => {
+    const grouped = groupByVariation(products).map((g) => {
       g.sort((a, b) => a.name.localeCompare(b.name) || (a.retailPrice ?? 0) - (b.retailPrice ?? 0));
       return g;
     });

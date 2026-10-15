@@ -852,7 +852,7 @@ export default function POSLayout() {
           isWide={false}
           sidebarOpen={true}
           onToggleSidebar={() => {}}
-          onAccountPress={() => router.push("/(pos)/user" as any)}
+          onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
           onLogoutPress={() => {}}
         />
         <View style={styles.centered}>
@@ -894,7 +894,7 @@ export default function POSLayout() {
         isWide={isWide}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
-        onAccountPress={() => router.push("/(pos)/user" as any)}
+        onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
         onLogoutPress={() => void handleLogout()}
       />
 

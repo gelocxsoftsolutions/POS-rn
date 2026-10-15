@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 type Props = {
   visible: boolean;
@@ -37,9 +38,13 @@ export function ReceiptQrScannerModal({
   const cameraSize = Math.max(160, Math.min(360, width - 48, height - 220));
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
+  const scanLockRef = useRef(false);
 
   useEffect(() => {
-    if (visible) setScanning(false);
+    if (visible) {
+      scanLockRef.current = false;
+      setScanning(false);
+    }
   }, [visible]);
 
   const handlePermission = useCallback(async () => {
@@ -57,14 +62,18 @@ export function ReceiptQrScannerModal({
   }, [requestPermission]);
 
   const handleScan = useCallback(async (barcode: string) => {
-    if (scanning) return;
+    if (scanLockRef.current) return;
+    const normalized = normalizeScannedCode(barcode);
+    if (!normalized) return;
+    scanLockRef.current = true;
     setScanning(true);
     try {
-      await onScan(barcode);
+      await onScan(normalized);
     } finally {
+      scanLockRef.current = false;
       setScanning(false);
     }
-  }, [onScan, scanning]);
+  }, [onScan]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

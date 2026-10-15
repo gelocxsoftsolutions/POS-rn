@@ -68,6 +68,13 @@ const config = {
     "expo-system-ui",
     "@react-native-community/datetimepicker",
     [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Allow NCT POS to access your photo library to upload activation QR codes.",
+      },
+    ],
+    [
       "expo-camera",
       {
         cameraPermission:

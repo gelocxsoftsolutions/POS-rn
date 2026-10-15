@@ -4,6 +4,7 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useNetworkStore } from "@/lib/services/network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { SaleRepository } from "@/lib/repositories/sale.repository";
+import { acquireSaleSync, releaseSaleSync } from "@/lib/services/sale-sync-lock";
 
 const SYNC_INTERVAL_MS = 15_000;
 let syncTimer: ReturnType<typeof setInterval> | null = null;
@@ -12,6 +13,8 @@ async function pushUnsyncedSales(): Promise<void> {
   try {
     const unsynced = await SaleRepository.findUnsynced(50);
     for (const sale of unsynced) {
+      if (!acquireSaleSync(sale.id)) continue;
+      try {
       const rawItems = sale.items ?? [];
       const items = rawItems
         .map((item) => ({
@@ -67,6 +70,9 @@ async function pushUnsyncedSales(): Promise<void> {
             pushResult.error ?? `HTTP ${pushResult.status}`
           );
         }
+      }
+      } finally {
+        releaseSaleSync(sale.id);
       }
     }
   } catch {

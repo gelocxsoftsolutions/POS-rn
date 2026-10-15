@@ -13,12 +13,14 @@ export interface BluetoothPrinterDevice {
 
 interface BluetoothPrinterNativeModule {
   getPairedDevices(): Promise<BluetoothPrinterDevice[]>;
+  getDrawableDataUri(resourceName: string, mimeType: string): Promise<string>;
   connect(address: string): Promise<boolean>;
   disconnect(): Promise<boolean>;
   isConnected(address: string): Promise<boolean>;
   printTest(): Promise<boolean>;
   printReceipt(content: string, logoDataUri: string | null, barcodeValue: string | null, qrMatrix: string | null, openDrawer: boolean): Promise<boolean>;
   printBarcode(label: string, value: string): Promise<boolean>;
+  openCashDrawer(): Promise<boolean>;
 }
 
 const nativePrinter = NativeModules.BluetoothPrinter as
@@ -96,5 +98,14 @@ export const BluetoothPrinter = {
       await printer.connect(address);
     }
     return printer.printBarcode(label, value);
+  },
+
+  async openCashDrawer(address: string) {
+    await requestBluetoothPermissions();
+    const printer = requireNativePrinter();
+    if (!(await printer.isConnected(address))) {
+      await printer.connect(address);
+    }
+    return printer.openCashDrawer();
   },
 };

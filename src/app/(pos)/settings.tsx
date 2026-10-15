@@ -150,6 +150,9 @@ interface CashierRow {
   displayName: string;
   username: string | null;
   roleName: string;
+  failedPinAttempts: number;
+  accountLocked: number;
+  accountLockedAt: string | null;
 }
 
 interface AuditLogEntry {
@@ -200,6 +203,8 @@ export default function SettingsScreen() {
   const dark = useIsDarkTheme();
   const autoLockMinutes = useAccessSettingsStore((state) => state.autoLockMinutes);
   const setAutoLockMinutes = useAccessSettingsStore((state) => state.setAutoLockMinutes);
+  const maxPinAttempts = useAccessSettingsStore((state) => state.maxPinAttempts);
+  const setMaxPinAttempts = useAccessSettingsStore((state) => state.setMaxPinAttempts);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const toggleCashierLink = useAccessSettingsStore((state) => state.toggleCashierLink);
   const removeCashierFromGroup = useAccessSettingsStore((state) => state.removeCashierFromGroup);
@@ -228,7 +233,7 @@ export default function SettingsScreen() {
   const setSelectedPrinter = usePrinterStore((state) => state.setSelectedPrinter);
   const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [connectedPrinterId, setConnectedPrinterId] = useState<string | null>(null);
-  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "disconnect" | null>(null);
+  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "drawer" | "disconnect" | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -240,12 +245,14 @@ export default function SettingsScreen() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
   const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
+  const [maxPinAttemptsValue, setMaxPinAttemptsValue] = useState(() => String(maxPinAttempts || 5));
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditFilter, setAuditFilter] = useState<string>("ALL");
 
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanning, setQrScanning] = useState(false);
+  const isSuperAdmin = Boolean(session?.isSuperAdmin);
 
   useEffect(() => {
     const normalizedScale = Math.min(1.5, Math.max(0.5, Math.round(uiScale * 10) / 10));
@@ -297,7 +304,8 @@ export default function SettingsScreen() {
     try {
       // Prefer Role.name, fallback to raw roleId / CashierRole via join coalesce; ensure Role table may have been seeded as Admin
       const rows = await query<CashierRow>(
-        `SELECT c.id, c.displayName, c.username, COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
+        `SELECT c.id, c.displayName, c.username, c.failedPinAttempts, c.accountLocked, c.accountLockedAt,
+                COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
          FROM Cashier c
          LEFT JOIN Role r ON c.roleId = r.id
          WHERE c.active = 1
@@ -309,6 +317,27 @@ export default function SettingsScreen() {
       setCashiers([]);
     }
   }, []);
+
+  const applyPinSecurity = useCallback(() => {
+    const attempts = Number(maxPinAttemptsValue);
+    if (!Number.isFinite(attempts) || attempts < 1 || attempts > 20) {
+      Alert.alert("Security", "Failed PIN attempts must be between 1 and 20.");
+      return;
+    }
+    setMaxPinAttempts(attempts);
+    setMaxPinAttemptsValue(String(Math.floor(attempts)));
+    Alert.alert("Security Updated", `Accounts will lock after ${Math.floor(attempts)} failed PIN attempts.`);
+  }, [maxPinAttemptsValue, setMaxPinAttempts]);
+
+  const handleUnlockUser = useCallback(async (user: CashierRow) => {
+    try {
+      await CashierService.unlockManagedUser(user.id);
+      await loadUsers();
+      Alert.alert("Account Unlocked", `${user.displayName} can sign in again.`);
+    } catch (error: any) {
+      Alert.alert("Unlock Failed", error?.message ?? "Unable to unlock this account.");
+    }
+  }, [loadUsers]);
 
   const loadAuditLogs = useCallback(async () => {
     try {
@@ -640,6 +669,29 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleCashRegisterTest = async () => {
+    if (!isSuperAdmin) return;
+    if (!selectedPrinter) {
+      Alert.alert("Open Cash Register", "Select a Bluetooth thermal printer first.");
+      return;
+    }
+
+    setPrinterAction("drawer");
+    try {
+      await BluetoothPrinter.openCashDrawer(selectedPrinter.address);
+      setConnectedPrinterId(selectedPrinter.id);
+      Alert.alert("Command Sent", "The open cash register command was sent to the selected printer.");
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert(
+        "Cash Register Test Failed",
+        error?.message ?? "Unable to open the cash register. Check its cable and printer connection."
+      );
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
   const resetUserForm = () => {
     setNewUserName("");
     setNewUsername("");
@@ -947,12 +999,18 @@ export default function SettingsScreen() {
               <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
                 <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
               </View>
+              {Boolean(user.accountLocked) && (
+                <View style={styles.lockedBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#ffffff" />
+                  <Text style={styles.lockedBadgeText}>Locked</Text>
+                </View>
+              )}
               {session?.cashierId === user.id && (
                 <View style={styles.youBadge}>
                   <Text style={styles.youBadgeText}>You</Text>
                 </View>
               )}
-              {session?.cashierId && user.id !== session.cashierId && (
+              {session?.cashierId && !isSuperAdmin && user.id !== session.cashierId && (
                 <TouchableOpacity
                   style={[
                     styles.linkUserButton,
@@ -997,6 +1055,54 @@ export default function SettingsScreen() {
           ))
         )}
       </Card>
+
+      {isSuperAdmin && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security pin failed attempts lock unlock accounts") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Security</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Set the failed PIN limit and unlock cashier accounts.</Text>
+
+          <View style={styles.securitySettingRow}>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={[styles.fieldValue, { color: fieldValueColor }]}>Failed PIN attempts</Text>
+              <Text style={[styles.securityHelp, { color: sectionDescColor }]}>Lock an account after this many consecutive incorrect PINs.</Text>
+            </View>
+            <TextInput
+              style={[styles.securityNumberInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+              value={maxPinAttemptsValue}
+              onChangeText={(value) => setMaxPinAttemptsValue(value.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+              maxLength={2}
+              accessibilityLabel="Maximum failed PIN attempts"
+            />
+            <TouchableOpacity style={styles.securityApplyButton} onPress={applyPinSecurity}>
+              <Ionicons name="checkmark" size={17} color="#ffffff" />
+              <Text style={styles.securityApplyText}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.securityListTitle, { color: fieldValueColor }]}>Locked accounts</Text>
+          {cashiers.filter((user) => Boolean(user.accountLocked)).length === 0 ? (
+            <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+              <Text style={[styles.emptyText, { color: sectionDescColor }]}>No accounts are locked.</Text>
+            </View>
+          ) : (
+            cashiers.filter((user) => Boolean(user.accountLocked)).map((user) => (
+              <View key={`locked-${user.id}`} style={[styles.lockedUserRow, { borderBottomColor: borderColor }]}>
+                <View style={styles.lockedUserCopy}>
+                  <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
+                  <Text style={[styles.userUsername, { color: fieldLabelColor }]}>
+                    {user.failedPinAttempts} failed attempts{user.accountLockedAt ? ` · ${new Date(user.accountLockedAt).toLocaleString()}` : ""}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.unlockButton} onPress={() => void handleUnlockUser(user)}>
+                  <Ionicons name="lock-open-outline" size={16} color="#ffffff" />
+                  <Text style={styles.unlockButtonText}>Unlock</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </Card>
+      )}
 
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security auto lock idle timeout pin") && styles.hidden]}>
         <View style={styles.autoLockHeading}>
@@ -1094,6 +1200,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* OMS Connection Card */}
+      {isSuperAdmin && (
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("oms connection server api key sync qr") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>OMS Connection</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>
@@ -1174,6 +1281,7 @@ export default function SettingsScreen() {
           )}
         </View>
       </Card>
+      )}
 
       {/* Bluetooth Thermal Printer Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("bluetooth thermal printer jk-5802h receipt esc pos paired device") && styles.hidden]}>
@@ -1291,6 +1399,21 @@ export default function SettingsScreen() {
           />
         </View>
       </Card>
+
+      {isSuperAdmin && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("test open cash register drawer bluetooth printer hardware") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Test</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Test connected POS hardware using the selected Bluetooth printer.</Text>
+          <Button
+            title="Open Cash Register"
+            onPress={handleCashRegisterTest}
+            loading={printerAction === "drawer"}
+            disabled={!selectedPrinter || (printerAction !== null && printerAction !== "drawer")}
+            icon="cash-outline"
+            style={styles.testActionButton}
+          />
+        </Card>
+      )}
 
       {/* Navigation Style Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("navigation style sidebar bottom auto") && styles.hidden]}>
@@ -1974,6 +2097,85 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#6b7b8d",
   },
+  lockedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#dc3545",
+  },
+  lockedBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  securitySettingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 18,
+  },
+  securityHelp: {
+    fontSize: 11,
+    marginTop: 3,
+  },
+  securityNumberInput: {
+    width: 64,
+    height: 42,
+    borderWidth: 1,
+    borderRadius: 7,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  securityApplyButton: {
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  securityApplyText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  securityListTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  lockedUserRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+  },
+  lockedUserCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  unlockButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+  },
+  unlockButtonText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   youBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -2466,6 +2668,10 @@ const styles = StyleSheet.create({
   printerActionButton: {
     flexGrow: 1,
     minWidth: 150,
+  },
+  testActionButton: {
+    alignSelf: "flex-start",
+    minWidth: 220,
   },
   dangerBtn: {
     marginTop: 16,

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   ScrollView,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -17,7 +18,15 @@ import {
   WALK_IN_LABEL,
   type CustomerSummary,
   type CustomerProfile,
+  type CustomerReceipt,
 } from "@/lib/services/customer.service";
+import { SettingsService } from "@/lib/services/settings.service";
+import {
+  ReceiptPreviewModal,
+  type ReceiptPreviewData,
+} from "@/components/ui/receipt-preview-modal";
+import { printReceiptPaper } from "@/lib/printing/print-receipt-paper";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
@@ -145,6 +154,18 @@ export default function CustomersScreen() {
   const [profileKey, setProfileKey] = useState<string | null | undefined>(undefined);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<CustomerReceipt | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptSettings, setReceiptSettings] = useState<{
+    storeName?: string;
+    address?: string;
+    supportPhone?: string;
+    receiptFooter?: string;
+    taxLabel?: string;
+  } | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
 
   const loadCustomers = useCallback(async () => {
     try {
@@ -197,7 +218,96 @@ export default function CustomersScreen() {
   const closeProfile = useCallback(() => {
     setProfileKey(undefined);
     setProfile(null);
+    setReceiptSaleId(null);
+    setReceipt(null);
   }, []);
+
+  const openReceipt = useCallback(
+    async (saleId: string) => {
+      setReceiptSaleId(saleId);
+      setReceipt(null);
+      setReceiptLoading(true);
+      // Store settings load in the background and must never block or fail
+      // the receipt itself.
+      if (!receiptSettings) {
+        SettingsService.get()
+          .then((settings) =>
+            setReceiptSettings({
+              storeName: settings.storeName,
+              address: settings.address,
+              supportPhone: settings.supportPhone,
+              receiptFooter: settings.receiptFooter,
+              taxLabel: settings.taxLabel,
+            })
+          )
+          .catch(() => {});
+      }
+      try {
+        const cashierIds = getVisibleCashierIds(session?.cashierId);
+        console.log("[Customers] opening receipt", saleId);
+        const data = await CustomerService.receipt(saleId, cashierIds);
+        if (!data) {
+          console.warn("[Customers] receipt not found", saleId);
+          Alert.alert("Receipt not found", "This sale could not be loaded from this device.");
+          setReceiptSaleId(null);
+          return;
+        }
+        setReceipt(data);
+      } catch (e: any) {
+        console.warn("[Customers] receipt load failed", saleId, e?.message ?? e);
+        Alert.alert("Could not load receipt", e?.message ?? "Unknown database error.");
+        setReceiptSaleId(null);
+        return;
+      } finally {
+        setReceiptLoading(false);
+      }
+    },
+    [session?.cashierId, receiptSettings]
+  );
+
+  const closeReceiptPreview = useCallback(() => {
+    setReceiptSaleId(null);
+    setReceipt(null);
+  }, []);
+
+  const previewReceipt: ReceiptPreviewData | null = React.useMemo(() => {
+    if (!receipt) return null;
+    return {
+      receiptNumber: receipt.receiptNumber,
+      date: receipt.date,
+      customerName: receipt.customerName ?? undefined,
+      cashierName: receipt.cashierName,
+      items: receipt.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        sku: item.sku ?? undefined,
+        weight: item.weight,
+        unitName: item.unitName,
+        description: item.description,
+      })),
+      subtotal: receipt.subtotal,
+      tax: receipt.tax,
+      total: receipt.total,
+      paidAmount: receipt.paidAmount,
+      change: receipt.change,
+      paymentMethod: receipt.paymentMethod,
+    };
+  }, [receipt]);
+
+  const handlePrintReceipt = useCallback(async () => {
+    if (!previewReceipt || printing) return;
+    setPrinting(true);
+    try {
+      await printReceiptPaper({
+        receipt: previewReceipt,
+        settings: receiptSettings,
+        printerAddress: selectedPrinter?.address ?? null,
+      });
+    } finally {
+      setPrinting(false);
+    }
+  }, [previewReceipt, printing, receiptSettings, selectedPrinter]);
 
   const highestSpender = customers.length > 0 ? customers[0] : null;
   const mostOrders =
@@ -660,13 +770,15 @@ export default function CustomersScreen() {
                   <Text style={[styles.emptyText, { color: descColor }]}>No purchases found.</Text>
                 ) : (
                   profile.recentSales.map((sale, index) => (
-                    <View
+                    <TouchableOpacity
                       key={sale.id}
                       style={[
                         styles.itemRow,
                         { borderBottomColor: rowBorder },
                         index === profile.recentSales.length - 1 && styles.rowLast,
                       ]}
+                      onPress={() => void openReceipt(sale.id)}
+                      activeOpacity={0.7}
                     >
                       <View style={styles.itemInfo}>
                         <Text style={[styles.itemName, { color: titleColor }]} numberOfLines={1}>
@@ -677,7 +789,8 @@ export default function CustomersScreen() {
                         </Text>
                       </View>
                       <Text style={[styles.saleTotal, { color: titleColor }]}>{peso(sale.total)}</Text>
-                    </View>
+                      <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+                    </TouchableOpacity>
                   ))
                 )}
               </Card>
@@ -694,13 +807,15 @@ export default function CustomersScreen() {
                   </View>
                 ) : (
                   profile.refunds.map((sale, index) => (
-                    <View
+                    <TouchableOpacity
                       key={sale.id}
                       style={[
                         styles.itemRow,
                         { borderBottomColor: rowBorder },
                         index === profile.refunds.length - 1 && styles.rowLast,
                       ]}
+                      onPress={() => void openReceipt(sale.id)}
+                      activeOpacity={0.7}
                     >
                       <View style={styles.itemInfo}>
                         <Text style={[styles.itemName, { color: titleColor }]} numberOfLines={1}>
@@ -709,7 +824,8 @@ export default function CustomersScreen() {
                         <Text style={[styles.itemMeta, { color: descColor }]}>{formatDateTime(sale.createdAt)}</Text>
                       </View>
                       <Text style={[styles.saleTotal, { color: "#dc3545" }]}>{peso(sale.total)}</Text>
-                    </View>
+                      <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+                    </TouchableOpacity>
                   ))
                 )}
               </Card>
@@ -717,6 +833,30 @@ export default function CustomersScreen() {
           )}
         </View>
       </Modal>
+
+      <ReceiptPreviewModal
+        visible={receiptSaleId !== null}
+        onClose={closeReceiptPreview}
+        receipt={previewReceipt}
+        settings={
+          receiptSettings
+            ? {
+                storeName: receiptSettings.storeName,
+                address: receiptSettings.address,
+                supportPhone: receiptSettings.supportPhone,
+                receiptFooter: receiptSettings.receiptFooter,
+                taxLabel: receiptSettings.taxLabel,
+              }
+            : null
+        }
+        onPrint={() => void handlePrintReceipt()}
+        printing={printing}
+      />
+      {receiptSaleId !== null && !previewReceipt && receiptLoading && (
+        <View style={styles.receiptLoadingOverlay} pointerEvents="none">
+          <ActivityIndicator size="large" color="#ffffff" />
+        </View>
+      )}
     </View>
   );
 }
@@ -1065,6 +1205,16 @@ const styles = StyleSheet.create({
   pagerText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  receiptLoadingOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(2, 6, 23, 0.35)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   itemRow: {
     flexDirection: "row",

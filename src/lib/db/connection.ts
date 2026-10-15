@@ -44,6 +44,19 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
     // column already exists
   }
 
+  // Migration to v7: persist PIN failures and administrative account locks.
+  for (const sql of [
+    "ALTER TABLE Cashier ADD COLUMN failedPinAttempts INTEGER DEFAULT 0",
+    "ALTER TABLE Cashier ADD COLUMN accountLocked INTEGER DEFAULT 0",
+    "ALTER TABLE Cashier ADD COLUMN accountLockedAt TEXT DEFAULT NULL",
+  ]) {
+    try {
+      await database.execAsync(sql);
+    } catch {
+      // column already exists
+    }
+  }
+
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
   await database.runAsync(

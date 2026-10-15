@@ -27,6 +27,31 @@ export interface CustomerSaleRow {
   createdAt: string;
 }
 
+export interface CustomerReceiptItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  sku?: string | null;
+  weight?: number | null;
+  unitName?: string | null;
+  description?: string | null;
+}
+
+export interface CustomerReceipt {
+  id: string;
+  receiptNumber: string;
+  date: string;
+  customerName?: string | null;
+  cashierName: string;
+  items: CustomerReceiptItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  paidAmount: number;
+  change: number;
+  paymentMethod: string;
+}
+
 export interface CustomerProfile extends CustomerSummary {
   weeklySpent: number;
   weeklyOrders: number;
@@ -216,6 +241,45 @@ export const CustomerService = {
       topItems,
       recentSales: recent,
       refunds,
+    };
+  },
+
+  async receipt(saleId: string, cashierIds: string[]): Promise<CustomerReceipt | null> {
+    if (!saleId || cashierIds.length === 0) return null;
+    const { clause, params } = cashierClause(cashierIds);
+    // SELECT * (instead of named columns) so this keeps working on devices
+    // whose Sale/SaleItem tables predate a column; missing fields fall back
+    // to safe defaults below.
+    const sale = await queryFirst<Record<string, any>>(
+      `SELECT s.* FROM Sale s WHERE s.id = ? AND ${clause}`,
+      [saleId, ...params]
+    );
+    if (!sale) return null;
+    const rows = await query<Record<string, any>>(
+      `SELECT si.* FROM SaleItem si WHERE si.saleId = ? ORDER BY si.rowid ASC`,
+      [saleId]
+    );
+    return {
+      id: String(sale.id ?? saleId),
+      receiptNumber: String(sale.receiptNumber ?? sale.id ?? "receipt"),
+      date: String(sale.createdAt ?? new Date().toISOString()),
+      customerName: sale.customerName ?? null,
+      cashierName: String(sale.cashierName ?? "Cashier"),
+      items: rows.map((item) => ({
+        name: String(item.productName ?? "Item"),
+        quantity: Number(item.quantity ?? 0),
+        unitPrice: Number(item.unitPrice ?? 0),
+        sku: item.sku ?? null,
+        weight: item.weight ?? null,
+        unitName: item.unit ?? null,
+        description: item.description ?? null,
+      })),
+      subtotal: Number(sale.subtotal ?? 0),
+      tax: Number(sale.tax ?? 0),
+      total: Number(sale.total ?? 0),
+      paidAmount: Number(sale.paidAmount ?? sale.total ?? 0),
+      change: Number(sale.changeAmount ?? 0),
+      paymentMethod: String(sale.paymentMethod ?? "CASH"),
     };
   },
 };

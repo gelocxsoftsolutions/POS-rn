@@ -79,6 +79,24 @@ export const TransferService = {
         for (const c of checklist) itemMap.set(c.itemId, c);
       }
 
+      // Confirm the transfer with OMS before exposing the received quantity
+      // locally. Otherwise checkout can see stock that OMS still considers 0.
+      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
+      let derivedOmsId: number | undefined;
+      if (!explicitId && transfer.transferNumber) {
+        const raw = transfer.transferNumber.replace(/\D/g, "");
+        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
+        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
+      }
+      const finalOmsId = explicitId ?? derivedOmsId;
+      if (finalOmsId) {
+        const confirmed = await this.confirmReceipt(finalOmsId, transfer.transferNumber);
+        if (!confirmed?.success) {
+          console.warn("[Transfer] OMS receipt confirmation failed", finalOmsId);
+          return null;
+        }
+      }
+
       for (const item of transfer.items) {
         const override = itemMap.get(item.id);
         const actualQty = override ? Math.max(0, Math.floor(Number(override.actualQty))) : item.allocatedQty;
@@ -237,21 +255,20 @@ export const TransferService = {
 
       const result = await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
 
-      // Notify OMS in background (best-effort) — prefer explicit omsTransferId from QR, fallback to transferNumber parsing
-      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
-      let derivedOmsId: number | undefined;
-      const transferNumber = transfer.transferNumber;
-      if (transferNumber) {
-        const raw = transferNumber.replace(/\D/g, "");
-        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
-        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
-      }
-      const finalOmsId = explicitId ?? derivedOmsId;
       if (explicitId) {
         await TransferRepository.removeLegacyPendingByTransferNumber(String(explicitId));
       }
-      if (finalOmsId) {
-        this.confirmReceipt(finalOmsId).catch((e) => console.warn("[Transfer] confirmReceipt failed", e));
+
+      // Re-read the canonical OMS balance immediately. This also corrects
+      // devices that still have a stale local quantity from an older build.
+      try {
+        const deviceId = useDeviceStore.getState().device?.deviceId;
+        if (deviceId) {
+          const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+          await OmsSyncService.syncInventory(deviceId);
+        }
+      } catch (e) {
+        console.warn("[Transfer] post-receive inventory refresh failed", e);
       }
 
       return result;
@@ -283,17 +300,40 @@ export const TransferService = {
     }
   },
 
-  async confirmReceipt(transferId: number): Promise<{ success: boolean; transferNumber: string } | null> {
+  async confirmReceipt(
+    transferId: number | string,
+    transferNumber?: string
+  ): Promise<{ success: boolean; transferNumber: string } | null> {
     try {
+      // The server validates this body with zod (non-strict: unknown keys are
+      // stripped, so sending the transfer number as well is harmless and
+      // covers server revisions that key off it). transferId must be a
+      // number: QR payloads sometimes carry it as a string, which fails
+      // numeric validation with 400 "Invalid body".
+      const numericId =
+        typeof transferId === "number" ? transferId : Number(String(transferId ?? "").trim());
+      if (!Number.isInteger(numericId) || numericId <= 0) {
+        console.warn("[Transfer] confirmReceipt skipped: invalid transfer id", transferId);
+        return null;
+      }
       const device = useDeviceStore.getState().device;
       const deviceId = device.deviceId ?? "";
+      if (!deviceId) {
+        console.warn("[Transfer] confirmReceipt skipped: no deviceId");
+        return null;
+      }
+      const body: Record<string, unknown> = { transferId: numericId, deviceId };
+      const cleanNumber = typeof transferNumber === "string" ? transferNumber.trim() : "";
+      if (cleanNumber) body.transferNumber = cleanNumber;
+      console.log("[Transfer] confirmReceipt sending", body);
       const res = await api.post<{ success: boolean; transferNumber: string }>(
         "/api/pos/transfers/receive",
-        { transferId, deviceId }
+        body
       );
       if (res.ok && res.data) {
         return res.data;
       }
+      console.warn("[Transfer] confirmReceipt rejected", res.status, JSON.stringify(res.error)?.slice(0, 300));
       return null;
     } catch {
       return null;

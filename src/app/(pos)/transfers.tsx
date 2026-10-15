@@ -291,7 +291,7 @@ export default function TransfersScreen() {
         Alert.alert("Transfer Received", `${receiveTransferNumber} received with ${payload.reduce((s, p) => s + p.actualQty, 0)} items.`);
       } else {
         console.warn("[Transfer] receive returned null", receiveTransferId);
-        Alert.alert("Error", "Failed to receive transfer. Check that products are synced and try again.");
+        Alert.alert("Transfer Not Received", "The OMS did not confirm this transfer. Check the OMS connection and try again; local stock was not changed.");
       }
     } catch (e: any) {
       console.error("[Transfer] doFinalReceive error", e?.message ?? e);

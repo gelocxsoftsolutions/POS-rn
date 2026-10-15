@@ -1,6 +1,12 @@
 import { Asset } from "expo-asset";
 import { File } from "expo-file-system";
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
+
+interface AndroidDrawableReader {
+  getDrawableDataUri(resourceName: string, mimeType: string): Promise<string>;
+}
+
+const hasUriScheme = (uri: string) => /^[a-z][a-z0-9+.-]*:/i.test(uri);
 
 export async function getPrintableAssetDataUri(
   moduleId: number,
@@ -16,6 +22,18 @@ export async function getPrintableAssetDataUri(
   const uri = asset.localUri ?? asset.uri;
   if (!uri) return "";
   if (uri.startsWith("data:")) return uri;
+
+  // Release APKs embed Metro image assets as Android drawables. In that
+  // environment Expo Asset returns a resource name, not a file URI.
+  if (Platform.OS === "android" && !hasUriScheme(uri)) {
+    const reader = NativeModules.BluetoothPrinter as
+      | AndroidDrawableReader
+      | undefined;
+    if (!reader?.getDrawableDataUri) {
+      throw new Error("The installed app cannot read bundled print assets.");
+    }
+    return reader.getDrawableDataUri(uri, mimeType);
+  }
 
   const base64 = await new File(uri).base64();
   return `data:${mimeType};base64,${base64}`;

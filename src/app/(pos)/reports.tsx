@@ -26,6 +26,9 @@ import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { EndOfDayReportModal } from "@/components/ui/end-of-day-report-modal";
 import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { formatEscPosEndOfDayReport } from "@/lib/printers/escpos-end-of-day";
+import { usePrinterStore } from "@/lib/stores/printer-store";
 
 type Preset = "today" | "7days" | "30days" | "custom";
 type DateTarget = "start" | "end" | null;
@@ -103,6 +106,7 @@ export default function ReportsScreen() {
   const [settings, setSettings] = useState<StoreSettingsRow | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
 
   const colors = useMemo(() => ({
     background: dark ? "#0b0f16" : "#f4f6f8",
@@ -237,6 +241,38 @@ export default function ReportsScreen() {
       const period = sameDate
         ? dayjs(startDate).format("MMM D, YYYY")
         : `${dayjs(startDate).format("MMM D, YYYY")} - ${dayjs(endDate).format("MMM D, YYYY")}`;
+
+      if (Platform.OS === "android") {
+        if (!selectedPrinter) {
+          Alert.alert(
+            "Print EOD Report",
+            "Select a Bluetooth thermal printer in Settings first."
+          );
+          return;
+        }
+        const reportText = formatEscPosEndOfDayReport({
+          storeName: settings?.storeName,
+          address: settings?.address,
+          supportPhone: settings?.supportPhone,
+          period,
+          generatedAt: new Date(),
+          subtotal,
+          summary: report.summary,
+          payments: report.payments,
+          itemSales: report.itemSales,
+          cashiers: report.cashiers,
+        });
+        await BluetoothPrinter.printReceipt(
+          selectedPrinter.address,
+          reportText,
+          logoUri,
+          null,
+          null,
+          false
+        );
+        return;
+      }
+
       const paymentRows = report.payments.map((payment) => `
         <div class="item"><div><strong>${escapeHtml(paymentLabel(payment.method))}</strong><small>${payment.transactions} transactions</small></div><strong>${currency(payment.amount)}</strong></div>
       `).join("");
@@ -295,7 +331,13 @@ export default function ReportsScreen() {
       });
     } catch (error: any) {
       const cancelled = error?.message?.toLowerCase().includes("cancel");
-      Alert.alert("Print EOD Report", cancelled ? "Printer selection was cancelled." : "No thermal printer was selected or the print service is unavailable.");
+      Alert.alert(
+        "Print EOD Report",
+        cancelled
+          ? "Printer selection was cancelled."
+          : error?.message ??
+              "No thermal printer was selected or the print service is unavailable."
+      );
     } finally {
       setPrintingEod(false);
     }

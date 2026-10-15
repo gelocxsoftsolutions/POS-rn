@@ -10,6 +10,7 @@ import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "
 import type { SaleDTO } from "@/lib/types/sales";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
+import { acquireSaleSync, releaseSaleSync } from "@/lib/services/sale-sync-lock";
 
 interface UnmappableItem {
   productId?: string;
@@ -168,10 +169,14 @@ export const SaleService = {
         const deviceId = input.deviceId;
         if (deviceId) {
           const res = await api.get<{ data: Array<{ groupKey: string; qty: number; variation: { id: string } }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
-          if (res.ok && Array.isArray((res.data as any)?.data)) {
+          const inventoryPayload = res.data as any;
+          const inventoryRows = Array.isArray(inventoryPayload)
+            ? inventoryPayload
+            : inventoryPayload?.data ?? inventoryPayload?.items ?? inventoryPayload?.inventory;
+          if (res.ok && Array.isArray(inventoryRows)) {
             const omsGroupMap = new Map<string, number>();
             const omsVarMap = new Map<string, number>();
-            for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
+            for (const it of inventoryRows as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
               // OMS sends one row per variation: accumulate so the group
               // total matches the summed local group stock model.
               if (it.groupKey) omsGroupMap.set(it.groupKey, (omsGroupMap.get(it.groupKey) ?? 0) + Number(it.qty ?? 0));
@@ -179,8 +184,12 @@ export const SaleService = {
             }
             // Group check
             for (const [groupKey, requested] of groupRequested) {
-              const omsAvail = omsGroupMap.get(groupKey);
-              if (omsAvail !== undefined && omsAvail < requested) {
+              // Zero-balance groups may be omitted from the inventory response.
+              // Treat an omitted OMS group as zero instead of trusting stale
+              // local stock left by an older transfer/sync implementation.
+              const omsAvail = omsGroupMap.get(groupKey) ?? 0;
+              if (omsAvail < requested) {
+                await OmsSyncService.syncInventory(deviceId);
                 return {
                   success: false as const,
                   error: `Not enough stock for this product group (OMS). Available: ${omsAvail}, requested: ${requested}. Please sync inventory and reduce quantity.`,
@@ -193,8 +202,9 @@ export const SaleService = {
               const prow = await queryFirst<{ sku: string | null }>(`SELECT sku FROM Product WHERE id = ?`, [it.productId]);
               const sku = prow?.sku ? String(prow.sku) : null;
               if (!sku) continue;
-              const omsVarAvail = omsVarMap.get(sku);
-              if (omsVarAvail !== undefined && omsVarAvail < it.quantity) {
+              const omsVarAvail = omsVarMap.get(sku) ?? 0;
+              if (omsVarAvail < it.quantity) {
+                await OmsSyncService.syncInventory(deviceId);
                 return {
                   success: false as const,
                   error: `Not enough stock for ${it.productName} (var:${sku}). Available: ${omsVarAvail}, requested: ${it.quantity}. Please sync inventory and reduce quantity.`,
@@ -289,8 +299,15 @@ export const SaleService = {
 
       const sale = await SaleRepository.findById(saleId);
 
-      // Push to OMS synchronously to catch insufficient stock immediately
-      const pushResult = await this._pushToOms(saleId, receiptNumber, input, saleItems, total);
+      // Reserve this sale while checkout performs its immediate OMS push so
+      // the 15-second worker cannot submit the same sale concurrently.
+      let pushResult: Awaited<ReturnType<typeof this._pushToOms>>;
+      acquireSaleSync(saleId);
+      try {
+        pushResult = await this._pushToOms(saleId, receiptNumber, input, saleItems, total);
+      } finally {
+        releaseSaleSync(saleId);
+      }
 
       if (!pushResult.success) {
         const errMsg = String((pushResult as any).error ?? "");
@@ -363,14 +380,11 @@ export const SaleService = {
       if (pushResult.success) {
         await SaleRepository.markSynced(saleId);
       } else {
-        const queued = await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
-        if (queued && !pushResult.retryable) {
-          const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
-          await SyncQueueRepository.markEntityFailed(
-            "Sale",
-            saleId,
-            pushResult.error ?? `HTTP ${pushResult.status}`
-          );
+        // A permanent 4xx rejection must not enter the retry queue. The queue
+        // worker can otherwise race the checkout rollback and POST the same
+        // invalid sale a second time.
+        if (pushResult.retryable) {
+          await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
         }
       }
       return pushResult;

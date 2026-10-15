@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  ToastAndroid,
   Platform,
   Share,
   Modal,
@@ -36,6 +37,7 @@ import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
 import { createCode128Svg } from "@/lib/barcodes/code128";
+import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
@@ -287,17 +289,20 @@ export default function ReceiptsScreen() {
 
   const handleScanReceipt = useCallback(
     async (barcode: string) => {
-      const trimmed = barcode.trim();
+      const normalized = normalizeScannedCode(barcode);
+      if (!normalized) return;
+      const canonical = canonicalScannedCode(normalized);
       let found =
-        receipts.find((r) => r.receiptNumber === trimmed) ??
-        receipts.find((r) => r.receiptNumber.toLowerCase().includes(trimmed.toLowerCase())) ??
-        receipts.find((r) => r.id === trimmed);
-      if (!found) found = await SaleService.getByReceiptNumber(trimmed) ?? undefined;
+        receipts.find((r) => canonicalScannedCode(r.receiptNumber) === canonical) ??
+        receipts.find((r) => canonicalScannedCode(r.id) === canonical);
+      if (!found) found = await SaleService.getByReceiptNumber(normalized) ?? undefined;
       if (found) {
         setSelected(found);
         setPrintPreviewVisible(true);
       } else {
-        Alert.alert("Not Found", `No receipt matched "${trimmed}".`);
+        const message = `No receipt matched barcode ${normalized}.`;
+        if (Platform.OS === "android") ToastAndroid.show(message, ToastAndroid.LONG);
+        else Alert.alert("Not Found", message);
       }
     },
     [receipts]

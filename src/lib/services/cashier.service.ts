@@ -5,53 +5,66 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { sha256 } from "@/lib/crypto/ed25519";
+import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+
+export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
+const SUPER_ADMIN_USERNAME_HASH = "15142545";
+const SUPER_ADMIN_PASSWORD_HASH = "1ae8f481";
+
+async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {
+  if (!cashier) throw new Error("User not found");
+  const device = useDeviceStore.getState().device;
+  const session = await SessionRepository.create({
+    cashierId: cashier.id,
+    cashierName: cashier.displayName,
+    roleId: cashier.roleId ?? undefined,
+    loginType,
+    deviceId: device.deviceId ?? undefined,
+    deviceName: device.deviceName ?? undefined,
+  });
+
+  await CashierRepository.update(cashier.id, {
+    lastLogin: new Date().toISOString(),
+    failedPinAttempts: 0,
+    accountLocked: false,
+    accountLockedAt: null,
+  });
+
+  useCashierStore.getState().setSession({
+    sessionId: session.id,
+    cashierId: cashier.id,
+    cashierName: cashier.displayName,
+    photoUri: cashier.photoUri,
+    cashierRole: "",
+    roleId: cashier.roleId ?? "",
+    loginTime: session.loginTime,
+    locked: false,
+    lockedAt: null,
+    isSuperAdmin: false,
+  });
+
+  useAuthStore.getState().signIn({
+    id: cashier.id,
+    name: cashier.displayName,
+    pin: "",
+    role: "",
+    avatarUrl: cashier.photoUri ?? undefined,
+    isSuperAdmin: false,
+  });
+
+  return session;
+}
 
 export const CashierService = {
   async loginPin(pin: string) {
     try {
       const pinHash = sha256(pin);
-      console.log("[CashierService] loginPin attempt, pinHash:", pinHash);
       const cashier = await CashierRepository.findByPinHash(pinHash);
-      console.log("[CashierService] findByPinHash result:", cashier ? `${cashier.displayName} (${cashier.id})` : "NOT FOUND");
       if (!cashier) {
-        const all = await CashierRepository.findAll();
-        console.log("[CashierService] all active cashiers:", all.length, all.map(c => ({ id: c.id, name: c.displayName, pinHash: c.pinHash })));
         return { success: false, error: "Invalid PIN" };
       }
-
-      const device = useDeviceStore.getState().device;
-      const session = await SessionRepository.create({
-        cashierId: cashier.id,
-        cashierName: cashier.displayName,
-        roleId: cashier.roleId ?? undefined,
-        loginType: "pin",
-        deviceId: device.deviceId ?? undefined,
-        deviceName: device.deviceName ?? undefined,
-      });
-
-      await CashierRepository.update(cashier.id, {
-        lastLogin: new Date().toISOString(),
-      });
-
-      useCashierStore.getState().setSession({
-        sessionId: session.id,
-        cashierId: cashier.id,
-        cashierName: cashier.displayName,
-        photoUri: cashier.photoUri,
-        cashierRole: "",
-        roleId: cashier.roleId ?? "",
-        loginTime: session.loginTime,
-        locked: false,
-        lockedAt: null,
-      });
-
-      useAuthStore.getState().signIn({
-        id: cashier.id,
-        name: cashier.displayName,
-        pin,
-        role: "",
-        avatarUrl: cashier.photoUri ?? undefined,
-      });
+      if (cashier.accountLocked) return { success: false, error: "This account is locked. Ask a super admin to unlock it." };
+      const session = await startCashierSession(cashier, "pin");
 
       return {
         success: true,
@@ -68,49 +81,89 @@ export const CashierService = {
     }
   },
 
+  async loginPinForCashier(cashierId: string, pin: string) {
+    try {
+      const cashier = await CashierRepository.findById(cashierId);
+      if (!cashier || !cashier.active || !cashier.pinLoginEnabled) {
+        return { success: false, error: "This user is not available." };
+      }
+      if (cashier.accountLocked) {
+        return { success: false, locked: true, error: "This account is locked. Ask a super admin to unlock it." };
+      }
+      if (!cashier.pinHash || cashier.pinHash !== sha256(pin)) {
+        const maximumAttempts = useAccessSettingsStore.getState().maxPinAttempts || 5;
+        const updated = await CashierRepository.recordFailedPinAttempt(cashier.id, maximumAttempts);
+        const failed = Number(updated?.failedPinAttempts ?? 0);
+        const locked = Boolean(updated?.accountLocked);
+        const remaining = Math.max(0, maximumAttempts - failed);
+        return {
+          success: false,
+          locked,
+          remainingAttempts: remaining,
+          error: locked
+            ? "Too many incorrect PIN attempts. This account is now locked."
+            : `Incorrect PIN. ${remaining} ${remaining === 1 ? "attempt" : "attempts"} remaining.`,
+        };
+      }
+
+      const session = await startCashierSession(cashier, "pin");
+      return { success: true, session };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Login failed" };
+    }
+  },
+
+  async loginSuperAdmin(username: string, password: string) {
+    if (sha256(username.trim()) !== SUPER_ADMIN_USERNAME_HASH || sha256(password) !== SUPER_ADMIN_PASSWORD_HASH) {
+      return { success: false, error: "Invalid super admin credentials." };
+    }
+    const now = new Date().toISOString();
+    const sessionId = `super-admin-${Date.now()}`;
+    useCashierStore.getState().setSession({
+      sessionId,
+      cashierId: SUPER_ADMIN_ID,
+      cashierName: "Super Admin",
+      photoUri: null,
+      cashierRole: "Super Admin",
+      roleId: SUPER_ADMIN_ID,
+      loginTime: now,
+      locked: false,
+      lockedAt: null,
+      isSuperAdmin: true,
+    });
+    useAuthStore.getState().signIn({
+      id: SUPER_ADMIN_ID,
+      name: "Super Admin",
+      pin: "",
+      role: "Super Admin",
+      isSuperAdmin: true,
+    });
+    return { success: true, session: useCashierStore.getState().session };
+  },
+
+  async listLoginUsers() {
+    return CashierRepository.findLoginUsers();
+  },
+
+  async unlockManagedUser(cashierId: string) {
+    const cashier = await CashierRepository.resetPinFailures(cashierId);
+    if (!cashier) throw new Error("User not found.");
+    return cashier;
+  },
+
   async loginPassword(username: string, password: string) {
     try {
       const cashier = await CashierRepository.findByUsername(username);
       if (!cashier) return { success: false, error: "Invalid credentials" };
+
+      if (cashier.accountLocked) return { success: false, error: "This account is locked. Ask a super admin to unlock it." };
 
       const passwordHash = sha256(password);
       if (cashier.passwordHash !== passwordHash) {
         return { success: false, error: "Invalid credentials" };
       }
 
-      const device = useDeviceStore.getState().device;
-      const session = await SessionRepository.create({
-        cashierId: cashier.id,
-        cashierName: cashier.displayName,
-        roleId: cashier.roleId ?? undefined,
-        loginType: "password",
-        deviceId: device.deviceId ?? undefined,
-        deviceName: device.deviceName ?? undefined,
-      });
-
-      await CashierRepository.update(cashier.id, {
-        lastLogin: new Date().toISOString(),
-      });
-
-      useCashierStore.getState().setSession({
-        sessionId: session.id,
-        cashierId: cashier.id,
-        cashierName: cashier.displayName,
-        photoUri: cashier.photoUri,
-        cashierRole: "",
-        roleId: cashier.roleId ?? "",
-        loginTime: session.loginTime,
-        locked: false,
-        lockedAt: null,
-      });
-
-      useAuthStore.getState().signIn({
-        id: cashier.id,
-        name: cashier.displayName,
-        pin: "",
-        role: "",
-        avatarUrl: cashier.photoUri ?? undefined,
-      });
+      const session = await startCashierSession(cashier, "password");
 
       return {
         success: true,

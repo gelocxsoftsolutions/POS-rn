@@ -18,6 +18,8 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
+import { decodeQrFromBase64 } from "@/lib/qr/decode-image-qr";
 import { DeviceService } from "@/lib/services/device.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
@@ -114,6 +116,7 @@ export default function RegisterDevice() {
   const [loading, setLoading] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
   const [cashierPins, setCashierPins] = useState<CashierPin[]>([]);
   const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   const router = useRouter();
@@ -290,6 +293,46 @@ export default function RegisterDevice() {
     }
   }, [scanned, doRegister]);
 
+  const handleUploadQr = useCallback(async () => {
+    if (uploadingQr || scanned) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Photo library access is needed to upload a QR code image.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]?.base64) return;
+
+      setUploadingQr(true);
+      const asset = result.assets[0];
+      const base64 = asset.base64 as string;
+      const qrText = decodeQrFromBase64(base64, asset.mimeType ?? undefined);
+      if (!qrText) {
+        Alert.alert("No QR Found", "No QR code could be read from that image. Try a clearer screenshot.");
+        return;
+      }
+
+      setScanned(true);
+      const { activationToken, url } = extractQrPayload(qrText);
+      if (!activationToken) {
+        Alert.alert("Invalid QR", "QR code does not contain an activation token.");
+        setScanned(false);
+        return;
+      }
+      await doRegister(activationToken, url);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not read the QR image.");
+    } finally {
+      setUploadingQr(false);
+    }
+  }, [uploadingQr, scanned, doRegister]);
+
   if (step === "success") {
     return (
       <View style={[styles.successContainer, { backgroundColor: palette.background }]}>
@@ -453,13 +496,6 @@ export default function RegisterDevice() {
                 </>
               )}
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modeToggle, { borderColor: palette.border }]}
-              onPress={() => setStep("success")}
-            >
-              <Text style={[styles.modeToggleText, { color: palette.accent }]}>Skip for now</Text>
-            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -565,8 +601,23 @@ export default function RegisterDevice() {
             )}
             <Text style={[styles.qrTitle, { color: palette.text }]}>Scan QR Code</Text>
             <Text style={[styles.qrSubtitleCenter, { color: palette.muted }]}>
-              Point your camera at the QR code displayed on your OMS dashboard
+              Point your camera at the QR code displayed on your OMS dashboard, or upload a saved QR image
             </Text>
+            <TouchableOpacity
+              style={[styles.uploadBtn, (uploadingQr || loading) && styles.registerBtnDisabled]}
+              onPress={handleUploadQr}
+              disabled={uploadingQr || loading}
+              activeOpacity={0.8}
+            >
+              {uploadingQr ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={styles.uploadBtnText}>Upload QR from Gallery</Text>
+                </>
+              )}
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cancelButton, { backgroundColor: palette.surface, borderColor: palette.border }]}
               onPress={() => { setStep("choose"); setScanned(false); }}
@@ -1032,11 +1083,33 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#e2e8f0",
     backgroundColor: "#ffffff",
+    marginTop: 10,
   },
   cancelButtonText: {
     fontSize: 13,
     fontWeight: "700",
     color: "#475569",
+  },
+  uploadBtn: {
+    flexDirection: "row",
+    backgroundColor: "#17386b",
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  uploadBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   formContent: {
     paddingHorizontal: 24,
@@ -1144,17 +1217,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#ffffff",
     letterSpacing: 0.2,
-  },
-  modeToggle: {
-    marginTop: 14,
-    alignItems: "center",
-    paddingVertical: 6,
-  },
-  modeToggleText: {
-    fontSize: 13,
-    color: "#64748b",
-    fontWeight: "600",
-    textDecorationLine: "underline",
   },
   successContainer: {
     flex: 1,

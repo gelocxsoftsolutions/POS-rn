@@ -29,6 +29,25 @@ export const SyncQueueService = {
       const pending = await SyncQueueRepository.getPending(50);
 
       for (const item of pending) {
+        if (item.entityType === "Sale") {
+          try {
+            const { queryFirst } = await import("@/lib/db/connection");
+            const sale = await queryFirst<{ id: string }>(
+              "SELECT id FROM Sale WHERE id = ? AND status = 'COMPLETED'",
+              [item.entityId]
+            );
+            if (!sale) {
+              await SyncQueueRepository.markEntityFailed(
+                "Sale",
+                item.entityId,
+                "Discarded orphaned sale queue entry."
+              );
+              failed++;
+              continue;
+            }
+          } catch {}
+        }
+
         await SyncQueueRepository.markProcessing(item.id);
 
         try {
