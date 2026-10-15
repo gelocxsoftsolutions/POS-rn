@@ -712,6 +712,9 @@ export const OmsSyncService = {
       } catch { /* non-blocking */ }
 
       let inv = 0, prod = 0, tr = 0;
+      // Independent OMS connections are only for queued EOD and backup
+      // delivery. They must never import NCT catalog, stock, or transfers.
+      if (BusinessConfigurationService.capabilities().importNctCatalog) {
       let device = await DeviceRepository.find();
       // Remediation: local Device.id was previously random UUID, must match OMS deviceId (store deviceId)
       try {
@@ -734,6 +737,7 @@ export const OmsSyncService = {
         try { await deleteLegacyMockProducts(); } catch {}
       }
 
+      }
       return { success: true, synced: { inventory: inv, products: prod, transfers: tr } };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Connection failed" };

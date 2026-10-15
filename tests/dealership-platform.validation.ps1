@@ -54,10 +54,11 @@ Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'registrati
 Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'Resolve pending synchronization' "mode change cannot bypass pending synchronization"
 Assert-NotContains "src/lib/db/seed.ts" 'sha256\("1234"\)' "fresh installs must not seed a well-known admin PIN"
 Assert-Contains "src/lib/db/seed-sample-data.ts" 'EXPO_PUBLIC_SEED_SAMPLE_DATA === "1"' "sample data is explicit opt-in"
+Assert-Contains "src/lib/services/oms-sync.service.ts" 'capabilities\(\)\.importNctCatalog' "Independent OMS connection cannot import NCT operational data"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (32 source contracts)."
+Write-Output "Dealership platform validation passed (33 source contracts)."
