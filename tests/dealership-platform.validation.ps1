@@ -48,10 +48,16 @@ Assert-Contains "src/app/(auth)/register.tsx" 'How will this dealership operate\
 Assert-Contains "src/lib/services/device.service.ts" 'requestedOperatingMode' "authorized activation persists the selected operating mode"
 Assert-Contains "src/lib/services/cashier.service.ts" 'secureSha256' "super-admin credentials use a full SHA-256 verifier"
 Assert-NotContains "src/lib/services/device.service.ts" 'initialCashiers full' "device registration must not log cashier credentials"
+Assert-Contains "src/app/(auth)/register.tsx" 'router.push\("/\(auth\)/independent-setup"\)' "Independent mode bypasses OMS device activation"
+Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'needsExistingInstallationAuthorization' "existing installations require authorization"
+Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'registrationState: "registered"' "local independent terminal completes registration locally"
+Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'Resolve pending synchronization' "mode change cannot bypass pending synchronization"
+Assert-NotContains "src/lib/db/seed.ts" 'sha256\("1234"\)' "fresh installs must not seed a well-known admin PIN"
+Assert-Contains "src/lib/db/seed-sample-data.ts" 'EXPO_PUBLIC_SEED_SAMPLE_DATA === "1"' "sample data is explicit opt-in"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (26 source contracts)."
+Write-Output "Dealership platform validation passed (32 source contracts)."

@@ -353,7 +353,7 @@ export default function RegisterDevice() {
               <Ionicons name="options-outline" size={28} color={palette.accent} />
             </View>
             <Text style={[styles.formTitle, { color: palette.text }]}>How will this dealership operate?</Text>
-            <Text style={[styles.formSubtitle, { color: palette.muted }]}>Both choices keep checkout offline-first and continue sending EOD reports and recoverable backups to OMS.</Text>
+            <Text style={[styles.formSubtitle, { color: palette.muted }]}>Both choices keep checkout offline-first. Independent setup is local; OMS backup access can be connected separately afterward.</Text>
           </View>
           <View style={[styles.formCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             {(["INDEPENDENT", "NCT_DEPENDENT"] as OperatingMode[]).map((mode) => (
@@ -385,9 +385,9 @@ export default function RegisterDevice() {
             ) : null}
             <View style={[styles.helpCard, { backgroundColor: palette.info, borderColor: palette.border, marginTop: 4 }]}>
               <Ionicons name="shield-checkmark-outline" size={16} color={palette.muted} />
-              <Text style={[styles.helpText, { color: palette.muted }]}>OMS activation remains required and may enforce the dealership mode configured by your administrator.</Text>
+              <Text style={[styles.helpText, { color: palette.muted }]}>{selectedMode === "INDEPENDENT" ? "No OMS device registration is required. You will create this dealership, terminal, owner, and receipt defaults locally." : "OMS activation is required and may enforce the dealership mode configured by your administrator."}</Text>
             </View>
-            <TouchableOpacity style={styles.registerBtn} onPress={() => setStep("choose")} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.registerBtn} onPress={() => selectedMode === "INDEPENDENT" ? router.push("/(auth)/independent-setup") : setStep("choose")} activeOpacity={0.8}>
               <Text style={styles.registerBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
             </TouchableOpacity>

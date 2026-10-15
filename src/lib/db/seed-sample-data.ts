@@ -14,9 +14,9 @@ const LOCAL_BRANCH_NAME = "Main Branch";
 const LOCAL_BRANCH_ADDRESS = "Manila, Philippines";
 
 export function isSampleDataEnabled(): boolean {
-  const appEnv = process.env.EXPO_PUBLIC_APP_ENV ?? "staging";
-  if (process.env.EXPO_PUBLIC_SEED_SAMPLE_DATA === "0") return false;
-  return appEnv !== "production";
+  // Sample users, inventory, transfers, and device registration must be an
+  // explicit development choice so a fresh install reaches real onboarding.
+  return process.env.EXPO_PUBLIC_SEED_SAMPLE_DATA === "1";
 }
 
 async function findIdBy(table: string, column: string, value: string): Promise<string | null> {

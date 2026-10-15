@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { sha256 as secureSha256 } from "@noble/hashes/sha2.js";
+import { queryFirst } from "@/lib/db/connection";
 
 export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
 const SUPER_ADMIN_USERNAME_HASH = "67541e0a403c6868131cefa202501269b0079d088e8f2099afe3519004b6410d";
@@ -20,6 +21,11 @@ function secureCredentialHash(value: string): string {
 
 async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {
   if (!cashier) throw new Error("User not found");
+  const role = cashier.roleId
+    ? await queryFirst<{ name: string }>("SELECT name FROM Role WHERE id = ?", [cashier.roleId])
+    : null;
+  const roleName = role?.name ?? "";
+  const isAdministrator = roleName.trim().toLowerCase() === "admin";
   const device = useDeviceStore.getState().device;
   const session = await SessionRepository.create({
     cashierId: cashier.id,
@@ -42,21 +48,21 @@ async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRep
     cashierId: cashier.id,
     cashierName: cashier.displayName,
     photoUri: cashier.photoUri,
-    cashierRole: "",
+    cashierRole: roleName,
     roleId: cashier.roleId ?? "",
     loginTime: session.loginTime,
     locked: false,
     lockedAt: null,
-    isSuperAdmin: false,
+    isSuperAdmin: isAdministrator,
   });
 
   useAuthStore.getState().signIn({
     id: cashier.id,
     name: cashier.displayName,
     pin: "",
-    role: "",
+    role: roleName,
     avatarUrl: cashier.photoUri ?? undefined,
-    isSuperAdmin: false,
+    isSuperAdmin: isAdministrator,
   });
 
   return session;
