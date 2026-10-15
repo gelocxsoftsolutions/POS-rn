@@ -44,7 +44,7 @@ export const SessionService = {
         cashierId: session?.cashierId,
         cashierName: session?.cashierName,
         deviceId: device?.id,
-        deviceName: device?.deviceName,
+        deviceName: device?.deviceName ?? undefined,
         branchId: device?.branchId ?? undefined,
         branchName: device?.branchName ?? undefined,
         openingFloat,
@@ -95,7 +95,7 @@ export const SessionService = {
     }
   },
 
-  private async calculateExpectedCash(shiftId: string): Promise<number> {
+  async calculateExpectedCash(shiftId: string): Promise<number> {
     const result = await queryFirst<{ s: number }>(
       "SELECT COALESCE(SUM(total), 0) as s FROM Sale WHERE shiftId = ? AND paymentMethod = 'CASH' AND status = 'COMPLETED'",
       [shiftId]

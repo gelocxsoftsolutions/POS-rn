@@ -1,6 +1,7 @@
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, PaginatedResult, SaleSyncStatus } from "@/lib/types/sales";
+import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, SaleSyncStatus } from "@/lib/types/sales";
+import type { PaginatedResult } from "@/lib/types/inventory";
 import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 interface SaleSyncRow {
