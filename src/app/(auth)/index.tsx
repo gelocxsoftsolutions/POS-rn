@@ -14,6 +14,7 @@ import {
   useColorScheme,
   useWindowDimensions,
   Modal,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -189,9 +190,24 @@ export default function SignInScreen() {
     setMode(user.id === SUPER_ADMIN_ID ? "password" : "pin");
   }, []);
 
-  const handleReRegister = useCallback(async () => {
-    await DeviceService.clearRegistration();
-    router.replace("/(auth)/register");
+  const handleReRegister = useCallback(() => {
+    Alert.alert(
+      "Re-register this device?",
+      "Continuing removes this device's OMS credentials, but preserves local products, inventory, sales, users, receipts, and pending uploads. You will choose the operating mode before activating the device again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              await DeviceService.clearRegistration();
+              router.replace("/(auth)/register");
+            })();
+          },
+        },
+      ]
+    );
   }, [router]);
 
   const renderDot = (index: number) => {

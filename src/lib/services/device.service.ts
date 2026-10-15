@@ -47,9 +47,10 @@ export const DeviceService = {
           computerName: input.computerName,
           appVersion: input.appVersion,
           osVersion: input.osVersion,
+          requestedOperatingMode: input.requestedOperatingMode,
         });
 
-        console.log("[DeviceService] register response:", res.ok, res.status, JSON.stringify(res.data)?.slice(0, 500));
+        console.log("[DeviceService] register response:", res.ok, res.status);
 
         if (res.ok && res.data) {
           const d = res.data;
@@ -57,7 +58,8 @@ export const DeviceService = {
             businessId: d.businessId,
             businessName: d.businessName,
             posSystemName: d.posSystemName,
-            operatingMode: d.operatingMode,
+            operatingMode: d.operatingMode ?? input.requestedOperatingMode,
+            stockResolution: input.stockResolution,
           });
 
           // Clean slate: wipe all business data from previous device (products, inventory, sales, transfers, queues)
@@ -114,7 +116,6 @@ export const DeviceService = {
           } catch { /* non-blocking */ }
 
           if (d.initialCashiers && d.initialCashiers.length > 0) {
-            console.log("[DeviceService] initialCashiers full:", JSON.stringify(d.initialCashiers));
             // Upsert provisioned users without erasing local dealership users.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];

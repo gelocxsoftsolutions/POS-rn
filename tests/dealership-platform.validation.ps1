@@ -43,10 +43,15 @@ Assert-Contains "src/lib/backup/end-of-day.service.ts" 'idempotencyKey' "idempot
 Assert-Contains "src/lib/repositories/sync-queue.repository.ts" 'dedupeKey' "durable retry deduplication"
 Assert-Contains "src/app/(auth)/index.tsx" 'useBusinessConfigStore' "branding before authenticated POS navigation"
 Assert-Contains "src/app/_layout.tsx" 'BusinessConfigurationService.load' "branding loaded during application initialization"
+Assert-Contains "src/app/(auth)/index.tsx" 'Re-register this device\?' "re-registration requires an explicit confirmation"
+Assert-Contains "src/app/(auth)/register.tsx" 'How will this dealership operate\?' "registration includes operating-mode selection"
+Assert-Contains "src/lib/services/device.service.ts" 'requestedOperatingMode' "authorized activation persists the selected operating mode"
+Assert-Contains "src/lib/services/cashier.service.ts" 'secureSha256' "super-admin credentials use a full SHA-256 verifier"
+Assert-NotContains "src/lib/services/device.service.ts" 'initialCashiers full' "device registration must not log cashier credentials"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (21 source contracts)."
+Write-Output "Dealership platform validation passed (26 source contracts)."

@@ -140,6 +140,8 @@ export interface RegisterDeviceInput {
   appVersion: string;
   osVersion: string;
   serverUrl?: string;
+  requestedOperatingMode?: "INDEPENDENT" | "NCT_DEPENDENT";
+  stockResolution?: string;
 }
 
 export interface RegisterDeviceResult {

@@ -6,10 +6,17 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { sha256 as secureSha256 } from "@noble/hashes/sha2.js";
 
 export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
-const SUPER_ADMIN_USERNAME_HASH = "15142545";
-const SUPER_ADMIN_PASSWORD_HASH = "1ae8f481";
+const SUPER_ADMIN_USERNAME_HASH = "67541e0a403c6868131cefa202501269b0079d088e8f2099afe3519004b6410d";
+const SUPER_ADMIN_PASSWORD_HASH = "7e02e30cc5cacafefd09dc764e8c5fe5165f0f75cecb4fd74aaec45fc72c7de2";
+
+function secureCredentialHash(value: string): string {
+  return Array.from(secureSha256(new TextEncoder().encode(value)))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {
   if (!cashier) throw new Error("User not found");
@@ -114,7 +121,10 @@ export const CashierService = {
   },
 
   async loginSuperAdmin(username: string, password: string) {
-    if (sha256(username.trim()) !== SUPER_ADMIN_USERNAME_HASH || sha256(password) !== SUPER_ADMIN_PASSWORD_HASH) {
+    if (
+      secureCredentialHash(username.trim().toLowerCase()) !== SUPER_ADMIN_USERNAME_HASH ||
+      secureCredentialHash(password) !== SUPER_ADMIN_PASSWORD_HASH
+    ) {
       return { success: false, error: "Invalid super admin credentials." };
     }
     const now = new Date().toISOString();

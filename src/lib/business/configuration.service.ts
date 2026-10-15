@@ -52,6 +52,56 @@ function fromRow(row: Awaited<ReturnType<typeof SettingsRepository.get>>): Busin
   };
 }
 
+async function persistOperatingModeChange(input: {
+  current: BusinessConfiguration;
+  nextMode: OperatingMode;
+  changedById?: string;
+  changedByName?: string;
+  stockResolution?: string;
+}) {
+  if (input.current.operatingMode === input.nextMode) return;
+  const pending = await queryFirst<{ c: number }>(
+    "SELECT COUNT(*) c FROM SyncQueue WHERE status IN ('PENDING', 'PROCESSING')"
+  );
+  if ((pending?.c ?? 0) > 0) {
+    throw new Error("Finish or resolve pending synchronization before changing operating mode.");
+  }
+  if (input.nextMode === "NCT_DEPENDENT" && !input.stockResolution?.trim()) {
+    throw new Error("Document how existing independent stock will be mapped before enabling OMS-dependent mode.");
+  }
+  if (input.nextMode === "NCT_DEPENDENT") {
+    const unmapped = await queryFirst<{ c: number }>(
+      `SELECT COUNT(*) c FROM Product p
+       INNER JOIN PosInventory i ON i.productId = p.id AND i.availableQty <> 0
+       LEFT JOIN ProductOmsMapping m ON m.localProductId = p.id
+       WHERE p.businessId = ? AND p.identitySource = 'INDEPENDENT'
+         AND p.status = 'ACTIVE' AND m.localProductId IS NULL`,
+      [input.current.businessId]
+    );
+    if ((unmapped?.c ?? 0) > 0) {
+      throw new Error(`${unmapped?.c} independent variation(s) with stock must be mapped to NCT variations first.`);
+    }
+  }
+
+  const now = new Date().toISOString();
+  await execute("BEGIN IMMEDIATE");
+  try {
+    await execute(
+      `INSERT INTO OperatingModeAudit
+       (id, businessId, previousMode, nextMode, changedById, changedByName, stockResolution, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuid(), input.current.businessId, input.current.operatingMode, input.nextMode,
+        input.changedById ?? null, input.changedByName ?? null,
+        input.stockResolution?.trim() || null, now]
+    );
+    await SettingsRepository.upsert({ operatingMode: input.nextMode, modeChangedAt: now });
+    await execute("COMMIT");
+  } catch (error) {
+    await execute("ROLLBACK");
+    throw error;
+  }
+}
+
 export const BusinessConfigurationService = {
   async load(): Promise<BusinessConfiguration> {
     const configuration = fromRow(await SettingsRepository.get());
@@ -72,6 +122,7 @@ export const BusinessConfigurationService = {
     businessName?: string;
     posSystemName?: string;
     operatingMode?: OperatingMode;
+    stockResolution?: string;
   }): Promise<BusinessConfiguration> {
     const current = this.current();
     const requestedId = input.businessId?.trim();
@@ -89,8 +140,17 @@ export const BusinessConfigurationService = {
       storeName: input.businessName?.trim() || current.businessName,
       headerName: input.businessName?.trim() || current.headerName,
       posSystemName: input.posSystemName?.trim() || current.posSystemName,
-      operatingMode: input.operatingMode ?? current.operatingMode,
     });
+    const provisioned = await this.load();
+    if (input.operatingMode && input.operatingMode !== provisioned.operatingMode) {
+      await persistOperatingModeChange({
+        current: provisioned,
+        nextMode: input.operatingMode,
+        changedById: "DEVICE_ACTIVATION",
+        changedByName: "Authorized device registration",
+        stockResolution: input.stockResolution,
+      });
+    }
     return this.load();
   },
 
@@ -175,47 +235,7 @@ export const BusinessConfigurationService = {
     requireAdministrator();
     const current = this.current();
     if (current.operatingMode === input.nextMode) return current;
-
-    const pending = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) c FROM SyncQueue WHERE status IN ('PENDING', 'PROCESSING')"
-    );
-    if ((pending?.c ?? 0) > 0) {
-      throw new Error("Finish or resolve pending synchronization before changing operating mode.");
-    }
-    if (input.nextMode === "NCT_DEPENDENT" && !input.stockResolution?.trim()) {
-      throw new Error("Document how existing independent stock will be mapped before enabling OMS-dependent mode.");
-    }
-    if (input.nextMode === "NCT_DEPENDENT") {
-      const unmapped = await queryFirst<{ c: number }>(
-        `SELECT COUNT(*) c FROM Product p
-         INNER JOIN PosInventory i ON i.productId = p.id AND i.availableQty <> 0
-         LEFT JOIN ProductOmsMapping m ON m.localProductId = p.id
-         WHERE p.businessId = ? AND p.identitySource = 'INDEPENDENT'
-           AND p.status = 'ACTIVE' AND m.localProductId IS NULL`,
-        [current.businessId]
-      );
-      if ((unmapped?.c ?? 0) > 0) {
-        throw new Error(`${unmapped?.c} independent variation(s) with stock must be mapped to NCT variations first.`);
-      }
-    }
-
-    const now = new Date().toISOString();
-    await execute("BEGIN IMMEDIATE");
-    try {
-      await execute(
-        `INSERT INTO OperatingModeAudit
-         (id, businessId, previousMode, nextMode, changedById, changedByName, stockResolution, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [uuid(), current.businessId, current.operatingMode, input.nextMode,
-          input.changedById ?? null, input.changedByName ?? null,
-          input.stockResolution?.trim() || null, now]
-      );
-      await SettingsRepository.upsert({ operatingMode: input.nextMode, modeChangedAt: now });
-      await execute("COMMIT");
-    } catch (error) {
-      await execute("ROLLBACK");
-      throw error;
-    }
+    await persistOperatingModeChange({ current, ...input });
     return this.load();
   },
 };
