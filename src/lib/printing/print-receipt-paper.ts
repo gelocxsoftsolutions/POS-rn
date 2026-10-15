@@ -5,14 +5,13 @@ import type {
   ReceiptPreviewData,
   ReceiptPreviewSettings,
 } from "@/components/ui/receipt-preview-modal";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
 import { createCode128Svg } from "@/lib/barcodes/code128";
 
 const RECEIPT_WIDTH_MM = 58;
-const RECEIPT_WIDTH_POINTS = Math.round((RECEIPT_WIDTH_MM / 25.4) * 72);
 
 const escapeHtml = (value: unknown) =>
   String(value ?? "")
@@ -39,9 +38,11 @@ export async function printReceiptPaper(input: {
   const settings = input.settings ?? null;
 
   try {
-    const logoUri = await getPrintableAssetDataUri(
-      require("../../assets/thermal-printer-logo.jpg"),
-      "image/jpeg"
+    const receiptWidthMm = settings?.paperWidthMm === 80 ? 80 : RECEIPT_WIDTH_MM;
+    const receiptWidthPoints = Math.round((receiptWidthMm / 25.4) * 72);
+    const configuredLogoUri = await getPrintableFileDataUri(settings?.logoUri);
+    const logoUri = configuredLogoUri || await getPrintableAssetDataUri(
+      require("../../assets/thermal-printer-logo.jpg"), "image/jpeg"
     );
 
     if (Platform.OS === "android") {
@@ -90,7 +91,8 @@ export async function printReceiptPaper(input: {
     } catch {
       qrSvg = "";
     }
-    const receiptBarcodeSvg = createCode128Svg(String(receipt.receiptNumber));
+    const receiptBarcodeSvg = settings?.showReceiptBarcode === false ? "" : createCode128Svg(String(receipt.receiptNumber));
+    if (settings?.showReceiptQr === false) qrSvg = "";
 
     const receiptHeightMm = Math.max(218, 206 + receipt.items.length * 11);
     const receiptHeightPoints = Math.round((receiptHeightMm / 25.4) * 72);
@@ -109,9 +111,9 @@ export async function printReceiptPaper(input: {
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <style>
-            @page { size: ${RECEIPT_WIDTH_MM}mm ${receiptHeightMm}mm; margin: 0; }
+            @page { size: ${receiptWidthMm}mm ${receiptHeightMm}mm; margin: 0; }
             * { box-sizing: border-box; }
-            html, body { width: ${RECEIPT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; color: #000; }
+            html, body { width: ${receiptWidthMm}mm; margin: 0; padding: 0; background: #fff; color: #000; }
             body { padding: 4mm 3mm; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; }
             .center { text-align: center; }
             .logo { width: 24mm; height: 24mm; object-fit: contain; margin: 0 auto 4mm; display: block; }
@@ -135,22 +137,22 @@ export async function printReceiptPaper(input: {
           ${logoUri ? `<img class="logo" src="${logoUri}" />` : ""}
           <div class="center">
             <h1>${escapeHtml(settings?.storeName || "NCT Seafoods")}</h1>
+            ${settings?.headerMessage ? `<p class="meta">${escapeHtml(settings.headerMessage)}</p>` : ""}
             ${settings?.address ? `<p class="meta">${escapeHtml(settings.address)}</p>` : ""}
             ${settings?.supportPhone ? `<p class="meta">${escapeHtml(settings.supportPhone)}</p>` : ""}
             <p class="meta receipt-number">${escapeHtml(receipt.receiptNumber)}</p>
             <p class="meta">${escapeHtml(new Date(receipt.date).toLocaleString())}</p>
           </div>
           <div class="rule"></div>
-          ${receipt.customerName ? `<p class="meta">Customer: ${escapeHtml(receipt.customerName)}</p>` : ""}
-          <p class="meta">Cashier: ${escapeHtml(receipt.cashierName)}</p>
+          ${settings?.showCustomer !== false && receipt.customerName ? `<p class="meta">Customer: ${escapeHtml(receipt.customerName)}</p>` : ""}
+          ${settings?.showCashier !== false ? `<p class="meta">Cashier: ${escapeHtml(receipt.cashierName)}</p>` : ""}
           <div class="rule"></div>
           ${itemRows}
           <div class="rule"></div>
           <div class="total-row"><span>Subtotal</span><strong>&#8369;${receipt.subtotal.toFixed(2)}</strong></div>
           <div class="total-row"><span>${escapeHtml(settings?.taxLabel || "Tax")}</span><strong>&#8369;${receipt.tax.toFixed(2)}</strong></div>
           <div class="total-row total"><span>Total</span><span>&#8369;${receipt.total.toFixed(2)}</span></div>
-          <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(receipt.paymentMethod))})</span><span>&#8369;${receipt.paidAmount.toFixed(2)}</span></div>
-          <div class="total-row"><span>Change</span><span>&#8369;${receipt.change.toFixed(2)}</span></div>
+          ${settings?.showPaymentDetails !== false ? `<div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(receipt.paymentMethod))})</span><span>&#8369;${receipt.paidAmount.toFixed(2)}</span></div><div class="total-row"><span>Change</span><span>&#8369;${receipt.change.toFixed(2)}</span></div>` : ""}
           <div class="rule"></div>
           <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
           ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
@@ -167,7 +169,7 @@ export async function printReceiptPaper(input: {
     await Print.printAsync({
       html,
       printerUrl,
-      width: RECEIPT_WIDTH_POINTS,
+      width: receiptWidthPoints,
       height: receiptHeightPoints,
       margins: Platform.OS === "ios" ? { top: 0, right: 0, bottom: 0, left: 0 } : undefined,
     });

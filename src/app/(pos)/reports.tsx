@@ -20,15 +20,15 @@ import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
-import { SettingsService } from "@/lib/services/settings.service";
+import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
 import type { ReportSaleRow, SalesReport, SalesTrendPoint } from "@/lib/types/reports";
-import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { EndOfDayReportModal } from "@/components/ui/end-of-day-report-modal";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosEndOfDayReport } from "@/lib/printers/escpos-end-of-day";
 import { usePrinterStore } from "@/lib/stores/printer-store";
+import { EndOfDayService } from "@/lib/backup/end-of-day.service";
 
 type Preset = "today" | "7days" | "30days" | "custom";
 type DateTarget = "start" | "end" | null;
@@ -103,7 +103,8 @@ export default function ReportsScreen() {
   const [exporting, setExporting] = useState(false);
   const [eodVisible, setEodVisible] = useState(false);
   const [printingEod, setPrintingEod] = useState(false);
-  const [settings, setSettings] = useState<StoreSettingsRow | null>(null);
+  const [settings, setSettings] = useState<ResolvedSettings | null>(null);
+  const [queueingEod, setQueueingEod] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
@@ -231,7 +232,7 @@ export default function ReportsScreen() {
     if (!report.sales.length || printingEod) return;
     setPrintingEod(true);
     try {
-      const logoUri = await getPrintableAssetDataUri(
+      const logoUri = await getPrintableFileDataUri(settings?.logoUri) || await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
       );
@@ -341,6 +342,24 @@ export default function ReportsScreen() {
     } finally {
       setPrintingEod(false);
     }
+  };
+
+  const queueEndOfDay = async () => {
+    if (queueingEod) return;
+    if (!dayjs(startDate).isSame(endDate, "day")) {
+      Alert.alert("End of day", "Choose a single business date before closing an end-of-day report.");
+      return;
+    }
+    setQueueingEod(true);
+    try {
+      const result = await EndOfDayService.closeAndQueue({
+        businessDate: dayjs(startDate).format("YYYY-MM-DD"),
+      });
+      Alert.alert("End of day saved", `The report and recoverable backup are stored locally for OMS upload.\n\nBackup: ${result.backup.fileUri}`);
+      setEodVisible(false);
+    } catch (error: any) {
+      Alert.alert("End of day", error?.message ?? "Unable to create the recoverable EOD package.");
+    } finally { setQueueingEod(false); }
   };
 
   const summaryCards = [
@@ -539,6 +558,8 @@ export default function ReportsScreen() {
         onClose={() => setEodVisible(false)}
         onPrint={printEndOfDay}
         printing={printingEod}
+        onQueueUpload={() => void queueEndOfDay()}
+        queueingUpload={queueingEod}
         report={report}
         settings={settings}
         startDate={startDate}

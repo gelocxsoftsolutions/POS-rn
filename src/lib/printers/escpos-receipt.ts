@@ -1,5 +1,3 @@
-const RECEIPT_COLUMNS = 32;
-
 export interface EscPosReceiptItem {
   name: string;
   quantity: number;
@@ -28,6 +26,11 @@ export interface EscPosReceiptSettings {
   supportPhone?: string | null;
   receiptFooter?: string | null;
   taxLabel?: string | null;
+  headerMessage?: string | null;
+  paperWidthMm?: 58 | 80;
+  showCashier?: boolean;
+  showCustomer?: boolean;
+  showPaymentDetails?: boolean;
 }
 
 const clean = (value: unknown) =>
@@ -39,12 +42,12 @@ const clean = (value: unknown) =>
 
 const money = (value: number) => `PHP ${Number(value || 0).toFixed(2)}`;
 
-function center(value: string) {
-  const text = clean(value).slice(0, RECEIPT_COLUMNS);
-  return `${" ".repeat(Math.max(0, Math.floor((RECEIPT_COLUMNS - text.length) / 2)))}${text}`;
+function center(value: string, width: number) {
+  const text = clean(value).slice(0, width);
+  return `${" ".repeat(Math.max(0, Math.floor((width - text.length) / 2)))}${text}`;
 }
 
-function wrap(value: string, width = RECEIPT_COLUMNS) {
+function wrap(value: string, width: number) {
   const words = clean(value).split(" ").filter(Boolean);
   if (words.length === 0) return [""];
   const lines: string[] = [];
@@ -69,11 +72,11 @@ function wrap(value: string, width = RECEIPT_COLUMNS) {
   return lines;
 }
 
-function columns(left: string, right: string) {
-  const rightText = clean(right).slice(0, RECEIPT_COLUMNS);
-  const leftWidth = Math.max(1, RECEIPT_COLUMNS - rightText.length - 1);
+function columns(left: string, right: string, width: number) {
+  const rightText = clean(right).slice(0, width);
+  const leftWidth = Math.max(1, width - rightText.length - 1);
   const leftText = clean(left).slice(0, leftWidth);
-  return `${leftText}${" ".repeat(Math.max(1, RECEIPT_COLUMNS - leftText.length - rightText.length))}${rightText}`;
+  return `${leftText}${" ".repeat(Math.max(1, width - leftText.length - rightText.length))}${rightText}`;
 }
 
 const paymentLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
@@ -82,31 +85,35 @@ export function formatEscPosReceipt(
   receipt: EscPosReceiptData,
   settings: EscPosReceiptSettings | null
 ) {
+  const receiptColumns = settings?.paperWidthMm === 80 ? 48 : 32;
   const lines: string[] = [];
-  lines.push(center(settings?.storeName || "NCT Seafoods"));
-  if (settings?.address) wrap(settings.address).forEach((line) => lines.push(center(line)));
-  if (settings?.supportPhone) lines.push(center(settings.supportPhone));
-  lines.push("", center(receipt.receiptNumber));
-  lines.push(center(new Date(receipt.date).toLocaleString("en-PH")));
-  lines.push("-".repeat(RECEIPT_COLUMNS));
-  if (receipt.customerName) lines.push(...wrap(`Customer: ${receipt.customerName}`));
-  lines.push(...wrap(`Cashier: ${receipt.cashierName}`));
-  lines.push("-".repeat(RECEIPT_COLUMNS));
+  lines.push(center(settings?.storeName || "NCT Seafoods", receiptColumns));
+  if (settings?.headerMessage) wrap(settings.headerMessage, receiptColumns).forEach((line) => lines.push(center(line, receiptColumns)));
+  if (settings?.address) wrap(settings.address, receiptColumns).forEach((line) => lines.push(center(line, receiptColumns)));
+  if (settings?.supportPhone) lines.push(center(settings.supportPhone, receiptColumns));
+  lines.push("", center(receipt.receiptNumber, receiptColumns));
+  lines.push(center(new Date(receipt.date).toLocaleString("en-PH"), receiptColumns));
+  lines.push("-".repeat(receiptColumns));
+  if (settings?.showCustomer !== false && receipt.customerName) lines.push(...wrap(`Customer: ${receipt.customerName}`, receiptColumns));
+  if (settings?.showCashier !== false) lines.push(...wrap(`Cashier: ${receipt.cashierName}`, receiptColumns));
+  lines.push("-".repeat(receiptColumns));
 
   receipt.items.forEach((item) => {
-    lines.push(...wrap(item.name));
-    lines.push(columns(`${item.quantity} x ${money(item.unitPrice)}`, money(item.lineTotal ?? item.quantity * item.unitPrice)));
+    lines.push(...wrap(item.name, receiptColumns));
+    lines.push(columns(`${item.quantity} x ${money(item.unitPrice)}`, money(item.lineTotal ?? item.quantity * item.unitPrice), receiptColumns));
   });
 
-  lines.push("-".repeat(RECEIPT_COLUMNS));
-  lines.push(columns("Subtotal", money(receipt.subtotal)));
-  if ((receipt.discount ?? 0) > 0) lines.push(columns("Discount", `-${money(receipt.discount ?? 0)}`));
-  lines.push(columns(settings?.taxLabel || "Tax", money(receipt.tax)));
-  lines.push("=".repeat(RECEIPT_COLUMNS));
-  lines.push(columns("TOTAL", money(receipt.total)));
-  lines.push(columns(`Paid (${paymentLabel(receipt.paymentMethod)})`, money(receipt.paidAmount)));
-  lines.push(columns("Change", money(receipt.change)));
-  lines.push("=".repeat(RECEIPT_COLUMNS), "");
-  wrap(settings?.receiptFooter || "Thank you for your purchase!").forEach((line) => lines.push(center(line)));
+  lines.push("-".repeat(receiptColumns));
+  lines.push(columns("Subtotal", money(receipt.subtotal), receiptColumns));
+  if ((receipt.discount ?? 0) > 0) lines.push(columns("Discount", `-${money(receipt.discount ?? 0)}`, receiptColumns));
+  lines.push(columns(settings?.taxLabel || "Tax", money(receipt.tax), receiptColumns));
+  lines.push("=".repeat(receiptColumns));
+  lines.push(columns("TOTAL", money(receipt.total), receiptColumns));
+  if (settings?.showPaymentDetails !== false) {
+    lines.push(columns(`Paid (${paymentLabel(receipt.paymentMethod)})`, money(receipt.paidAmount), receiptColumns));
+    lines.push(columns("Change", money(receipt.change), receiptColumns));
+  }
+  lines.push("=".repeat(receiptColumns), "");
+  wrap(settings?.receiptFooter || "Thank you for your purchase!", receiptColumns).forEach((line) => lines.push(center(line, receiptColumns)));
   return `${lines.join("\n")}\n`;
 }

@@ -8,6 +8,15 @@ import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import type { InventoryTransferDTO, PaginatedResult } from "@/lib/types/inventory";
 import type { TransferFilter } from "@/lib/repositories/transfer.repository";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { assertCapability } from "@/lib/business/capabilities";
+
+function requireNctTransfers() {
+  assertCapability(
+    BusinessConfigurationService.current().operatingMode,
+    "receiveNctTransfers"
+  );
+}
 
 export interface TransferQrPayload {
   type: string;
@@ -26,6 +35,7 @@ const receiveInFlight = new Set<string>();
 
 export const TransferService = {
   async list(filters: TransferFilter): Promise<PaginatedResult<InventoryTransferDTO>> {
+    requireNctTransfers();
     try {
       return await TransferRepository.findMany(filters);
     } catch {
@@ -34,6 +44,7 @@ export const TransferService = {
   },
 
   async getById(id: string): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
     try {
       return await TransferRepository.findById(id);
     } catch {
@@ -52,6 +63,7 @@ export const TransferService = {
     maybeName?: string,
     omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
     if (receiveInFlight.has(id)) {
       try {
         return await TransferRepository.findById(id);
@@ -281,6 +293,7 @@ export const TransferService = {
   },
 
   async reject(id: string, rejectedByName: string): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
     try {
       return await TransferRepository.updateStatus(id, "REJECTED", undefined, rejectedByName);
     } catch {
@@ -289,6 +302,7 @@ export const TransferService = {
   },
 
   parseTransferQr(qrData: string): TransferQrPayload | null {
+    if (!BusinessConfigurationService.capabilities().receiveNctTransfers) return null;
     try {
       const parsed = JSON.parse(qrData);
       if (parsed.type === "nct-transfer" && parsed.transferId && parsed.transferNumber) {
@@ -304,6 +318,7 @@ export const TransferService = {
     transferId: number | string,
     transferNumber?: string
   ): Promise<{ success: boolean; transferNumber: string } | null> {
+    requireNctTransfers();
     try {
       // The server validates this body with zod (non-strict: unknown keys are
       // stripped, so sending the transfer number as well is harmless and
@@ -341,6 +356,7 @@ export const TransferService = {
   },
 
   async fetchFromOms(): Promise<{ synced: number }> {
+    requireNctTransfers();
     try {
       const device = useDeviceStore.getState().device;
       const deviceId = device.deviceId ?? "";

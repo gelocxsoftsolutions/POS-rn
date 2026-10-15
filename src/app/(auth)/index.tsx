@@ -21,6 +21,7 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 const PIN_LENGTH = 6;
 const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
@@ -46,6 +47,10 @@ export default function SignInScreen() {
   const [showUserPicker, setShowUserPicker] = useState(false);
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
+  const business = useBusinessConfigStore((s) => s.configuration);
+  const brandLogo = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
   const dark = useColorScheme() === "dark";
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
@@ -269,13 +274,13 @@ export default function SignInScreen() {
         />
         <View style={[styles.unregBrand, isLandscape && styles.unregBrandLandscape]}>
           <Image
-            source={require("../../../assets/nct-seafoods-logo.png")}
+            source={brandLogo}
             style={{ width: unregisteredLogoSize, height: unregisteredLogoSize }}
             resizeMode="contain"
-            accessibilityLabel="NCT Seafoods"
+            accessibilityLabel={business.businessName}
           />
-          <Text style={[styles.unregBrandText, { color: primaryTextColor }]}>NCT Seafoods</Text>
-          <Text style={[styles.unregBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
+          <Text style={[styles.unregBrandText, { color: primaryTextColor }]}>{business.headerName}</Text>
+          <Text style={[styles.unregBrandSubtitle, { color: secondaryTextColor }]}>{business.posSystemName}</Text>
         </View>
         <View style={[
           styles.unregisteredContainer,
@@ -335,13 +340,13 @@ export default function SignInScreen() {
             ]}
           >
             <Image
-              source={require("../../../assets/nct-seafoods-logo.png")}
+              source={brandLogo}
               style={{ width: logoSize, height: logoSize }}
               resizeMode="contain"
-              accessibilityLabel="NCT Seafoods"
+              accessibilityLabel={business.businessName}
             />
-            <Text style={[styles.landscapeBrandTitle, !isLandscape && styles.portraitBrandTitle, { color: primaryTextColor }]}>NCT Seafoods</Text>
-            <Text style={[styles.landscapeBrandSubtitle, !isLandscape && styles.portraitBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
+            <Text style={[styles.landscapeBrandTitle, !isLandscape && styles.portraitBrandTitle, { color: primaryTextColor }]}>{business.headerName}</Text>
+            <Text style={[styles.landscapeBrandSubtitle, !isLandscape && styles.portraitBrandSubtitle, { color: secondaryTextColor }]}>{business.posSystemName}</Text>
           </View>
 
         {mode === "pin" ? (

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -182,6 +182,9 @@ export const CREATE_TABLES = [
     taxGroupId TEXT,
     status TEXT DEFAULT 'ACTIVE',
     imageId TEXT,
+    businessId TEXT DEFAULT 'nct-default',
+    identitySource TEXT DEFAULT 'NCT',
+    omsVariationId TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (categoryId) REFERENCES Category(id),
@@ -295,6 +298,8 @@ export const CREATE_TABLES = [
     shiftId TEXT,
     deviceId TEXT,
     branchId INTEGER,
+    businessId TEXT DEFAULT 'nct-default',
+    originMode TEXT DEFAULT 'NCT_DEPENDENT',
     synced INTEGER DEFAULT 0,
     createdAt TEXT DEFAULT (datetime('now'))
   )`,
@@ -335,6 +340,8 @@ export const CREATE_TABLES = [
     address TEXT,
     phone TEXT,
     footer TEXT,
+    templateVersion INTEGER DEFAULT 1,
+    templateSnapshot TEXT,
     printedAt TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (saleId) REFERENCES Sale(id) ON DELETE CASCADE
@@ -350,6 +357,16 @@ export const CREATE_TABLES = [
     supportPhone TEXT DEFAULT '',
     address TEXT DEFAULT '',
     receiptFooter TEXT DEFAULT '',
+    businessId TEXT DEFAULT 'nct-default',
+    operatingMode TEXT DEFAULT 'NCT_DEPENDENT',
+    posSystemName TEXT DEFAULT 'NCT Seafoods POS',
+    headerName TEXT DEFAULT 'NCT Seafoods',
+    businessLogoUri TEXT,
+    receiptLogoUri TEXT,
+    contactEmail TEXT DEFAULT '',
+    receiptTemplateJson TEXT,
+    receiptTemplateVersion INTEGER DEFAULT 1,
+    modeChangedAt TEXT,
     updatedAt TEXT DEFAULT (datetime('now'))
   )`,
 
@@ -363,6 +380,7 @@ export const CREATE_TABLES = [
     retryCount INTEGER DEFAULT 0,
     maxRetries INTEGER DEFAULT 5,
     error TEXT,
+    dedupeKey TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now'))
   )`,
@@ -435,4 +453,46 @@ export const CREATE_TABLES = [
     details TEXT,
     createdAt TEXT DEFAULT (datetime('now'))
   )`,
+
+  `CREATE TABLE IF NOT EXISTS OperatingModeAudit (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    previousMode TEXT NOT NULL,
+    nextMode TEXT NOT NULL,
+    changedById TEXT,
+    changedByName TEXT,
+    stockResolution TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS BarcodeNamespace (
+    businessId TEXT NOT NULL,
+    deviceId TEXT NOT NULL,
+    nextSequence INTEGER DEFAULT 1,
+    PRIMARY KEY (businessId, deviceId)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS BackupManifest (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    deviceId TEXT,
+    schemaVersion INTEGER NOT NULL,
+    databaseChecksum TEXT NOT NULL,
+    status TEXT DEFAULT 'PENDING',
+    remoteReference TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    uploadedAt TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ProductOmsMapping (
+    localProductId TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    omsVariationId TEXT NOT NULL,
+    mappedById TEXT,
+    mappedByName TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (localProductId) REFERENCES Product(id),
+    UNIQUE (businessId, omsVariationId)
+  )`,
+
 ];

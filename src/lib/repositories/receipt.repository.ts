@@ -19,6 +19,13 @@ export const ReceiptRepository = {
     footer?: string;
     printedAt?: string;
   }): Promise<ReceiptDTO> {
+    const existing = await this.findBySaleId(data.saleId);
+    if (existing) {
+      if (data.printedAt) {
+        await execute("UPDATE Receipt SET printedAt = ? WHERE id = ?", [data.printedAt, existing.id]);
+      }
+      return (await this.findBySaleId(data.saleId)) as ReceiptDTO;
+    }
     const id = uuid();
     const now = new Date().toISOString();
     await execute(

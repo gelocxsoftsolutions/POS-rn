@@ -78,6 +78,9 @@ export interface ProductDTO {
   taxRate: number | null;
   status: string;
   imageId: string | null;
+  businessId?: string;
+  identitySource?: "NCT" | "INDEPENDENT";
+  omsVariationId?: string | null;
   imageUrl?: string | null;
   retailPrice: number | null;
   allocatedQty?: number;

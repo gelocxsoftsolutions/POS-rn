@@ -31,6 +31,8 @@ import { useSyncStore } from "@/lib/stores/sync-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { capabilitiesFor } from "@/lib/business/capabilities";
 
 const WIDE_BREAKPOINT = 768;
 const AUTO_LOCK_WARNING_SECONDS = 5;
@@ -266,6 +268,11 @@ function POSHeader({
   onAccountPress: () => void;
   onLogoutPress: () => void;
 }) {
+  const business = useBusinessConfigStore((state) => state.configuration);
+  const capabilities = capabilitiesFor(business.operatingMode);
+  const brandLogo = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [overflowVisible, setOverflowVisible] = useState(false);
   const [syncingNow, setSyncingNow] = useState(false);
@@ -380,18 +387,20 @@ function POSHeader({
               />
             </TouchableOpacity>
           )}
-          <TransferBadge
-            count={transferCount}
-            onPress={handleBadgePress}
-            dark={dark}
-          />
+          {capabilities.receiveNctTransfers ? (
+            <TransferBadge
+              count={transferCount}
+              onPress={handleBadgePress}
+              dark={dark}
+            />
+          ) : null}
         </View>
         <View style={styles.headerBrand} pointerEvents="none">
           <Image
-            source={require("../../../assets/nct-seafoods-logo.png")}
+            source={brandLogo}
             style={styles.headerLogo}
             resizeMode="contain"
-            accessibilityLabel="NCT Seafoods"
+            accessibilityLabel={business.businessName}
           />
           <Text
             style={[
@@ -400,7 +409,7 @@ function POSHeader({
             ]}
             numberOfLines={1}
           >
-            NCT Seafoods POS System
+            {business.posSystemName}
           </Text>
         </View>
         <View style={styles.headerRight} {...(!isWide ? panResponder.panHandlers : {})}>
@@ -592,6 +601,8 @@ export default function POSLayout() {
   const deviceHydrated = useDeviceStore((s) => s.hydrated);
   const clearDevice = useDeviceStore((s) => s.clearDevice);
   const autoLockMinutes = useAccessSettingsStore((s) => s.autoLockMinutes);
+  const operatingMode = useBusinessConfigStore((s) => s.configuration.operatingMode);
+  const capabilities = capabilitiesFor(operatingMode);
 
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
   const [transferCount, setTransferCount] = useState(0);
@@ -757,8 +768,9 @@ export default function POSLayout() {
 
   const visibleNavItems = navItems.filter(
     (item) =>
-      grantedPermissions.length === 0 ||
-      hasAnyRequiredPermission(item, grantedPermissions)
+      (item.name !== "transfers" || capabilities.receiveNctTransfers) &&
+      (grantedPermissions.length === 0 ||
+      hasAnyRequiredPermission(item, grantedPermissions))
   );
 
   // 3. Auth redirect guard
@@ -796,6 +808,11 @@ export default function POSLayout() {
 
   // 5. Transfer badge polling — every 30 seconds
   useEffect(() => {
+    if (!capabilities.receiveNctTransfers) {
+      setTransfers([]);
+      setTransferCount(0);
+      return;
+    }
     let cancelled = false;
 
     const checkPendingTransfers = async () => {
@@ -820,7 +837,7 @@ export default function POSLayout() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [capabilities.receiveNctTransfers]);
 
   // Reset badge when on transfers screen
   useEffect(() => {
@@ -831,6 +848,10 @@ export default function POSLayout() {
 
   // Permission gate — redirect if current route is forbidden
   useEffect(() => {
+    if (isNavItemActive(pathname, "/(pos)/transfers") && !capabilities.receiveNctTransfers) {
+      router.replace("/(pos)");
+      return;
+    }
     if (grantedPermissions.length === 0) return;
     const currentItem = navItems.find((item) => {
       return isNavItemActive(pathname, item.href);
@@ -838,7 +859,7 @@ export default function POSLayout() {
     if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
       router.replace("/(pos)");
     }
-  }, [pathname, grantedPermissions, router]);
+  }, [pathname, grantedPermissions, router, capabilities.receiveNctTransfers]);
 
   // Loading state
   if (!authHydrated || !uiHydrated || !cashierHydrated || !deviceHydrated) {

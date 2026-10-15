@@ -57,6 +57,55 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
     }
   }
 
+  // Migration to v8: configurable business identity, capabilities, receipt
+  // snapshots, and recoverable upload metadata. Existing installations retain
+  // the NCT-dependent defaults and all current data.
+  for (const sql of [
+    "ALTER TABLE Product ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE Product ADD COLUMN identitySource TEXT DEFAULT 'NCT'",
+    "ALTER TABLE Product ADD COLUMN omsVariationId TEXT DEFAULT NULL",
+    "ALTER TABLE Sale ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE Sale ADD COLUMN originMode TEXT DEFAULT 'NCT_DEPENDENT'",
+    "ALTER TABLE Receipt ADD COLUMN templateVersion INTEGER DEFAULT 1",
+    "ALTER TABLE Receipt ADD COLUMN templateSnapshot TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE StoreSettings ADD COLUMN operatingMode TEXT DEFAULT 'NCT_DEPENDENT'",
+    "ALTER TABLE StoreSettings ADD COLUMN posSystemName TEXT DEFAULT 'NCT Seafoods POS'",
+    "ALTER TABLE StoreSettings ADD COLUMN headerName TEXT DEFAULT 'NCT Seafoods'",
+    "ALTER TABLE StoreSettings ADD COLUMN businessLogoUri TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptLogoUri TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN contactEmail TEXT DEFAULT ''",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptTemplateJson TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptTemplateVersion INTEGER DEFAULT 1",
+    "ALTER TABLE StoreSettings ADD COLUMN modeChangedAt TEXT DEFAULT NULL",
+    "ALTER TABLE SyncQueue ADD COLUMN dedupeKey TEXT DEFAULT NULL",
+  ]) {
+    try {
+      await database.execAsync(sql);
+    } catch {
+      // column already exists
+    }
+  }
+
+  await database.execAsync(
+    "UPDATE Product SET businessId = 'nct-default' WHERE businessId IS NULL OR businessId = ''"
+  );
+  await database.execAsync(
+    "UPDATE Product SET identitySource = 'NCT' WHERE identitySource IS NULL OR identitySource = ''"
+  );
+  await database.execAsync(
+    "UPDATE Sale SET businessId = 'nct-default' WHERE businessId IS NULL OR businessId = ''"
+  );
+  await database.execAsync(
+    "UPDATE Sale SET originMode = 'NCT_DEPENDENT' WHERE originMode IS NULL OR originMode = ''"
+  );
+  await database.execAsync(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupe ON SyncQueue(dedupeKey) WHERE dedupeKey IS NOT NULL"
+  );
+  await database.execAsync(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_product_oms_identity ON Product(businessId, omsVariationId) WHERE omsVariationId IS NOT NULL"
+  );
+
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
   await database.runAsync(

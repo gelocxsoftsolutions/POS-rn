@@ -41,7 +41,7 @@ import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
@@ -554,7 +554,7 @@ export default function SalesScreen() {
     try {
       // Start feedback before Bluetooth/print work can occupy the native bridge.
       await playCheckoutSuccessSound();
-      const logoUri = await getPrintableAssetDataUri(
+      const logoUri = await getPrintableFileDataUri(settings?.logoUri) || await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
       );

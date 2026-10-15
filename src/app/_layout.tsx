@@ -12,6 +12,8 @@ import { AuthenticationService } from "@/lib/services/authentication.service";
 import { startNetworkListener } from "@/lib/services/network.service";
 import { startBackgroundSync } from "@/lib/services/sync-worker";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -22,12 +24,17 @@ export default function RootLayout() {
   const shortEdge = Math.min(width, height);
   const splashLogoSize = Math.max(104, Math.min(196, shortEdge * (width > height ? 0.3 : 0.28)));
   const shellBackground = dark ? "#050a14" : "#f8fbff";
+  const business = useBusinessConfigStore((state) => state.configuration);
+  const splashLogo = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../assets/nct-seafoods-logo.png");
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         await getDatabase();
+        await BusinessConfigurationService.load();
         await SeedService.run();
         await initApiConfig();
         await AuthenticationService.init();
@@ -48,11 +55,11 @@ export default function RootLayout() {
     return (
       <View style={[styles.splash, { backgroundColor: splashDark ? "#050a14" : "#f8fbff" }]}>
         <Image
-          source={require("../../assets/nct-seafoods-logo.png")}
+          source={splashLogo}
           style={[styles.splashLogo, { width: splashLogoSize, height: splashLogoSize }]}
           resizeMode="contain"
         />
-        <Text style={[styles.splashTitle, { color: splashDark ? "#ffffff" : "#17386b" }]}>NCT Seafoods POS</Text>
+        <Text style={[styles.splashTitle, { color: splashDark ? "#ffffff" : "#17386b" }]}>{business.posSystemName}</Text>
         <Text style={[styles.splashSubtitle, { color: splashDark ? "#a3b8d6" : "#667085" }]}>Initializing system…</Text>
         <ActivityIndicator
           size="large"

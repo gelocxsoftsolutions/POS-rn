@@ -2,6 +2,7 @@ import { ShiftRepository } from "@/lib/repositories/shift.repository";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { queryFirst } from "@/lib/db/connection";
+import { EndOfDayService } from "@/lib/backup/end-of-day.service";
 
 export const SessionService = {
   async getCurrent() {
@@ -76,8 +77,19 @@ export const SessionService = {
         actualCash,
         difference,
       });
+      let uploadQueued = false;
+      let uploadWarning: string | undefined;
+      try {
+        await EndOfDayService.closeAndQueue({
+          businessDate: new Date().toISOString().split("T")[0],
+          shiftId,
+        });
+        uploadQueued = true;
+      } catch (error: any) {
+        uploadWarning = error?.message ?? "The EOD backup could not be queued.";
+      }
 
-      return { success: true, shift: closed };
+      return { success: true, shift: closed, uploadQueued, uploadWarning };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Failed to close shift" };
     }

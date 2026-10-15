@@ -11,6 +11,7 @@ export interface SyncQueueRow {
   retryCount: number;
   maxRetries: number;
   error: string | null;
+  dedupeKey: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +22,7 @@ export interface EnqueueInput {
   operation: string;
   payload?: string;
   maxRetries?: number;
+  dedupeKey?: string;
 }
 
 export interface SyncStats {
@@ -35,11 +37,12 @@ export const SyncQueueRepository = {
   async enqueue(input: EnqueueInput): Promise<SyncQueueRow> {
     const existing = await queryFirst<SyncQueueRow>(
       `SELECT * FROM SyncQueue
-       WHERE entityType = ? AND entityId = ? AND operation = ?
+       WHERE ((? IS NOT NULL AND dedupeKey = ?)
+          OR (entityType = ? AND entityId = ? AND operation = ?))
          AND status IN ('PENDING', 'PROCESSING', 'FAILED')
        ORDER BY createdAt DESC
        LIMIT 1`,
-      [input.entityType, input.entityId, input.operation]
+      [input.dedupeKey ?? null, input.dedupeKey ?? null, input.entityType, input.entityId, input.operation]
     );
     if (existing) {
       // Refresh a stale queued payload (e.g. re-priced sale) instead of replaying the old one.
@@ -57,8 +60,8 @@ export const SyncQueueRepository = {
     const id = uuid();
     const now = new Date().toISOString();
     await execute(
-      `INSERT INTO SyncQueue (id, entityType, entityId, operation, payload, status, retryCount, maxRetries, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, 'PENDING', 0, ?, ?, ?)`,
+      `INSERT INTO SyncQueue (id, entityType, entityId, operation, payload, status, retryCount, maxRetries, dedupeKey, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, 'PENDING', 0, ?, ?, ?, ?)`,
       [
         id,
         input.entityType,
@@ -66,6 +69,7 @@ export const SyncQueueRepository = {
         input.operation,
         input.payload ?? null,
         input.maxRetries ?? 5,
+        input.dedupeKey ?? null,
         now,
         now,
       ]

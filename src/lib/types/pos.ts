@@ -20,6 +20,17 @@ export interface StoreSettings {
   address: string;
   receiptFooter: string;
   taxRate: number;
+  logoUri?: string | null;
+  headerMessage?: string;
+  headerAlignment?: "left" | "center" | "right";
+  footerAlignment?: "left" | "center" | "right";
+  emphasizeBusinessName?: boolean;
+  showCashier?: boolean;
+  showCustomer?: boolean;
+  showPaymentDetails?: boolean;
+  showReceiptBarcode?: boolean;
+  showReceiptQr?: boolean;
+  paperWidthMm?: 58 | 80;
 }
 
 export interface PosSessionSummary {

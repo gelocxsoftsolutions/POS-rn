@@ -38,3 +38,16 @@ export async function getPrintableAssetDataUri(
   const base64 = await new File(uri).base64();
   return `data:${mimeType};base64,${base64}`;
 }
+
+export async function getPrintableFileDataUri(uri: string | null | undefined): Promise<string> {
+  if (!uri) return "";
+  if (uri.startsWith("data:") || Platform.OS === "web") return uri;
+  const extension = uri.split("?")[0].split(".").pop()?.toLowerCase();
+  const mimeType = extension === "png"
+    ? "image/png"
+    : extension === "webp"
+      ? "image/webp"
+      : "image/jpeg";
+  const base64 = await new File(uri).base64();
+  return `data:${mimeType};base64,${base64}`;
+}

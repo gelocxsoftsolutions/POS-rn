@@ -7,8 +7,12 @@ import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { queryFirst } from "@/lib/db/connection";
 import type { ProductFilter, ProductDTO, PaginatedResult } from "@/lib/types/inventory";
 import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { IndependentCatalogService, type CreateIndependentVariationInput } from "@/lib/business/independent-catalog.service";
 
 export const ProductService = {
+  async createIndependentVariation(input: CreateIndependentVariationInput) {
+    return IndependentCatalogService.createVariation(input);
+  },
   async search(filters: ProductFilter): Promise<PaginatedResult<ProductDTO>> {
     try {
       return await ProductRepository.search(filters);

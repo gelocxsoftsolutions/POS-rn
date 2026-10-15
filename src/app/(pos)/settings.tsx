@@ -852,6 +852,17 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {isSuperAdmin && showSettingsSection("business branding dealership operating mode receipt designer") && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Dealership Platform</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
+            <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
+            <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
+          </View>
+        </Card>
+      )}
+
       <View style={[styles.twoColRow, isWideColumns && styles.twoColRowWide]}>
         {/* Store Details Card */}
         <Card style={[styles.section, styles.twoColCard, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("store details name address currency device code registration") && styles.hidden]}>

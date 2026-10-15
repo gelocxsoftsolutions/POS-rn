@@ -22,15 +22,14 @@ import { Badge } from "@/components/ui/badge";
 import { SaleService } from "@/lib/services/sale.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
-import { SettingsService } from "@/lib/services/settings.service";
+import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
 import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { SaleDTO } from "@/lib/types/sales";
-import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
@@ -59,7 +58,7 @@ export default function ReceiptsScreen() {
   const [receipts, setReceipts] = useState<SaleDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [printPreviewVisible, setPrintPreviewVisible] = useState(false);
-  const [receiptSettings, setReceiptSettings] = useState<StoreSettingsRow | null>(null);
+  const [receiptSettings, setReceiptSettings] = useState<ResolvedSettings | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -141,7 +140,25 @@ export default function ReceiptsScreen() {
     if (!selected || printing) return;
     setPrinting(true);
     try {
-      const logoUri = await getPrintableAssetDataUri(
+      const historicalReceipt = await ReceiptService.getBySaleId(selected.id);
+      let historicalSettings = receiptSettings;
+      try {
+        const snapshot = historicalReceipt?.templateSnapshot
+          ? JSON.parse(historicalReceipt.templateSnapshot)
+          : null;
+        if (snapshot && receiptSettings) {
+          historicalSettings = {
+            ...receiptSettings,
+            storeName: snapshot.businessName ?? historicalReceipt?.storeName,
+            address: snapshot.address ?? historicalReceipt?.address,
+            supportPhone: snapshot.supportPhone ?? historicalReceipt?.phone,
+            logoUri: snapshot.receiptLogoUri || snapshot.businessLogoUri || receiptSettings?.logoUri,
+            receiptFooter: snapshot.template?.footerMessage ?? historicalReceipt?.footer,
+            ...snapshot.template,
+          };
+        }
+      } catch {}
+      const logoUri = await getPrintableFileDataUri(historicalSettings?.logoUri) || await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
       );
@@ -171,7 +188,7 @@ export default function ReceiptsScreen() {
             change: selected.changeAmount,
             paymentMethod: selected.paymentMethod,
           },
-          receiptSettings
+          historicalSettings
         );
         await BluetoothPrinter.printReceipt(
           selectedPrinter.address,
@@ -239,9 +256,9 @@ export default function ReceiptsScreen() {
           <body>
             ${logoUri ? `<img class="logo" src="${logoUri}" />` : ""}
             <div class="center">
-              <h1>${escapeHtml(receiptSettings?.storeName || "NCT Seafoods")}</h1>
-              ${receiptSettings?.address ? `<p class="meta">${escapeHtml(receiptSettings.address)}</p>` : ""}
-              ${receiptSettings?.supportPhone ? `<p class="meta">${escapeHtml(receiptSettings.supportPhone)}</p>` : ""}
+              <h1>${escapeHtml(historicalSettings?.storeName || "NCT Seafoods")}</h1>
+              ${historicalSettings?.address ? `<p class="meta">${escapeHtml(historicalSettings.address)}</p>` : ""}
+              ${historicalSettings?.supportPhone ? `<p class="meta">${escapeHtml(historicalSettings.supportPhone)}</p>` : ""}
               <p class="meta receipt-number">${escapeHtml(selected.receiptNumber)}</p>
               <p class="meta">${escapeHtml(new Date(selected.createdAt).toLocaleString())}</p>
             </div>
@@ -258,7 +275,7 @@ export default function ReceiptsScreen() {
             <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(selected.paymentMethod))})</span><span>&#8369;${selected.paidAmount.toFixed(2)}</span></div>
             <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
             <div class="rule"></div>
-            <p class="footer">${escapeHtml(receiptSettings?.receiptFooter || "Thank you for your purchase!")}</p>
+            <p class="footer">${escapeHtml(historicalSettings?.receiptFooter || "Thank you for your purchase!")}</p>
             ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
             ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>

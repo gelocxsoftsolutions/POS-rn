@@ -116,6 +116,8 @@ export interface ReceiptDTO {
   address: string | null;
   phone: string | null;
   footer: string | null;
+  templateVersion?: number;
+  templateSnapshot?: string | null;
   printedAt: string | null;
   createdAt: string;
 }

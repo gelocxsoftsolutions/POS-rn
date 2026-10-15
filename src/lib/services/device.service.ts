@@ -4,6 +4,8 @@ import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import type { RegisterDeviceInput } from "@/lib/types/pos";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import type { OperatingMode } from "@/lib/business/types";
 
 export const DeviceService = {
   async register(input: RegisterDeviceInput) {
@@ -26,6 +28,10 @@ export const DeviceService = {
           branchAddress: string;
           registeredAt: string;
           deviceName: string;
+          businessId?: string;
+          businessName?: string;
+          posSystemName?: string;
+          operatingMode?: OperatingMode;
           initialCashiers: Array<{
             id: string;
             username: string;
@@ -47,37 +53,36 @@ export const DeviceService = {
 
         if (res.ok && res.data) {
           const d = res.data;
+          await BusinessConfigurationService.applyProvisionedConfiguration({
+            businessId: d.businessId,
+            businessName: d.businessName,
+            posSystemName: d.posSystemName,
+            operatingMode: d.operatingMode,
+          });
 
           // Clean slate: wipe all business data from previous device (products, inventory, sales, transfers, queues)
           // Each new device must start empty and isolated — no cross-device leakage or mock leftovers
           try {
-            const tablesToWipe = [
-              "SaleItem", "Payment", "Receipt", "Sale",
-              "InventoryTransferItem", "InventoryTransfer",
-              "InventoryLedger", "PosInventory", "InventoryAllocation", "StockAlert",
-              "SyncQueue", "AuditLog", "Log",
-              "Barcode", "ProductPrice", "Product", "ProductImage",
-              "Category", "Brand", "Unit", "TaxGroup",
-            ];
-            for (const tbl of tablesToWipe) {
-              try { await execute(`DELETE FROM ${tbl}`); } catch {}
-            }
-            // Reset cashiers (will be re-seeded from initialCashiers below)
-            await execute("DELETE FROM CashierSession");
-            await execute("DELETE FROM Cashier");
-            await execute("DELETE FROM Device");
+            // Business records and local users are preserved during device
+            // provisioning. Cross-business registration is blocked above.
           } catch {}
 
-          const device = await DeviceRepository.create({
-            id: d.deviceId,
-            deviceCode: d.deviceCode,
-            deviceName: d.deviceName || input.computerName,
-            publicIdentifier: d.publicIdentifier,
-            branchId: d.branchId,
-            branchName: d.branchName,
-            branchAddress: d.branchAddress,
-            status: "REGISTERED",
-          });
+          const existingDevice = await DeviceRepository.find();
+          if (existingDevice && existingDevice.id !== d.deviceId) {
+            throw new Error("This installation is already registered to another device. Existing POS data was preserved.");
+          }
+          const device = existingDevice
+            ? await DeviceRepository.update(existingDevice.id, {
+                deviceCode: d.deviceCode, deviceName: d.deviceName || input.computerName,
+                publicIdentifier: d.publicIdentifier, branchId: d.branchId,
+                branchName: d.branchName, branchAddress: d.branchAddress, status: "REGISTERED",
+              })
+            : await DeviceRepository.create({
+                id: d.deviceId, deviceCode: d.deviceCode,
+                deviceName: d.deviceName || input.computerName,
+                publicIdentifier: d.publicIdentifier, branchId: d.branchId,
+                branchName: d.branchName, branchAddress: d.branchAddress, status: "REGISTERED",
+              });
 
           useDeviceStore.getState().setDevice({
             deviceId: d.deviceId,
@@ -110,8 +115,7 @@ export const DeviceService = {
 
           if (d.initialCashiers && d.initialCashiers.length > 0) {
             console.log("[DeviceService] initialCashiers full:", JSON.stringify(d.initialCashiers));
-            await execute("DELETE FROM CashierSession");
-            await execute("DELETE FROM Cashier");
+            // Upsert provisioned users without erasing local dealership users.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
             for (const roleId of roleIds) {
@@ -196,18 +200,8 @@ export const DeviceService = {
     try {
       await DeviceRepository.clear();
       // Full wipe for clean slate on next registration — same tables as register
-      const tablesToWipe = [
-        "SaleItem", "Payment", "Receipt", "Sale",
-        "InventoryTransferItem", "InventoryTransfer",
-        "InventoryLedger", "PosInventory", "InventoryAllocation", "StockAlert",
-        "SyncQueue", "AuditLog", "Log",
-        "Barcode", "ProductPrice", "Product", "ProductImage",
-      ];
-      for (const tbl of tablesToWipe) {
-        try { await execute(`DELETE FROM ${tbl}`); } catch {}
-      }
-      await execute("DELETE FROM CashierSession");
-      await execute("DELETE FROM Cashier");
+      // Re-registration removes device credentials only. Products, users,
+      // transactions, inventory, receipts, and pending uploads are preserved.
       try { await execute("DELETE FROM Category WHERE id NOT IN (SELECT DISTINCT categoryId FROM Product WHERE categoryId IS NOT NULL)"); } catch {}
       try { await execute("DELETE FROM Brand WHERE id NOT IN (SELECT DISTINCT brandId FROM Product WHERE brandId IS NOT NULL)"); } catch {}
       try { await execute("DELETE FROM Unit WHERE id NOT IN (SELECT DISTINCT unitId FROM Product WHERE unitId IS NOT NULL)"); } catch {}

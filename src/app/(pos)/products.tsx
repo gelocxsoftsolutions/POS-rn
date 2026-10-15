@@ -14,7 +14,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
@@ -28,6 +28,7 @@ import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import type {
   ProductDTO,
   ProductDetailDTO,
@@ -41,6 +42,8 @@ const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 type ViewMode = "grid" | "list";
 
 export default function ProductsScreen() {
+  const router = useRouter();
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
   const [search, setSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState("All");
@@ -433,6 +436,12 @@ export default function ProductsScreen() {
           <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
           <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
         </View>
+        {operatingMode === "INDEPENDENT" ? (
+          <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
+            <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
+            <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Manage Catalog</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
       <View style={styles.summaryRow}>
         {[

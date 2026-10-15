@@ -10,6 +10,7 @@ import { ProductImageRepository } from "@/lib/repositories/product-image.reposit
 import { ProductPriceRepository } from "@/lib/repositories/product-price.repository";
 import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 
 interface VariationDto {
   id: string;
@@ -230,9 +231,13 @@ async function upsertProductFromVariation(
   const rawWeight = (variation as any).weight ?? (variation as any).netWeight ?? (variation as any).grossWeight;
   const weight = rawWeight != null && String(rawWeight).trim() !== "" ? Number(String(rawWeight).replace(/[^0-9.-]/g, "")) : null;
   const parsedWeight = weight != null && Number.isFinite(weight) && weight >= 0 ? weight : null;
+  const businessId = BusinessConfigurationService.current().businessId;
 
   const existing = await queryFirst<{ id: string }>(
-    "SELECT id FROM Product WHERE sku = ?", [sku]
+    `SELECT id FROM Product
+     WHERE businessId = ? AND identitySource = 'NCT'
+       AND (omsVariationId = ? OR sku = ?)
+     LIMIT 1`, [businessId, sku, sku]
   );
 
   let productId: string;
@@ -247,11 +252,15 @@ async function upsertProductFromVariation(
       imageId,
       weight: parsedWeight,
     });
+    await execute(
+      "UPDATE Product SET businessId = ?, identitySource = 'NCT', omsVariationId = ? WHERE id = ?",
+      [businessId, sku, productId]
+    );
   } else {
     productId = uuid();
     await execute(
-      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, datetime('now'), datetime('now'))`,
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, businessId, identitySource, omsVariationId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, ?, 'NCT', ?, datetime('now'), datetime('now'))`,
       [
         productId,
         sku,
@@ -262,6 +271,8 @@ async function upsertProductFromVariation(
         unitId ?? null,
         parsedWeight,
         imageId ?? null,
+        businessId,
+        sku,
       ]
     );
   }
@@ -351,6 +362,7 @@ async function deleteLegacyMockProducts(): Promise<void> {
 
 export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
       const res = await api.get<{ data: Array<{
         groupKey: string;
@@ -444,6 +456,7 @@ export const OmsSyncService = {
   },
 
   async syncBranchProducts(branchId: number): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
       const res = await api.get<{ data: Array<{
         id: string;
@@ -520,6 +533,7 @@ export const OmsSyncService = {
   },
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().receiveNctTransfers) return { synced: 0 };
     try {
       // Repair transfers received by older OMS builds that marked the transfer
       // complete without crediting the destination device's inventory bucket.

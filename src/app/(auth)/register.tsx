@@ -28,6 +28,7 @@ import { AuthenticationService } from "@/lib/services/authentication.service";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import * as Constants from "expo-constants";
 
 type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
@@ -121,6 +122,7 @@ export default function RegisterDevice() {
   const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
+  const business = useBusinessConfigStore((s) => s.configuration);
   const setDevice = useDeviceStore((s) => s.setDevice);
   const registering = useRef(false);
   const isDark = useColorScheme() === "dark";
@@ -141,7 +143,9 @@ export default function RegisterDevice() {
     input: isDark ? "#0c1627" : "#f8fbff",
     info: isDark ? "#12233a" : "#f0f4ff",
   };
-  const logoSource = require("../../../assets/nct-seafoods-logo.png");
+  const logoSource = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
   const statusBar = (
     <StatusBar
       barStyle={isDark ? "light-content" : "dark-content"}
@@ -167,7 +171,7 @@ export default function RegisterDevice() {
             adjustsFontSizeToFit
             minimumFontScale={0.8}
           >
-            NCT Seafoods POS System
+            {business.posSystemName}
           </Text>
         </View>
       )}
@@ -397,6 +401,7 @@ export default function RegisterDevice() {
           </View>
           <View style={styles.brandFooter}>
             <Image source={logoSource} style={styles.brandFooterLogo} resizeMode="contain" />
+            <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600" }}>{business.headerName} - {business.posSystemName}</Text>
             <Text style={[styles.brandFooterText, { color: palette.muted }]}>NCT Seafoods  •  Point of Sale</Text>
           </View>
         </ScrollView>
@@ -1336,6 +1341,7 @@ const styles = StyleSheet.create({
     height: 28,
   },
   brandFooterText: {
+    display: "none",
     fontSize: 11,
     fontWeight: "700",
     color: "#94a3b8",
