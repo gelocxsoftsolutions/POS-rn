@@ -58,7 +58,7 @@ Assert-Contains "src/lib/services/oms-sync.service.ts" 'capabilities\(\)\.import
 Assert-Contains "src/app/(pos)/products.tsx" 'Add Product to Inventory' "independent product action uses requested terminology"
 Assert-Contains "src/app/(pos)/products.tsx" 'independent-catalog\?edit=' "product details reuse the catalog editor"
 Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'launchImageLibraryAsync' "product photo upload"
-Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'launchCameraAsync' "camera proof capture"
+Assert-Contains "src/components/ui/media-capture-modal.tsx" 'CameraView' "in-app camera capture"
 Assert-Contains "src/lib/db/schema.ts" 'ProductActionAudit' "durable product evidence and audit history"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'proofImageDataUri' "proof enforced by business logic"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'LOSS_\$\{input.category\}' "categorized inventory loss ledger movement"
@@ -66,10 +66,17 @@ Assert-Contains "src/lib/business/independent-catalog.service.ts" 'cashierId !==
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'cannot be deleted\. Archive it instead' "historical references block permanent deletion"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'Stock removal must use Record Loss' "negative adjustment cannot bypass loss evidence"
 Assert-NotContains "src/app/(pos)/independent-catalog.tsx" 'Minimum stock' "minimum stock removed from independent product form"
+Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'Stock must be zero' "variation removal requires zero stock"
+Assert-NotContains "src/app/(pos)/independent-catalog.tsx" '>Stock movements<' "stock management removed from add-product screen"
+Assert-Contains "src/app/(pos)/products.tsx" 'VariationStockModal' "stock and loss workflow lives on product details"
+Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'Expired / damaged / loss' "per-variation loss workflow"
+Assert-Contains "src/components/ui/media-capture-modal.tsx" 'recordAsync' "video proof capture"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'INSERT INTO AuditLog' "product and loss actions reach central audit logs"
+Assert-Contains "src/app/(pos)/receipt-designer.tsx" 'previewLogo' "receipt logo appears in live preview with fallback"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (44 source contracts)."
+Write-Output "Dealership platform validation passed (51 source contracts)."

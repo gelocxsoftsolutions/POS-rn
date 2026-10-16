@@ -30,6 +30,7 @@ export default function ReceiptDesignerScreen() {
   const [template, setTemplate] = useState<ReceiptTemplate>(business.receiptTemplate);
   const [saving, setSaving] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
 
   useEffect(() => {
     if (!session?.isSuperAdmin) router.replace("/(pos)/settings" as any);
@@ -41,6 +42,10 @@ export default function ReceiptDesignerScreen() {
     logoUri: business.receiptLogoUri || business.businessLogoUri,
     receiptFooter: template.footerMessage, ...template,
   }), [business, template]);
+  useEffect(() => setLogoPreviewFailed(false), [settings.logoUri]);
+  const previewLogo = settings.logoUri && !logoPreviewFailed
+    ? { uri: settings.logoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
 
   const save = async () => {
     setSaving(true);
@@ -81,7 +86,7 @@ export default function ReceiptDesignerScreen() {
         ] as Array<[string, keyof ReceiptTemplate]>).map(([label, key]) => <View key={key} style={styles.switchRow}><Text style={[styles.switchLabel, { color: text }]}>{label}</Text><Switch value={Boolean(template[key])} onValueChange={(value) => setFlag(key, value)} /></View>)}
       </View>
       <View style={[styles.previewShell, { width: template.paperWidthMm === 80 ? 390 : 300 }]}>
-        {settings.logoUri ? <Image source={{ uri: settings.logoUri }} style={styles.logo} resizeMode="contain" /> : null}
+        <Image source={previewLogo} style={styles.logo} resizeMode="contain" onError={() => setLogoPreviewFailed(true)} />
         <Text style={[styles.business, template.emphasizeBusinessName && { fontWeight: "900" }]}>{business.businessName}</Text>
         {template.headerMessage ? <Text style={[styles.centerText, { textAlign: template.headerAlignment }]}>{template.headerMessage}</Text> : null}
         <Text style={styles.centerText}>{business.address}</Text><Text style={styles.centerText}>{business.supportPhone}</Text>

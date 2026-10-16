@@ -9,8 +9,7 @@ import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024;
-const SUPPORTED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
 export default function BusinessSettingsScreen() {
   const router = useRouter();
@@ -59,12 +58,9 @@ export default function BusinessSettingsScreen() {
       const selection = await File.pickFileAsync({ mimeTypes: "image/*" });
       if (selection.canceled) return;
       const source = selection.result;
-      const extension = String(source.extension || "").toLowerCase();
+      const extension = String(source.extension || ".jpg").toLowerCase();
       const size = Number((source as any).size ?? 0);
-      if (!SUPPORTED_EXTENSIONS.has(extension)) {
-        throw new Error("Choose a PNG, JPEG, or WebP image.");
-      }
-      if (size > MAX_LOGO_BYTES) throw new Error("Logo images must be 2 MB or smaller.");
+      if (size > MAX_LOGO_BYTES) throw new Error("Logo images must be 5 MB or smaller.");
       const directory = new Directory(Paths.document, "business-branding");
       directory.create({ intermediates: true, idempotent: true });
       const destination = new File(directory, `${configuration.businessId}-${kind}-${Date.now()}${extension}`);

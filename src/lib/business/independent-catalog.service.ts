@@ -15,6 +15,7 @@ import { SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import type { ProductDTO } from "@/lib/types/inventory";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PROOF_BYTES = 20 * 1024 * 1024;
 const LOSS_CATEGORIES = ["EXPIRED", "DAMAGED", "SPOILED", "MISSING", "QUALITY_REJECTION", "INTERNAL_USE", "OTHER"] as const;
 export type LossCategory = typeof LOSS_CATEGORIES[number];
 export type IndependentStockMovement = "RECEIVING" | "ADJUSTMENT" | "LOSS";
@@ -100,6 +101,13 @@ function validateImage(dataUri: string | null | undefined, label: string): strin
   return dataUri;
 }
 
+function validateProofMedia(dataUri: string | null | undefined, label: string): string {
+  if (!dataUri || !/^data:(image\/(jpeg|jpg|png|webp)|video\/(mp4|quicktime));base64,/i.test(dataUri)) throw new Error(`${label} is required and must be a captured photo or video.`);
+  const base64 = dataUri.slice(dataUri.indexOf(",") + 1);
+  if (Math.ceil(base64.length * 0.75) > MAX_PROOF_BYTES) throw new Error(`${label} must be 20 MB or smaller.`);
+  return dataUri;
+}
+
 function validateVariations(variations: IndependentVariationDraft[]) {
   if (variations.length === 0) throw new Error("Add at least one variation.");
   const names = new Set<string>();
@@ -144,17 +152,31 @@ async function auditAction(input: {
   const business = BusinessConfigurationService.current();
   const session = useCashierStore.getState().session;
   const deviceId = useDeviceStore.getState().device.deviceId;
+  const auditId = uuid();
   await execute(
     `INSERT INTO ProductActionAudit
      (id, businessId, productId, productCode, action, reasonCategory, reason,
       proofImageDataUri, quantity, balanceBefore, balanceAfter, beforeJson, afterJson,
       createdById, createdByName, deviceId, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [uuid(), business.businessId, input.productId ?? null, input.productCode ?? null,
+    [auditId, business.businessId, input.productId ?? null, input.productCode ?? null,
       input.action, input.reasonCategory ?? null, input.reason.trim(), input.proofImageDataUri,
       input.quantity ?? null, input.balanceBefore ?? null, input.balanceAfter ?? null,
       input.before === undefined ? null : JSON.stringify(input.before), input.after === undefined ? null : JSON.stringify(input.after),
       session?.cashierId ?? null, session?.cashierName ?? null, deviceId ?? null, new Date().toISOString()]
+  );
+  await execute(
+    `INSERT INTO AuditLog
+     (id, eventType, description, cashierId, cashierName, roleId, metadata, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [uuid(), input.action, input.reason.trim(), session?.cashierId ?? null,
+      session?.cashierName ?? null, session?.roleId ?? null,
+      JSON.stringify({ productActionAuditId: auditId, businessId: business.businessId,
+        productId: input.productId ?? null, productCode: input.productCode ?? null,
+        reasonCategory: input.reasonCategory ?? null, quantity: input.quantity ?? null,
+        balanceBefore: input.balanceBefore ?? null, balanceAfter: input.balanceAfter ?? null,
+        proofType: input.proofImageDataUri.startsWith("data:video/") ? "video" : "photo" }),
+      new Date().toISOString()]
   );
 }
 
@@ -239,7 +261,7 @@ export const IndependentCatalogService = {
     await requireAuthorizedUser("POS_PRODUCTS");
     if (!input.productName.trim()) throw new Error("Product name is required.");
     if (!input.reason.trim()) throw new Error("A reason is required for product changes.");
-    const proof = validateImage(input.proofImageDataUri, "Proof photo");
+    const proof = validateProofMedia(input.proofImageDataUri, "Proof media");
     validateVariations(input.variations);
     const before = await findGroup(input.productId);
     const business = BusinessConfigurationService.current();
@@ -291,6 +313,16 @@ export const IndependentCatalogService = {
       const updated = await InventoryRepository.updateQuantities(input.productId, { availableQty: input.quantity, adjustmentQty: input.movementType === "ADJUSTMENT" ? input.quantity : undefined });
       if (!updated) throw new Error("Inventory record is unavailable.");
       await InventoryLedgerRepository.create({ movementType: input.movementType, referenceNumber: `${input.movementType}-${uuid()}`, productId: input.productId, quantity: input.quantity, balanceBefore: before, balanceAfter: updated.availableQty, notes: input.reason.trim(), createdById: input.createdById, createdByName: input.createdByName });
+      const session = useCashierStore.getState().session;
+      await execute(
+        `INSERT INTO AuditLog (id, eventType, description, cashierId, cashierName, roleId, metadata, createdAt)
+         VALUES (?, 'INVENTORY_STOCK_CHANGE', ?, ?, ?, ?, ?, ?)`,
+        [uuid(), input.reason.trim(), session?.cashierId ?? input.createdById ?? null,
+          session?.cashierName ?? input.createdByName ?? null, session?.roleId ?? null,
+          JSON.stringify({ productId: input.productId, movementType: input.movementType,
+            quantity: input.quantity, balanceBefore: before, balanceAfter: updated.availableQty }),
+          new Date().toISOString()]
+      );
       await execute("COMMIT");
       return updated;
     } catch (error) { await execute("ROLLBACK"); throw error; }
@@ -302,7 +334,7 @@ export const IndependentCatalogService = {
     if (!LOSS_CATEGORIES.includes(input.category)) throw new Error("Select a valid loss reason.");
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("Loss quantity must be greater than zero.");
     if (!input.reason.trim()) throw new Error("A written loss explanation is required.");
-    const proof = validateImage(input.proofImageDataUri, "Loss proof photo");
+    const proof = validateProofMedia(input.proofImageDataUri, "Loss proof media");
     const product = await ProductRepository.findById(input.productId);
     const business = BusinessConfigurationService.current();
     if (!product || product.status !== "ACTIVE" || product.identitySource !== "INDEPENDENT" || product.businessId !== business.businessId) throw new Error("This independent variation is unavailable.");
@@ -324,7 +356,7 @@ export const IndependentCatalogService = {
     requireIndependent("manageLocalCatalog");
     await requireAuthorizedUser("POS_PRODUCTS");
     if (!input.reason.trim()) throw new Error("An archive reason is required.");
-    const proof = validateImage(input.proofImageDataUri, "Archive proof photo");
+    const proof = validateProofMedia(input.proofImageDataUri, "Archive proof media");
     const group = await findGroup(input.productId);
     if (!group.length) throw new Error("Product not found.");
     if (group.some((item) => Number(item.availableQty ?? 0) !== 0)) throw new Error("Products with remaining stock cannot be archived.");
@@ -345,7 +377,7 @@ export const IndependentCatalogService = {
     const session = useCashierStore.getState().session;
     if (session?.cashierId !== SUPER_ADMIN_ID) throw new Error("Only the system Super Admin can permanently delete products.");
     if (!input.reason.trim()) throw new Error("A permanent deletion reason is required.");
-    const proof = validateImage(input.proofImageDataUri, "Deletion proof photo");
+    const proof = validateProofMedia(input.proofImageDataUri, "Deletion proof media");
     const group = await findGroup(input.productId);
     if (!group.length) throw new Error("Product not found.");
     const expected = `DELETE ${group[0].name}`;

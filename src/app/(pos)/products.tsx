@@ -21,6 +21,7 @@ import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { VariationStockModal } from "@/components/ui/variation-stock-modal";
 import { groupByVariation } from "@/lib/products/group-variations";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
@@ -66,6 +67,7 @@ export default function ProductsScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
+  const [stockProduct, setStockProduct] = useState<ProductDTO | null>(null);
   const [printingBarcode, setPrintingBarcode] = useState<string | null>(null);
   const barcodeTap = useRef<{ value: string; time: number } | null>(null);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
@@ -529,7 +531,7 @@ export default function ProductsScreen() {
           onScan={handleBarcodeScan}
           dark={dark}
           compact
-          disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || detailLoading}
+          disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || Boolean(stockProduct) || detailLoading}
         />
         <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
           <Ionicons name="scan" size={18} color="#ffffff" />
@@ -651,6 +653,10 @@ export default function ProductsScreen() {
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
                       </View>
                     </View>
+                    {operatingMode === "INDEPENDENT" && variant.identitySource === "INDEPENDENT" ? <TouchableOpacity
+                      style={{ minHeight: 34, paddingHorizontal: 10, borderRadius: 7, backgroundColor: "#17386b", alignItems: "center", justifyContent: "center" }}
+                      onPress={(event) => { event.stopPropagation(); setVariationGroup(null); setStockProduct(variant); }}
+                    ><Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>Stock / Loss</Text></TouchableOpacity> : null}
                     <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
                   </TouchableOpacity>
                 );
@@ -718,6 +724,10 @@ export default function ProductsScreen() {
                 </View>
 
                 <Text style={[styles.detailProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.name}</Text>
+                {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? <TouchableOpacity
+                  style={{ minHeight: 42, borderRadius: 8, backgroundColor: "#17386b", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 12 }}
+                  onPress={() => setStockProduct(detailProduct)}
+                ><Ionicons name="warning-outline" size={18} color="#fff" /><Text style={{ color: "#fff", fontWeight: "800" }}>Manage Stock / Record Loss</Text></TouchableOpacity> : null}
                 <View style={[styles.detailBarcodeCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e8edf3" }]}>
                   <View style={styles.barcodeFooterHeading}>
                     <Ionicons name="barcode-outline" size={20} color={dark ? "#8fb4e8" : "#17386b"} />
@@ -815,6 +825,20 @@ export default function ProductsScreen() {
           </View>
         ) : null}
       </Modal>
+      <VariationStockModal
+        visible={Boolean(stockProduct)}
+        product={stockProduct}
+        dark={dark}
+        onClose={() => setStockProduct(null)}
+        onSaved={() => {
+          void Promise.all([loadProducts(), loadInventorySummary()]);
+          if (stockProduct && detailProduct?.id === stockProduct.id) {
+            void ProductService.getById(stockProduct.id).then((updated) => {
+              if (updated) setDetailProduct(updated as ProductDetailDTO);
+            });
+          }
+        }}
+      />
     </View>
   );
 }
