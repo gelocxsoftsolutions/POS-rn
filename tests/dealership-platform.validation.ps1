@@ -22,7 +22,7 @@ function Assert-NotContains([string]$relativePath, [string]$pattern, [string]$de
   if ($content -match $pattern) { $failures.Add("${relativePath}: $description") }
 }
 
-Assert-Contains "src/lib/db/schema.ts" 'SCHEMA_VERSION = 8' "versioned dealership migration"
+Assert-Contains "src/lib/db/schema.ts" 'SCHEMA_VERSION = 9' "versioned dealership migration"
 Assert-Contains "src/lib/db/schema.ts" 'OperatingModeAudit' "audited operating-mode changes"
 Assert-Contains "src/lib/db/schema.ts" 'ProductOmsMapping' "explicit independent-to-NCT variation mapping"
 Assert-Contains "src/lib/business/capabilities.ts" 'receiveNctTransfers: false' "Independent mode transfer denial"
@@ -55,10 +55,21 @@ Assert-Contains "src/lib/business/independent-onboarding.service.ts" 'Resolve pe
 Assert-NotContains "src/lib/db/seed.ts" 'sha256\("1234"\)' "fresh installs must not seed a well-known admin PIN"
 Assert-Contains "src/lib/db/seed-sample-data.ts" 'EXPO_PUBLIC_SEED_SAMPLE_DATA === "1"' "sample data is explicit opt-in"
 Assert-Contains "src/lib/services/oms-sync.service.ts" 'capabilities\(\)\.importNctCatalog' "Independent OMS connection cannot import NCT operational data"
+Assert-Contains "src/app/(pos)/products.tsx" 'Add Product to Inventory' "independent product action uses requested terminology"
+Assert-Contains "src/app/(pos)/products.tsx" 'independent-catalog\?edit=' "product details reuse the catalog editor"
+Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'launchImageLibraryAsync' "product photo upload"
+Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'launchCameraAsync' "camera proof capture"
+Assert-Contains "src/lib/db/schema.ts" 'ProductActionAudit' "durable product evidence and audit history"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'proofImageDataUri' "proof enforced by business logic"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'LOSS_\$\{input.category\}' "categorized inventory loss ledger movement"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'cashierId !== SUPER_ADMIN_ID' "permanent deletion restricted to system Super Admin"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'cannot be deleted\. Archive it instead' "historical references block permanent deletion"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'Stock removal must use Record Loss' "negative adjustment cannot bypass loss evidence"
+Assert-NotContains "src/app/(pos)/independent-catalog.tsx" 'Minimum stock' "minimum stock removed from independent product form"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (33 source contracts)."
+Write-Output "Dealership platform validation passed (44 source contracts)."

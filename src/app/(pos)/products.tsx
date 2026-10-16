@@ -439,7 +439,7 @@ export default function ProductsScreen() {
         {operatingMode === "INDEPENDENT" ? (
           <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
             <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
-            <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Manage Catalog</Text>
+            <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -684,6 +684,19 @@ export default function ProductsScreen() {
                 <Ionicons name="close" size={22} color="#17386b" />
               </TouchableOpacity>
               <Text style={[styles.detailHeaderTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Details</Text>
+              {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? (
+                <TouchableOpacity
+                  style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", gap: 6 }}
+                  onPress={() => {
+                    const productId = detailProduct.id;
+                    setDetailProduct(null);
+                    router.push(`/(pos)/independent-catalog?edit=${encodeURIComponent(productId)}` as any);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#ffffff" />
+                  <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Edit</Text>
+                </TouchableOpacity>
+              ) : <View style={{ width: 36 }} />}
             </View>
 
             <View style={[styles.detailBody, width < 700 && styles.detailBodyPortrait]}>
@@ -785,13 +798,11 @@ export default function ProductsScreen() {
                 <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
                   {[
                     ["Available", detailProduct.availableQty ?? 0],
-                    ["Minimum", detailProduct.minimumStock ?? 0],
                     ["Allocated", detailProduct.allocatedQty ?? 0],
                     ["Reserved", detailProduct.reservedQty ?? 0],
                     ["Sold", detailProduct.soldQty ?? 0],
                     ["Damaged", detailProduct.damagedQty ?? 0],
                     ["Adjustments", detailProduct.adjustmentQty ?? 0],
-                    ["Maximum", detailProduct.maximumStock ?? 0],
                   ].map(([label, value]) => (
                     <View key={String(label)} style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                       <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{label}</Text>

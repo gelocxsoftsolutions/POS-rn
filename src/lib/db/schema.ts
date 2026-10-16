@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -443,6 +443,26 @@ export const CREATE_TABLES = [
     checksum TEXT,
     createdAt TEXT,
     updatedAt TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ProductActionAudit (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    productId TEXT,
+    productCode TEXT,
+    action TEXT NOT NULL,
+    reasonCategory TEXT,
+    reason TEXT NOT NULL,
+    proofImageDataUri TEXT NOT NULL,
+    quantity REAL,
+    balanceBefore REAL,
+    balanceAfter REAL,
+    beforeJson TEXT,
+    afterJson TEXT,
+    createdById TEXT,
+    createdByName TEXT,
+    deviceId TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
   )`,
 
   `CREATE TABLE IF NOT EXISTS Log (
