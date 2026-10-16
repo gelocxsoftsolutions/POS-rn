@@ -9,6 +9,7 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme } from "@/lib/stores/ui-store";
 import { SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { MediaCaptureModal, type CapturedMedia } from "@/components/ui/media-capture-modal";
+import { ProductAuditDetailModal } from "@/components/ui/product-audit-detail-modal";
 
 interface VariationForm { key: string; id?: string; name: string; price: string; stock: string; currentStock?: number }
 function dataUri(asset: ImagePicker.ImagePickerAsset): string | null {
@@ -35,6 +36,7 @@ export default function IndependentCatalogScreen() {
   const [captureTarget, setCaptureTarget] = useState<"product" | "edit" | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [history, setHistory] = useState<ProductActionHistoryRow[]>([]);
+  const [selectedHistory, setSelectedHistory] = useState<ProductActionHistoryRow | null>(null);
   const editingId = typeof edit === "string" && edit ? edit : null;
 
   useEffect(() => { if (mode !== "INDEPENDENT") router.replace("/(pos)/products" as any); }, [mode, router]);
@@ -154,8 +156,9 @@ export default function IndependentCatalogScreen() {
       </View>
     </View>
 
-    {editingId && history.length > 0 ? <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Product action history</Text>{history.map((entry) => <View key={entry.id} style={[styles.historyRow, { borderBottomColor: palette.border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={[styles.historyProof, styles.historyVideo]}><Ionicons name="videocam" size={22} color="#2563eb" /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyProof} />}<View style={{ flex: 1 }}><Text style={{ color: palette.text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: palette.muted, marginTop: 2 }}>{entry.reason}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 4 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View>{entry.quantity != null ? <Text style={{ color: palette.text, fontWeight: "800" }}>−{entry.quantity}</Text> : null}</View>)}</View> : null}
+    {editingId && history.length > 0 ? <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Product action history</Text>{history.map((entry) => <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${entry.action.replace(/_/g, " ")} audit details`} onPress={() => setSelectedHistory(entry)} key={entry.id} style={[styles.historyRow, { borderBottomColor: palette.border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={[styles.historyProof, styles.historyVideo]}><Ionicons name="videocam" size={22} color="#2563eb" /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyProof} />}<View style={{ flex: 1 }}><Text style={{ color: palette.text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: palette.muted, marginTop: 2 }}>{entry.reason}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 4 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View>{entry.quantity != null ? <Text style={{ color: palette.text, fontWeight: "800" }}>−{entry.quantity}</Text> : null}<Ionicons name="chevron-forward" size={19} color={palette.muted} /></TouchableOpacity>)}</View> : null}
     <MediaCaptureModal visible={captureTarget !== null} allowVideo={captureTarget === "edit"} title={captureTarget === "product" ? "Take product photo" : "Capture change proof"} onClose={() => setCaptureTarget(null)} onUse={handleCapturedMedia} />
+    <ProductAuditDetailModal visible={selectedHistory !== null} entry={selectedHistory} dark={dark} onClose={() => setSelectedHistory(null)} />
   </ScrollView>;
 }
 

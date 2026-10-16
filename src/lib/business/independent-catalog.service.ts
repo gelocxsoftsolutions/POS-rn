@@ -22,6 +22,9 @@ export type IndependentStockMovement = "RECEIVING" | "ADJUSTMENT" | "LOSS";
 
 export interface ProductActionHistoryRow {
   id: string;
+  businessId: string;
+  productId: string | null;
+  productCode: string | null;
   action: string;
   reasonCategory: string | null;
   reason: string;
@@ -29,7 +32,11 @@ export interface ProductActionHistoryRow {
   quantity: number | null;
   balanceBefore: number | null;
   balanceAfter: number | null;
+  beforeJson: string | null;
+  afterJson: string | null;
+  createdById: string | null;
   createdByName: string | null;
+  deviceId: string | null;
   createdAt: string;
 }
 
@@ -223,8 +230,9 @@ export const IndependentCatalogService = {
     const product = await ProductRepository.findById(productId);
     if (!product) return [];
     return query<ProductActionHistoryRow>(
-      `SELECT id, action, reasonCategory, reason, proofImageDataUri, quantity,
-              balanceBefore, balanceAfter, createdByName, createdAt
+      `SELECT id, businessId, productId, productCode, action, reasonCategory, reason,
+              proofImageDataUri, quantity, balanceBefore, balanceAfter, beforeJson,
+              afterJson, createdById, createdByName, deviceId, createdAt
        FROM ProductActionAudit
        WHERE productId = ? OR (productCode IS NOT NULL AND productCode = ?)
        ORDER BY createdAt DESC`,

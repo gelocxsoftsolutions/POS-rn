@@ -71,6 +71,11 @@ Assert-NotContains "src/app/(pos)/independent-catalog.tsx" '>Stock movements<' "
 Assert-Contains "src/app/(pos)/products.tsx" 'VariationStockModal' "stock and loss workflow lives on product details"
 Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'Expired / damaged / loss' "per-variation loss workflow"
 Assert-Contains "src/components/ui/media-capture-modal.tsx" 'recordAsync' "video proof capture"
+Assert-Contains "src/components/ui/media-capture-modal.tsx" 'launchImageLibraryAsync' "proof photo and video upload"
+Assert-Contains "src/components/ui/media-capture-modal.tsx" 'StatusBar barStyle="light-content" backgroundColor="#0f172a"' "capture header extends through the Android status bar"
+Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'Recorded snapshots' "audit detail modal exposes complete before and after data"
+Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'ProductAuditDetailModal' "edit-product action history opens detailed audit records"
+Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'ProductAuditDetailModal' "variation history opens detailed audit records"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'INSERT INTO AuditLog' "product and loss actions reach central audit logs"
 Assert-Contains "src/app/(pos)/receipt-designer.tsx" 'previewLogo' "receipt logo appears in live preview with fallback"
 
@@ -79,4 +84,4 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (51 source contracts)."
+Write-Output "Dealership platform validation passed (56 source contracts)."

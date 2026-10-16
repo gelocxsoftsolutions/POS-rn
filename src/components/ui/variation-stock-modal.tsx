@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { IndependentCatalogService, type IndependentStockMovement, type LossCategory, type ProductActionHistoryRow } from "@/lib/business/independent-catalog.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { MediaCaptureModal, type CapturedMedia } from "@/components/ui/media-capture-modal";
+import { ProductAuditDetailModal } from "@/components/ui/product-audit-detail-modal";
 import type { ProductDTO } from "@/lib/types/inventory";
 
 const LOSS_OPTIONS: Array<{ value: LossCategory; label: string }> = [
@@ -25,6 +26,7 @@ export function VariationStockModal({ visible, product, dark, onClose, onSaved }
   const [captureOpen, setCaptureOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<ProductActionHistoryRow[]>([]);
+  const [selectedHistory, setSelectedHistory] = useState<ProductActionHistoryRow | null>(null);
   const text = dark ? "#f8fafc" : "#172033";
   const muted = dark ? "#94a3b8" : "#64748b";
   const border = dark ? "#334155" : "#dbe3ec";
@@ -67,11 +69,12 @@ export function VariationStockModal({ visible, product, dark, onClose, onSaved }
             {movement === "LOSS" ? <View style={styles.proofSection}><TouchableOpacity style={[styles.proofButton, { borderColor: border }]} onPress={() => setCaptureOpen(true)}><Ionicons name="camera" size={19} color={text} /><Text style={{ color: text, fontWeight: "700" }}>{proof ? "Retake proof" : "Take photo or video proof"}</Text></TouchableOpacity>{proof ? proof.kind === "photo" ? <Image source={{ uri: proof.dataUri }} style={styles.proofImage} /> : <View style={[styles.videoProof, { borderColor: border }]}><Ionicons name="videocam" size={27} color="#2563eb" /><Text style={{ color: text }}>Video proof attached</Text></View> : null}</View> : null}
             <TouchableOpacity style={[styles.submit, saving && { opacity: 0.6 }, movement === "LOSS" && styles.lossSubmit]} disabled={saving} onPress={() => void submit()}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{movement === "LOSS" ? "Record as inventory loss" : "Save stock change"}</Text>}</TouchableOpacity>
           </View>
-          {history.length ? <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}><Text style={[styles.section, { color: text }]}>Variation audit history</Text>{history.map((entry) => <View key={entry.id} style={[styles.history, { borderBottomColor: border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={styles.historyMedia}><Ionicons name="videocam" size={20} color="#2563eb" /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyMedia} />}<View style={{ flex: 1 }}><Text style={{ color: text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: muted }}>{entry.reason}</Text><Text style={{ color: muted, fontSize: 11 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View></View>)}</View> : null}
+          {history.length ? <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}><Text style={[styles.section, { color: text }]}>Variation audit history</Text>{history.map((entry) => <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${entry.action.replace(/_/g, " ")} audit details`} onPress={() => setSelectedHistory(entry)} key={entry.id} style={[styles.history, { borderBottomColor: border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={styles.historyMedia}><Ionicons name="videocam" size={20} color="#2563eb" /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyMedia} />}<View style={{ flex: 1 }}><Text style={{ color: text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: muted }}>{entry.reason}</Text><Text style={{ color: muted, fontSize: 11 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View><Ionicons name="chevron-forward" size={19} color={muted} /></TouchableOpacity>)}</View> : null}
         </ScrollView>
       </View>
     </Modal>
     <MediaCaptureModal visible={captureOpen} allowVideo title="Capture inventory-loss proof" onClose={() => setCaptureOpen(false)} onUse={setProof} />
+    <ProductAuditDetailModal visible={selectedHistory !== null} entry={selectedHistory} dark={dark} onClose={() => setSelectedHistory(null)} />
   </>;
 }
 
