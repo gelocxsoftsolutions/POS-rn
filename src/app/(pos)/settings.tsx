@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import {
   Switch,
   Linking,
   useWindowDimensions,
+  Animated,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, type AudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { File } from "expo-file-system";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -35,12 +37,63 @@ import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
+import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.service";
 import {
   BluetoothPrinter,
   type BluetoothPrinterDevice,
 } from "@/lib/printers/bluetooth-printer";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
+
+export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
+type SettingsSectionDefinition = {
+  id: SettingsSectionId;
+  title: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  keywords: string;
+  adminOnly?: boolean;
+};
+
+export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+  { id: "dealership", title: "Dealership Platform", description: "Business identity, branding, operating mode, and receipt design.", icon: "business-outline", keywords: "business branding dealership company logo operating mode independent dependent receipt designer template" , adminOnly: true },
+  { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
+  { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
+  { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },
+  { id: "security", title: "PIN Security", description: "Failed PIN limit and locked account recovery.", icon: "shield-checkmark-outline", keywords: "security pin failed attempts lock unlock accounts maximum", adminOnly: true },
+  { id: "auto_lock", title: "Auto Lock", description: "Automatically sign out an idle POS terminal.", icon: "time-outline", keywords: "security auto lock idle timeout minutes sign out session", adminOnly: true },
+  { id: "audit", title: "Audit Logs", description: "Review user, sale, login, and transfer activity.", icon: "document-text-outline", keywords: "audit logs activity events sale login failed logout transfer history", adminOnly: true },
+  { id: "oms", title: "OMS & Synchronization", description: "OMS server connection, API key, QR setup, and synchronization.", icon: "cloud-outline", keywords: "oms connection server api key sync synchronization qr online offline" , adminOnly: true },
+  { id: "printer", title: "Bluetooth Printer", description: "Pair, connect, and test the thermal receipt printer.", icon: "print-outline", keywords: "bluetooth thermal printer jk-5802h receipt esc pos paired device test print", adminOnly: true },
+  { id: "hardware_test", title: "Hardware Test", description: "Test the connected cash register drawer.", icon: "hardware-chip-outline", keywords: "test open cash register drawer bluetooth printer hardware", adminOnly: true },
+  { id: "navigation", title: "Navigation Style", description: "Choose automatic, sidebar, or bottom navigation.", icon: "grid-outline", keywords: "navigation style sidebar bottom auto menu" },
+  { id: "sales_layout", title: "Sales Layout", description: "Choose a left- or right-handed checkout layout.", icon: "swap-horizontal-outline", keywords: "sales layout handed left right cart dominant hand checkout" },
+  { id: "theme", title: "Theme & Colors", description: "Light, dark, and custom colors throughout the POS.", icon: "color-palette-outline", keywords: "theme appearance light dark auto system color palette primary accent background navigation text border" },
+  { id: "sounds", title: "Sounds", description: "Checkout, transfer, connection sounds, and volume.", icon: "volume-high-outline", keywords: "sounds audio volume mute notifications feedback checkout transfer connected failed" },
+  { id: "display", title: "Application Size", description: "Scale text, images, controls, and navigation.", icon: "resize-outline", keywords: "application size zoom scale text images controls accessibility display" },
+  { id: "database", title: "Database & Recovery", description: "Export a verified backup or import a backup into a fresh installation.", icon: "server-outline", keywords: "database backup export import recovery restore checksum schema sqlite file data", adminOnly: true },
+  { id: "device", title: "Device & Session", description: "Registration status, sign out, and device reset.", icon: "tablet-portrait-outline", keywords: "device session sign out logout reset registration terminal" },
+];
+
+const SECTION_MATCHERS: Record<SettingsSectionId, string[]> = {
+  dealership: ["business branding dealership operating mode receipt designer"],
+  store: ["store details"],
+  tax: ["tax profile"],
+  users: ["users cashiers roles"],
+  security: ["security pin"],
+  auto_lock: ["security auto lock"],
+  audit: ["audit logs"],
+  oms: ["oms connection"],
+  printer: ["bluetooth thermal printer"],
+  hardware_test: ["test open cash register"],
+  navigation: ["navigation style"],
+  sales_layout: ["sales layout"],
+  theme: ["theme appearance"],
+  sounds: ["sounds audio"],
+  display: ["application size"],
+  database: ["database backup export import recovery restore"],
+  device: ["device session"],
+};
 
 const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
   SALE_CREATED: { bg: "#dcfce7", text: "#166534" },
@@ -168,6 +221,10 @@ const OMS_STORAGE_KEY = "nct-pos-oms";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("store");
+  const detailAnimation = useRef(new Animated.Value(1)).current;
+  const detailScrollRef = useRef<ScrollView | null>(null);
+  const activeSectionDefinition = SETTINGS_SECTIONS.find((item) => item.id === activeSection) ?? null;
   const checkoutPreviewPlayer = useAudioPlayer(
     require("../../../assets/sounds/cash-register-sound.wav")
   );
@@ -213,6 +270,8 @@ export default function SettingsScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
   const [settingsSearch, setSettingsSearch] = useState("");
+  const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<{ file: File; envelope: BackupEnvelope } | null>(null);
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -608,6 +667,52 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleCreateLocalBackup = async () => {
+    setBackupBusy("export");
+    try {
+      const { file, envelope } = await RecoveryService.createBackup();
+      Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.\n\n${file.uri}`);
+    } catch (error: any) {
+      Alert.alert("Create backup", error?.message ?? "Unable to create the database backup.");
+    } finally { setBackupBusy(null); }
+  };
+
+  const handleSelectBackup = async () => {
+    setBackupBusy("import");
+    try {
+      const picked = await File.pickFileAsync({ mimeTypes: ["application/octet-stream", "application/json", "*/*"] });
+      if (picked.canceled || !picked.result) return;
+      const envelope = await RecoveryService.validate(picked.result.uri);
+      setSelectedBackup({ file: picked.result, envelope });
+    } catch (error: any) {
+      Alert.alert("Import database", error?.message ?? "The selected file is not a valid POS backup.");
+      setSelectedBackup(null);
+    } finally { setBackupBusy(null); }
+  };
+
+  const handleRestoreBackup = () => {
+    if (!selectedBackup) return;
+    Alert.alert(
+      "Restore this database?",
+      "Restore is allowed only on a fresh installation with no products, transfers, or sales. The checksum, schema, business identity, and totals will be verified before anything changes.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Restore verified backup", style: "destructive", onPress: () => void (async () => {
+          setBackupBusy("import");
+          try {
+            await RecoveryService.restoreFreshInstallation(selectedBackup.file.uri);
+            setSelectedBackup(null);
+            Alert.alert("Database restored", "The database and branding assets were restored and verified. Return to sign-in before continuing.", [
+              { text: "Continue", onPress: () => router.replace("/(auth)") },
+            ]);
+          } catch (error: any) {
+            Alert.alert("Restore database", error?.message ?? "The backup could not be restored.");
+          } finally { setBackupBusy(null); }
+        })() },
+      ]
+    );
+  };
+
   const loadPairedPrinters = async () => {
     setPrinterAction("refresh");
     try {
@@ -803,8 +908,25 @@ export default function SettingsScreen() {
       ? auditLogs
       : auditLogs.filter((l) => l.eventType === auditFilter);
   const normalizedSettingsSearch = settingsSearch.trim().toLowerCase();
-  const showSettingsSection = (...keywords: string[]) =>
-    !normalizedSettingsSearch || keywords.some((keyword) => keyword.toLowerCase().includes(normalizedSettingsSearch));
+  const showSettingsSection = (...keywords: string[]) => {
+    if (!activeSection) return false;
+    const requested = keywords.join(" ").toLowerCase();
+    return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
+  };
+  const visibleSettingsSections = SETTINGS_SECTIONS.filter((item) => {
+    if (item.adminOnly && !isSuperAdmin) return false;
+    if (!normalizedSettingsSearch) return true;
+    return `${item.title} ${item.description} ${item.keywords}`.toLowerCase().includes(normalizedSettingsSearch);
+  });
+  const openSettingsSection = (section: SettingsSectionId) => {
+    if (section === activeSection) return;
+    Animated.timing(detailAnimation, { toValue: 0, duration: 90, useNativeDriver: true }).start(() => {
+      setActiveSection(section);
+      detailScrollRef.current?.scrollTo({ y: 0, animated: false });
+      detailAnimation.setValue(0);
+      Animated.spring(detailAnimation, { toValue: 1, useNativeDriver: true, tension: 85, friction: 11 }).start();
+    });
+  };
   const soundVolumePercent = Math.round(soundVolume * 100);
   const adjustSoundVolume = (delta: number) => {
     const next = Math.round((soundVolume + delta) * 10) / 10;
@@ -835,24 +957,19 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: posTheme.background }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, { color: posTheme.text }]}>Settings</Text>
-      <Text style={[styles.screenSubtitle, { color: posTheme.muted }]}>Store, appearance, connections, and device preferences</Text>
-      <View style={[styles.settingsSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}>
-        <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
-        <TextInput
-          style={[styles.settingsSearchInput, { color: inputColor }]}
-          placeholder="Search settings..."
-          placeholderTextColor={dark ? "#64748b" : "#9aa4b2"}
-          value={settingsSearch}
-          onChangeText={setSettingsSearch}
-        />
-        {settingsSearch.length > 0 && (
-          <TouchableOpacity onPress={() => setSettingsSearch("")} accessibilityLabel="Clear settings search">
-            <Ionicons name="close-circle" size={18} color={dark ? "#64748b" : "#8e99a4"} />
-          </TouchableOpacity>
-        )}
+    <View style={[styles.settingsSplit, { backgroundColor: posTheme.background }]}>
+      <View style={[styles.settingsSidebar, { width: isWideColumns ? 228 : 154, backgroundColor: posTheme.surface, borderRightColor: posTheme.border }]}>
+        <Text style={[styles.settingsSidebarTitle, { color: posTheme.text }]}>Settings</Text>
+        <View style={[styles.settingsSidebarSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}><Ionicons name="search" size={15} color={posTheme.muted} /><TextInput style={[styles.settingsSidebarSearchInput, { color: inputColor }]} placeholder="Search..." placeholderTextColor={posTheme.muted} value={settingsSearch} onChangeText={setSettingsSearch} />{settingsSearch ? <TouchableOpacity onPress={() => setSettingsSearch("")}><Ionicons name="close-circle" size={16} color={posTheme.muted} /></TouchableOpacity> : null}</View>
+        {normalizedSettingsSearch ? <Text style={[styles.settingsSidebarCount, { color: posTheme.muted }]}>{visibleSettingsSections.length} matching sections</Text> : null}
+        <ScrollView style={styles.settingsLinksScroll} contentContainerStyle={styles.settingsLinks} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+          {visibleSettingsSections.map((item) => { const selected = activeSection === item.id; return <TouchableOpacity key={item.id} onPress={() => openSettingsSection(item.id)} style={[styles.settingsLink, { borderColor: selected ? posTheme.accent : "transparent", backgroundColor: selected ? posTheme.surfaceAlt : "transparent" }]} activeOpacity={0.72}><View style={[styles.settingsLinkIcon, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt }]}><Ionicons name={item.icon} size={17} color={selected ? posTheme.onPrimary : posTheme.accent} /></View><Text numberOfLines={2} style={[styles.settingsLinkText, { color: selected ? posTheme.text : posTheme.muted }, selected && { fontWeight: "900" }]}>{item.title}</Text></TouchableOpacity>; })}
+          {visibleSettingsSections.length === 0 ? <View style={styles.settingsSidebarEmpty}><Ionicons name="search-outline" size={24} color={posTheme.muted} /><Text style={{ color: posTheme.muted, fontSize: 11, textAlign: "center" }}>No matching setting</Text></View> : null}
+        </ScrollView>
       </View>
+      <Animated.View style={[styles.settingsDetailPane, { opacity: detailAnimation, transform: [{ translateX: detailAnimation.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }] }]}>
+        <ScrollView ref={detailScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.settingsDetailContent} keyboardShouldPersistTaps="handled">
+      <View style={styles.settingsDetailHeader}><View style={{ flex: 1 }}><Text style={[styles.screenTitle, { color: posTheme.text, marginBottom: 2 }]}>{activeSectionDefinition?.title ?? "Settings"}</Text><Text style={[styles.screenSubtitle, { color: posTheme.muted, marginBottom: 0 }]}>{activeSectionDefinition?.description}</Text></View></View>
 
       {isSuperAdmin && showSettingsSection("business branding dealership operating mode receipt designer") && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
@@ -1677,6 +1794,22 @@ export default function SettingsScreen() {
         <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
+      {isSuperAdmin && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore") && styles.hidden]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Database & Recovery</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the local database and branding assets, or validate and restore a compatible backup.</Text>
+        <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Safe restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Import validates the format, schema version, checksum, business identity, and totals. Restoration is blocked when the installation already contains products, transfers, or sales.</Text></View></View>
+        <View style={styles.backupActions}>
+          <Button title={backupBusy === "export" ? "Exporting backup..." : "Export Backup Locally"} icon="download-outline" onPress={() => void handleCreateLocalBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
+          <Button title={backupBusy === "import" ? "Reading backup..." : "Select Backup File"} icon="folder-open-outline" variant="secondary" onPress={() => void handleSelectBackup()} loading={backupBusy === "import" && !selectedBackup} disabled={backupBusy !== null} style={styles.backupButton} />
+        </View>
+        {selectedBackup ? <View style={[styles.backupManifest, { borderColor: posTheme.accent, backgroundColor: posTheme.surfaceAlt }]}>
+          <View style={styles.backupManifestTitle}><Ionicons name="checkmark-circle" size={21} color="#16a34a" /><Text style={{ color: posTheme.text, fontWeight: "900" }}>Verified backup selected</Text></View>
+          <Text style={[styles.backupFileName, { color: posTheme.text }]} numberOfLines={2}>{selectedBackup.file.name}</Text>
+          <View style={styles.backupTotals}><Text style={{ color: posTheme.muted }}>Created</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{new Date(selectedBackup.envelope.createdAt).toLocaleString()}</Text><Text style={{ color: posTheme.muted }}>Schema</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>v{selectedBackup.envelope.schemaVersion}</Text><Text style={{ color: posTheme.muted }}>Business ID</Text><Text selectable style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.businessId}</Text><Text style={{ color: posTheme.muted }}>Records</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.totals.sales} sales · {selectedBackup.envelope.totals.products} products · {selectedBackup.envelope.totals.inventoryQuantity} stock</Text></View>
+          <View style={styles.backupActions}><Button title="Choose Another" variant="secondary" icon="folder-open-outline" onPress={() => void handleSelectBackup()} disabled={backupBusy !== null} style={styles.backupButton} /><Button title="Restore Backup" variant="danger" icon="refresh-outline" onPress={handleRestoreBackup} loading={backupBusy === "import"} disabled={backupBusy !== null} style={styles.backupButton} /></View>
+        </View> : null}
+      </Card>}
+
       {/* Device Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("device session sign out reset registration") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Device</Text>
@@ -1777,11 +1910,27 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </Modal>
-    </ScrollView>
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  settingsSplit: { flex: 1, flexDirection: "row", overflow: "hidden" },
+  settingsSidebar: { height: "100%", borderRightWidth: 1, paddingTop: 14, paddingHorizontal: 9 },
+  settingsSidebarTitle: { fontSize: 19, fontWeight: "900", paddingHorizontal: 5, marginBottom: 10 },
+  settingsSidebarSearch: { minHeight: 38, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
+  settingsSidebarSearchInput: { flex: 1, minWidth: 0, paddingVertical: 7, fontSize: 12 },
+  settingsSidebarCount: { fontSize: 10, paddingHorizontal: 4, marginTop: 7 },
+  settingsLinksScroll: { flex: 1, marginTop: 8 },
+  settingsLinks: { paddingBottom: 18, gap: 3 },
+  settingsLink: { minHeight: 45, borderWidth: 1, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 7 },
+  settingsLinkIcon: { width: 30, height: 30, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  settingsLinkText: { flex: 1, fontSize: 11, lineHeight: 14 },
+  settingsSidebarEmpty: { alignItems: "center", paddingVertical: 30, gap: 7 },
+  settingsDetailPane: { flex: 1, minWidth: 0 },
+  settingsDetailContent: { padding: 18, paddingBottom: 56 },
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
@@ -1820,6 +1969,16 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     fontSize: 14,
   },
+  searchResultCount: { fontSize: 12, marginTop: -7, marginBottom: 13 },
+  settingsHubGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  settingsHubCard: { width: "100%", maxWidth: 560, minHeight: 96, borderWidth: 1, borderRadius: 12, padding: 15, flexDirection: "row", alignItems: "center", gap: 12 },
+  settingsHubIcon: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  settingsHubTitle: { fontSize: 16, fontWeight: "900" },
+  settingsHubDescription: { fontSize: 12, lineHeight: 17, marginTop: 3 },
+  settingsHubMatch: { fontSize: 11, fontWeight: "800", marginTop: 6 },
+  noSettingsResults: { minHeight: 180, borderWidth: 1, borderRadius: 12, borderStyle: "dashed", alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
+  settingsDetailHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 18 },
+  settingsBackButton: { width: 44, height: 44, borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   hidden: {
     display: "none",
   },
@@ -1851,6 +2010,13 @@ const styles = StyleSheet.create({
     color: "#6b7b8d",
     marginBottom: 16,
   },
+  backupNotice: { borderWidth: 1, borderRadius: 10, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 14 },
+  backupActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  backupButton: { flexGrow: 1, minWidth: 190 },
+  backupManifest: { borderWidth: 1, borderRadius: 10, padding: 14, marginTop: 15 },
+  backupManifestTitle: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
+  backupFileName: { fontFamily: "monospace", fontSize: 12, marginBottom: 12 },
+  backupTotals: { gap: 4, marginBottom: 14 },
   sectionHeadingRow: {
     flexDirection: "row",
     alignItems: "flex-start",

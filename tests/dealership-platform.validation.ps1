@@ -89,10 +89,19 @@ Assert-Contains "src/app/(auth)/register.tsx" 'usePosTheme' "device registration
 Assert-Contains "src/app/(auth)/independent-setup.tsx" 'usePosTheme' "independent onboarding uses the configured dealership theme"
 Assert-Contains "src/app/(pos)/index.tsx" 'theme\.primary' "POS dashboard uses the configured dealership theme"
 Assert-Contains "src/app/(pos)/_layout.tsx" 'theme\.navigation' "POS navigation uses the configured dealership theme"
+Assert-Contains "src/app/(pos)/settings.tsx" 'SETTINGS_SECTIONS' "settings hub defines dedicated searchable pages"
+Assert-Contains "src/app/(pos)/settings.tsx" 'item\.keywords' "settings search indexes keywords inside detail pages"
+Assert-Contains "src/app/(pos)/settings.tsx" 'settingsSplit' "settings use independent left navigation and right content columns"
+Assert-Contains "src/app/(pos)/settings.tsx" 'Animated\.spring' "settings detail panel animates when a section opens"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'THEME_PRESETS' "theme editor offers designated light and dark presets"
+Assert-Contains "src/lib/stores/ui-store.ts" 'setThemePalette' "selected theme presets persist atomically"
+Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.createBackup' "database export uses the verified recovery format"
+Assert-Contains "src/app/(pos)/settings.tsx" 'File\.pickFileAsync' "database import uses the native file picker"
+Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.restoreFreshInstallation' "database import preserves fresh-install restore safety"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (67 source contracts)."
+Write-Output "Dealership platform validation passed (76 source contracts)."

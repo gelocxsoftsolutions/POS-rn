@@ -63,6 +63,7 @@ interface UiState {
   pageSizes: Record<PaginatedScreen, number>;
   setThemeMode: (mode: ThemeMode) => void;
   setThemeColor: (mode: ThemePaletteMode, key: keyof PosThemeColors, color: string) => void;
+  setThemePalette: (mode: ThemePaletteMode, palette: PosThemeColors) => void;
   resetThemePalette: (mode: ThemePaletteMode) => void;
   setNavigationMode: (mode: NavigationMode) => void;
   setSalesHandedness: (mode: SalesHandedness) => void;
@@ -94,6 +95,9 @@ export const useUiStore = create<UiState>()(
           ...state.themePalettes,
           [mode]: { ...(state.themePalettes?.[mode] ?? DEFAULT_POS_THEMES[mode]), [key]: color },
         },
+      })),
+      setThemePalette: (mode, palette) => set((state) => ({
+        themePalettes: { ...state.themePalettes, [mode]: { ...palette } },
       })),
       resetThemePalette: (mode) => set((state) => ({
         themePalettes: { ...state.themePalettes, [mode]: { ...DEFAULT_POS_THEMES[mode] } },
