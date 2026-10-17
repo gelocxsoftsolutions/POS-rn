@@ -94,7 +94,14 @@ Assert-Contains "src/app/(pos)/settings.tsx" 'item\.keywords' "settings search i
 Assert-Contains "src/app/(pos)/settings.tsx" 'settingsSplit' "settings use independent left navigation and right content columns"
 Assert-Contains "src/app/(pos)/settings.tsx" 'Animated\.spring' "settings detail panel animates when a section opens"
 Assert-Contains "src/components/ui/theme-color-editor.tsx" 'THEME_PRESETS' "theme editor offers designated light and dark presets"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "Coral"' "light palette includes ten preset choices"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "High Contrast"' "dark palette includes ten preset choices"
 Assert-Contains "src/lib/stores/ui-store.ts" 'setThemePalette' "selected theme presets persist atomically"
+Assert-Contains "src/lib/stores/ui-store.ts" 'exportUiPreferences' "persisted UI preferences can be included in recovery backups"
+Assert-Contains "src/lib/stores/ui-store.ts" 'restoreUiPreferences' "persisted UI preferences can be restored safely"
+Assert-Contains "src/lib/backup/recovery.service.ts" 'uiPreferences: exportUiPreferences' "new backups include theme and device UI preferences"
+Assert-Contains "src/lib/backup/recovery.service.ts" 'backupChecksum' "backup preferences and branding assets are integrity checked"
+Assert-Contains "src/lib/backup/recovery.service.ts" 'restoreUiPreferences' "fresh-install restore reapplies backed-up UI preferences"
 Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.createBackup' "database export uses the verified recovery format"
 Assert-Contains "src/app/(pos)/settings.tsx" 'File\.pickFileAsync' "database import uses the native file picker"
 Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.restoreFreshInstallation' "database import preserves fresh-install restore safety"
@@ -104,4 +111,4 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (76 source contracts)."
+Write-Output "Dealership platform validation passed (84 source contracts)."

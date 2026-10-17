@@ -8,6 +8,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 interface ModalProps {
   visible: boolean;
@@ -19,6 +20,7 @@ interface ModalProps {
 const { height } = Dimensions.get("window");
 
 export function Modal({ visible, onClose, children, style }: ModalProps) {
+  const theme = usePosTheme();
   return (
     <RNModal
       visible={visible}
@@ -29,7 +31,7 @@ export function Modal({ visible, onClose, children, style }: ModalProps) {
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-            <View style={[styles.content, style]}>
+            <View style={[styles.content, { backgroundColor: theme.surface, borderColor: theme.border }, style]}>
               {children}
             </View>
           </TouchableWithoutFeedback>
@@ -45,6 +47,7 @@ export function BottomSheet({
   children,
   style,
 }: ModalProps) {
+  const theme = usePosTheme();
   return (
     <RNModal
       visible={visible}
@@ -55,8 +58,8 @@ export function BottomSheet({
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-            <View style={[styles.bottomSheet, style]}>
-              <View style={styles.handle} />
+            <View style={[styles.bottomSheet, { backgroundColor: theme.surface, borderColor: theme.border }, style]}>
+              <View style={[styles.handle, { backgroundColor: theme.muted }]} />
               {children}
             </View>
           </TouchableWithoutFeedback>
@@ -74,14 +77,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   content: {
-    backgroundColor: "#ffffff",
+    borderWidth: 1,
     borderRadius: 16,
     padding: 24,
     width: "90%",
     maxHeight: height * 0.8,
   },
   bottomSheet: {
-    backgroundColor: "#ffffff",
+    borderWidth: 1,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 24,
@@ -94,7 +97,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#d1d5db",
     alignSelf: "center",
     marginBottom: 16,
   },

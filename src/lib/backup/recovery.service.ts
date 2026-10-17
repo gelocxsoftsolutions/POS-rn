@@ -7,6 +7,7 @@ import { execute, getDatabase, queryFirst } from "@/lib/db/connection";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
+import { exportUiPreferences, restoreUiPreferences, type PersistedUiPreferences } from "@/lib/stores/ui-store";
 
 interface BackupAsset {
   name: "businessLogo" | "receiptLogo";
@@ -16,15 +17,32 @@ interface BackupAsset {
 
 export interface BackupEnvelope {
   format: "nct-pos-backup";
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   schemaVersion: number;
   businessId: string;
   deviceId: string | null;
   createdAt: string;
   databaseChecksum: string;
+  backupChecksum?: string;
   databaseBase64: string;
   assets: BackupAsset[];
+  uiPreferences?: PersistedUiPreferences;
   totals: { sales: number; saleTotal: number; inventoryQuantity: number; products: number };
+}
+
+function backupIntegrityPayload(envelope: Omit<BackupEnvelope, "backupChecksum"> | BackupEnvelope) {
+  return JSON.stringify({
+    format: envelope.format,
+    formatVersion: envelope.formatVersion,
+    schemaVersion: envelope.schemaVersion,
+    businessId: envelope.businessId,
+    deviceId: envelope.deviceId,
+    createdAt: envelope.createdAt,
+    databaseChecksum: envelope.databaseChecksum,
+    assets: envelope.assets,
+    uiPreferences: envelope.uiPreferences ?? null,
+    totals: envelope.totals,
+  });
 }
 
 function bytesToHex(bytes: Uint8Array) {
@@ -76,11 +94,15 @@ export const RecoveryService = {
       readAsset("businessLogo", business.businessLogoUri),
       readAsset("receiptLogo", business.receiptLogoUri),
     ])).filter((asset): asset is BackupAsset => Boolean(asset));
-    const envelope: BackupEnvelope = {
-      format: "nct-pos-backup", formatVersion: 1, schemaVersion: SCHEMA_VERSION,
+    const draft: Omit<BackupEnvelope, "backupChecksum"> = {
+      format: "nct-pos-backup", formatVersion: 2, schemaVersion: SCHEMA_VERSION,
       businessId: business.businessId, deviceId, createdAt: new Date().toISOString(),
       databaseChecksum: bytesToHex(sha256Bytes(bytes)), databaseBase64: await temp.base64(),
-      assets, totals: await databaseTotals(),
+      assets, uiPreferences: exportUiPreferences(), totals: await databaseTotals(),
+    };
+    const envelope: BackupEnvelope = {
+      ...draft,
+      backupChecksum: bytesToHex(sha256Bytes(new TextEncoder().encode(backupIntegrityPayload(draft)))),
     };
     temp.delete();
     const directory = new Directory(Paths.document, "pos-backups");
@@ -119,10 +141,14 @@ export const RecoveryService = {
 
   async validate(fileUri: string): Promise<BackupEnvelope> {
     const envelope = JSON.parse(await new File(fileUri).text()) as BackupEnvelope;
-    if (envelope.format !== "nct-pos-backup" || envelope.formatVersion !== 1) throw new Error("Unsupported backup format.");
+    if (envelope.format !== "nct-pos-backup" || ![1, 2].includes(envelope.formatVersion)) throw new Error("Unsupported backup format.");
     if (envelope.schemaVersion !== SCHEMA_VERSION) throw new Error(`Backup schema ${envelope.schemaVersion} is incompatible with app schema ${SCHEMA_VERSION}.`);
     const bytes = base64ToBytes(envelope.databaseBase64);
     if (bytesToHex(sha256Bytes(bytes)) !== envelope.databaseChecksum) throw new Error("Backup checksum validation failed.");
+    if (envelope.formatVersion === 2) {
+      const expected = bytesToHex(sha256Bytes(new TextEncoder().encode(backupIntegrityPayload(envelope))));
+      if (!envelope.backupChecksum || expected !== envelope.backupChecksum) throw new Error("Backup settings and asset checksum validation failed.");
+    }
     return envelope;
   },
 
@@ -150,5 +176,6 @@ export const RecoveryService = {
       await execute(`UPDATE StoreSettings SET ${asset.name === "businessLogo" ? "businessLogoUri" : "receiptLogoUri"} = ? WHERE id = 'default'`, [file.uri]);
     }
     await BusinessConfigurationService.load();
+    restoreUiPreferences(envelope.uiPreferences);
   },
 };

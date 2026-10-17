@@ -920,12 +920,11 @@ export default function SettingsScreen() {
   });
   const openSettingsSection = (section: SettingsSectionId) => {
     if (section === activeSection) return;
-    Animated.timing(detailAnimation, { toValue: 0, duration: 90, useNativeDriver: true }).start(() => {
-      setActiveSection(section);
-      detailScrollRef.current?.scrollTo({ y: 0, animated: false });
-      detailAnimation.setValue(0);
-      Animated.spring(detailAnimation, { toValue: 1, useNativeDriver: true, tension: 85, friction: 11 }).start();
-    });
+    setActiveSection(section);
+    detailScrollRef.current?.scrollTo({ y: 0, animated: false });
+    detailAnimation.stopAnimation();
+    detailAnimation.setValue(0);
+    Animated.spring(detailAnimation, { toValue: 1, useNativeDriver: true, tension: 85, friction: 11 }).start();
   };
   const soundVolumePercent = Math.round(soundVolume * 100);
   const adjustSoundVolume = (delta: number) => {
@@ -1796,7 +1795,7 @@ export default function SettingsScreen() {
 
       {isSuperAdmin && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Database & Recovery</Text>
-        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the local database and branding assets, or validate and restore a compatible backup.</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the complete local database, branding assets, theme palettes, and device UI preferences, or validate and restore a compatible backup.</Text>
         <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Safe restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Import validates the format, schema version, checksum, business identity, and totals. Restoration is blocked when the installation already contains products, transfers, or sales.</Text></View></View>
         <View style={styles.backupActions}>
           <Button title={backupBusy === "export" ? "Exporting backup..." : "Export Backup Locally"} icon="download-outline" onPress={() => void handleCreateLocalBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
@@ -1805,7 +1804,7 @@ export default function SettingsScreen() {
         {selectedBackup ? <View style={[styles.backupManifest, { borderColor: posTheme.accent, backgroundColor: posTheme.surfaceAlt }]}>
           <View style={styles.backupManifestTitle}><Ionicons name="checkmark-circle" size={21} color="#16a34a" /><Text style={{ color: posTheme.text, fontWeight: "900" }}>Verified backup selected</Text></View>
           <Text style={[styles.backupFileName, { color: posTheme.text }]} numberOfLines={2}>{selectedBackup.file.name}</Text>
-          <View style={styles.backupTotals}><Text style={{ color: posTheme.muted }}>Created</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{new Date(selectedBackup.envelope.createdAt).toLocaleString()}</Text><Text style={{ color: posTheme.muted }}>Schema</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>v{selectedBackup.envelope.schemaVersion}</Text><Text style={{ color: posTheme.muted }}>Business ID</Text><Text selectable style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.businessId}</Text><Text style={{ color: posTheme.muted }}>Records</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.totals.sales} sales · {selectedBackup.envelope.totals.products} products · {selectedBackup.envelope.totals.inventoryQuantity} stock</Text></View>
+          <View style={styles.backupTotals}><Text style={{ color: posTheme.muted }}>Created</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{new Date(selectedBackup.envelope.createdAt).toLocaleString()}</Text><Text style={{ color: posTheme.muted }}>Schema</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>v{selectedBackup.envelope.schemaVersion}</Text><Text style={{ color: posTheme.muted }}>Business ID</Text><Text selectable style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.businessId}</Text><Text style={{ color: posTheme.muted }}>Theme & UI preferences</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.uiPreferences ? "Included" : "Legacy backup — database only"}</Text><Text style={{ color: posTheme.muted }}>Records</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.totals.sales} sales · {selectedBackup.envelope.totals.products} products · {selectedBackup.envelope.totals.inventoryQuantity} stock</Text></View>
           <View style={styles.backupActions}><Button title="Choose Another" variant="secondary" icon="folder-open-outline" onPress={() => void handleSelectBackup()} disabled={backupBusy !== null} style={styles.backupButton} /><Button title="Restore Backup" variant="danger" icon="refresh-outline" onPress={handleRestoreBackup} loading={backupBusy === "import"} disabled={backupBusy !== null} style={styles.backupButton} /></View>
         </View> : null}
       </Card>}

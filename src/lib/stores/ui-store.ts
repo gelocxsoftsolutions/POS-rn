@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColorScheme } from "react-native";
 
-type NavigationMode = "sidebar" | "bottom" | "auto";
+export type NavigationMode = "sidebar" | "bottom" | "auto";
 export type ThemeMode = "light" | "dark" | "system";
 export type ThemePaletteMode = "light" | "dark";
 export interface PosThemeColors {
@@ -35,6 +35,17 @@ export const DEFAULT_POS_THEMES: Record<ThemePaletteMode, PosThemeColors> = {
 export type SalesHandedness = "right" | "left";
 export type FeedbackSound = "checkout" | "transferReceived" | "omsConnected" | "omsConnectionFailed";
 export type PaginatedScreen = "sales" | "receipts" | "products" | "stock" | "transfers";
+export interface PersistedUiPreferences {
+  themeMode: ThemeMode;
+  themePalettes: Record<ThemePaletteMode, PosThemeColors>;
+  navigationMode: NavigationMode;
+  salesHandedness: SalesHandedness;
+  uiScale: number;
+  soundMuted: boolean;
+  soundVolume: number;
+  soundVolumes: Record<FeedbackSound, number>;
+  pageSizes: Record<PaginatedScreen, number>;
+}
 
 const DEFAULT_SOUND_VOLUMES: Record<FeedbackSound, number> = {
   checkout: 1,
@@ -153,4 +164,49 @@ export function usePosTheme(): PosThemeColors & { dark: boolean } {
   const palettes = useUiStore((state) => state.themePalettes);
   const mode: ThemePaletteMode = dark ? "dark" : "light";
   return { ...DEFAULT_POS_THEMES[mode], ...(palettes?.[mode] ?? {}), dark };
+}
+
+export function exportUiPreferences(): PersistedUiPreferences {
+  const state = useUiStore.getState();
+  return {
+    themeMode: state.themeMode,
+    themePalettes: state.themePalettes,
+    navigationMode: state.navigationMode,
+    salesHandedness: state.salesHandedness,
+    uiScale: state.uiScale,
+    soundMuted: state.soundMuted,
+    soundVolume: state.soundVolume,
+    soundVolumes: state.soundVolumes,
+    pageSizes: state.pageSizes,
+  };
+}
+
+export function restoreUiPreferences(input: PersistedUiPreferences | null | undefined) {
+  if (!input) return;
+  const validColor = (value: unknown, fallback: string) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+  const clamp01 = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value))) : fallback;
+  const pageSize = (screen: PaginatedScreen) => Number.isFinite(Number(input.pageSizes?.[screen])) && Number(input.pageSizes[screen]) > 0 ? Number(input.pageSizes[screen]) : DEFAULT_PAGE_SIZES[screen];
+  const palette = (mode: ThemePaletteMode): PosThemeColors => {
+    const source = input.themePalettes?.[mode] ?? DEFAULT_POS_THEMES[mode];
+    return Object.fromEntries(Object.entries(DEFAULT_POS_THEMES[mode]).map(([key, fallback]) => [key, validColor(source[key as keyof PosThemeColors], fallback)])) as unknown as PosThemeColors;
+  };
+  useUiStore.setState({
+    themeMode: ["light", "dark", "system"].includes(input.themeMode) ? input.themeMode : "system",
+    themePalettes: { light: palette("light"), dark: palette("dark") },
+    navigationMode: ["sidebar", "bottom", "auto"].includes(input.navigationMode) ? input.navigationMode : "auto",
+    salesHandedness: input.salesHandedness === "left" ? "left" : "right",
+    uiScale: Math.min(1.5, Math.max(0.5, Number(input.uiScale) || 1)),
+    soundMuted: Boolean(input.soundMuted),
+    soundVolume: clamp01(input.soundVolume, 1),
+    soundVolumes: {
+      checkout: clamp01(input.soundVolumes?.checkout, 1),
+      transferReceived: clamp01(input.soundVolumes?.transferReceived, 1),
+      omsConnected: clamp01(input.soundVolumes?.omsConnected, 1),
+      omsConnectionFailed: clamp01(input.soundVolumes?.omsConnectionFailed, 1),
+    },
+    pageSizes: {
+      sales: pageSize("sales"), receipts: pageSize("receipts"), products: pageSize("products"),
+      stock: pageSize("stock"), transfers: pageSize("transfers"),
+    },
+  });
 }

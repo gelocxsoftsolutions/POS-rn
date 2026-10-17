@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, type ViewStyle } from "react-native";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 interface BadgeProps {
   label: string;
@@ -11,22 +12,23 @@ interface BadgeProps {
 
 export function Badge({
   label,
-  color = "#17386b",
-  textColor = "#ffffff",
+  color,
+  textColor,
   size = "sm",
   style,
 }: BadgeProps) {
+  const theme = usePosTheme();
   const isSmall = size === "sm";
   return (
     <View
       style={[
         styles.badge,
-        { backgroundColor: color },
+        { backgroundColor: color ?? theme.primary },
         isSmall ? styles.sm : styles.md,
         style,
       ]}
     >
-      <Text style={[styles.text, { color: textColor }, isSmall ? styles.textSm : styles.textMd]}>
+      <Text style={[styles.text, { color: textColor ?? theme.onPrimary }, isSmall ? styles.textSm : styles.textMd]}>
         {label}
       </Text>
     </View>
