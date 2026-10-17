@@ -281,6 +281,7 @@ export const IndependentCatalogService = {
     for (const variation of input.variations) if (variation.id && !existingIds.has(variation.id)) throw new Error("A variation does not belong to this product.");
     const retainedIds = new Set(input.variations.flatMap((item) => item.id ? [item.id] : []));
     const removed = before.filter((item) => !retainedIds.has(item.id));
+    const addedCount = input.variations.filter((item) => !item.id).length;
     if (removed.some((item) => Number(item.availableQty ?? 0) !== 0)) throw new Error("A variation with stock cannot be removed. Record or transfer its remaining stock first.");
     await execute("BEGIN IMMEDIATE");
     try {
@@ -297,21 +298,23 @@ export const IndependentCatalogService = {
         await execute("UPDATE Barcode SET active = 0, updatedAt = ? WHERE productId = ?", [now, item.id]);
       }
       const after = await findGroup(input.productId);
-      await auditAction({ productId: input.productId, productCode: groupCode, action: "PRODUCT_EDIT", reason: input.reason, proofImageDataUri: proof, before: auditSnapshot(before), after: auditSnapshot(after) });
+      const reasonCategory = addedCount > 0 && removed.length > 0 ? "VARIATIONS_CHANGED" : addedCount > 0 ? "VARIATION_ADDED" : removed.length > 0 ? "VARIATION_ARCHIVED" : "PRODUCT_DETAILS_CHANGED";
+      await auditAction({ productId: input.productId, productCode: groupCode, action: "PRODUCT_EDIT", reasonCategory, reason: input.reason, proofImageDataUri: proof, quantity: addedCount + removed.length || undefined, before: auditSnapshot(before), after: auditSnapshot(after) });
       await execute("COMMIT");
       return after;
     } catch (error) { await execute("ROLLBACK"); throw error; }
   },
 
-  async adjustStock(input: { productId: string; quantity: number; movementType: Exclude<IndependentStockMovement, "LOSS">; reason: string; createdById?: string; createdByName?: string }) {
+  async adjustStock(input: { productId: string; quantity: number; movementType: Exclude<IndependentStockMovement, "LOSS">; reason: string; proofImageDataUri: string; createdById?: string; createdByName?: string }) {
     requireIndependent("manageLocalInventory");
     await requireAuthorizedUser("POS_INVENTORY");
     if (!Number.isFinite(input.quantity) || input.quantity === 0) throw new Error("Stock quantity must be non-zero.");
     if (input.quantity < 0) throw new Error("Stock removal must use Record Loss so a category and proof photo are retained.");
     if (!input.reason.trim()) throw new Error("A stock movement reason is required.");
-    const product = await queryFirst<{ identitySource: string; businessId: string }>("SELECT identitySource, businessId FROM Product WHERE id = ? AND status = 'ACTIVE'", [input.productId]);
+    const proof = validateProofMedia(input.proofImageDataUri, "Stock change proof media");
+    const product = await ProductRepository.findById(input.productId);
     const business = BusinessConfigurationService.current();
-    if (!product || product.identitySource !== "INDEPENDENT" || product.businessId !== business.businessId) throw new Error("Only this dealership's independent products can be adjusted locally.");
+    if (!product || product.status !== "ACTIVE" || product.identitySource !== "INDEPENDENT" || product.businessId !== business.businessId) throw new Error("Only this dealership's independent products can be adjusted locally.");
     const current = await InventoryRepository.findByProduct(input.productId);
     const before = current?.availableQty ?? 0;
     if (before + input.quantity < 0) throw new Error("This movement would make stock negative.");
@@ -321,16 +324,17 @@ export const IndependentCatalogService = {
       const updated = await InventoryRepository.updateQuantities(input.productId, { availableQty: input.quantity, adjustmentQty: input.movementType === "ADJUSTMENT" ? input.quantity : undefined });
       if (!updated) throw new Error("Inventory record is unavailable.");
       await InventoryLedgerRepository.create({ movementType: input.movementType, referenceNumber: `${input.movementType}-${uuid()}`, productId: input.productId, quantity: input.quantity, balanceBefore: before, balanceAfter: updated.availableQty, notes: input.reason.trim(), createdById: input.createdById, createdByName: input.createdByName });
-      const session = useCashierStore.getState().session;
-      await execute(
-        `INSERT INTO AuditLog (id, eventType, description, cashierId, cashierName, roleId, metadata, createdAt)
-         VALUES (?, 'INVENTORY_STOCK_CHANGE', ?, ?, ?, ?, ?, ?)`,
-        [uuid(), input.reason.trim(), session?.cashierId ?? input.createdById ?? null,
-          session?.cashierName ?? input.createdByName ?? null, session?.roleId ?? null,
-          JSON.stringify({ productId: input.productId, movementType: input.movementType,
-            quantity: input.quantity, balanceBefore: before, balanceAfter: updated.availableQty }),
-          new Date().toISOString()]
-      );
+      await auditAction({
+        productId: input.productId,
+        productCode: product.productCode,
+        action: "INVENTORY_STOCK_CHANGE",
+        reasonCategory: input.movementType === "RECEIVING" ? "RECEIVE_STOCK" : "POSITIVE_CORRECTION",
+        reason: input.reason,
+        proofImageDataUri: proof,
+        quantity: input.quantity,
+        balanceBefore: before,
+        balanceAfter: updated.availableQty,
+      });
       await execute("COMMIT");
       return updated;
     } catch (error) { await execute("ROLLBACK"); throw error; }

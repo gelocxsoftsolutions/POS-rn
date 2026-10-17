@@ -76,7 +76,7 @@ Assert-NotContains "src/components/ui/media-capture-modal.tsx" 'MediaTypeOptions
 Assert-NotContains "src/app/(pos)/independent-catalog.tsx" 'MediaTypeOptions' "product upload uses the current Expo media-type API"
 Assert-NotContains "src/app/(auth)/register.tsx" 'MediaTypeOptions' "registration upload uses the current Expo media-type API"
 Assert-Contains "src/components/ui/media-capture-modal.tsx" 'backgroundColor=\{theme\.navigation\}' "capture header applies the active palette through the Android status bar"
-Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'Recorded snapshots' "audit detail modal exposes complete before and after data"
+Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'Product record changes' "audit detail modal exposes readable before and after data"
 Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'ProductAuditDetailModal' "edit-product action history opens detailed audit records"
 Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'ProductAuditDetailModal' "variation history opens detailed audit records"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'INSERT INTO AuditLog' "product and loss actions reach central audit logs"
@@ -121,10 +121,21 @@ Assert-Contains "src/app/(pos)/products.tsx" 'borderBottomColor: theme\.border' 
 Assert-Contains "src/app/(pos)/receipts.tsx" 'color: theme\.primary' "receipt totals follow the active semantic palette"
 Assert-Contains "src/app/(pos)/settings.tsx" 'bg: posTheme\.surfaceAlt' "unknown audit event badges follow the active semantic palette"
 Assert-Contains "src/app/(pos)/settings.tsx" 'backgroundColor: posTheme\.surfaceAlt' "settings status and empty states follow the active semantic palette"
+Assert-Contains "src/app/(pos)/receipts.tsx" 'showOmsSyncStatus &&' "Independent receipts hide operational OMS sync badges and retry actions"
+Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'Actual stock' "stock workflow shows the current physical quantity"
+Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'Stock after change' "stock workflow previews the resulting balance"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'Stock change proof media' "receiving and positive corrections require proof media"
+Assert-Contains "src/lib/business/independent-catalog.service.ts" 'POSITIVE_CORRECTION' "positive correction audits use a readable action category"
+Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'SnapshotList' "audit snapshots render as readable business fields instead of JSON"
+Assert-Contains "src/lib/permissions/catalog.ts" 'INVENTORY_CLERK' "permission catalog includes safe role presets"
+Assert-Contains "src/lib/services/permission.service.ts" 'replaceRolePermissions' "role permission assignments persist locally"
+Assert-Contains "src/app/(pos)/settings.tsx" 'Roles & Permissions' "settings includes role and permission management"
+Assert-Contains "src/lib/services/authorization.service.ts" 'requirePermission' "direct operations share a deny-by-default permission guard"
+Assert-Contains "src/app/(pos)/_layout.tsx" 'permissionsLoaded && hasAnyRequiredPermission' "navigation denies unassigned permissions after loading"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (100 source contracts)."
+Write-Output "Dealership platform validation passed (111 source contracts)."

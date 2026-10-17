@@ -9,6 +9,7 @@ import type { SaleDTO } from "@/lib/types/sales";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { requirePermission } from "@/lib/services/authorization.service";
 
 function createReceiptNumber() {
   const time = Date.now().toString(36).toUpperCase().slice(-7);
@@ -19,6 +20,7 @@ function createReceiptNumber() {
 export const SaleService = {
   async create(input: SaleInput) {
     try {
+      await requirePermission("POS_SALES", "complete sales");
       const business = BusinessConfigurationService.current();
       const saleId = uuid();
       const now = new Date().toISOString();

@@ -8,6 +8,7 @@ import { BusinessConfigurationService } from "@/lib/business/configuration.servi
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { exportUiPreferences, restoreUiPreferences, type PersistedUiPreferences } from "@/lib/stores/ui-store";
+import { requirePermission } from "@/lib/services/authorization.service";
 
 interface BackupAsset {
   name: "businessLogo" | "receiptLogo";
@@ -82,6 +83,7 @@ async function readAsset(name: BackupAsset["name"], uri: string | null): Promise
 
 export const RecoveryService = {
   async createBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
+    await requirePermission("POS_BACKUP", "export database backups");
     const business = BusinessConfigurationService.current();
     const deviceId = useDeviceStore.getState().device.deviceId;
     const database = await getDatabase();
@@ -153,6 +155,7 @@ export const RecoveryService = {
   },
 
   async restoreFreshInstallation(fileUri: string): Promise<void> {
+    await requirePermission("POS_BACKUP", "restore database backups");
     const envelope = await this.validate(fileUri);
     const existing = await queryFirst<{ records: number }>(
       `SELECT (SELECT COUNT(*) FROM Sale) + (SELECT COUNT(*) FROM Product) +

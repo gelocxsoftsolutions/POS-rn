@@ -30,6 +30,7 @@ import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import type {
   ProductDTO,
   ProductDetailDTO,
@@ -76,6 +77,7 @@ export default function ProductsScreen() {
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const dark = useIsDarkTheme();
   const theme = usePosTheme();
+  const permissions = useRolePermissions();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
   const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
@@ -439,7 +441,7 @@ export default function ProductsScreen() {
           <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
           <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
         </View>
-        {operatingMode === "INDEPENDENT" ? (
+        {operatingMode === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
           <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
             <Ionicons name="add-circle-outline" size={18} color={theme.onPrimary} />
             <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
@@ -654,7 +656,7 @@ export default function ProductsScreen() {
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
                       </View>
                     </View>
-                    {operatingMode === "INDEPENDENT" && variant.identitySource === "INDEPENDENT" ? <TouchableOpacity
+                    {operatingMode === "INDEPENDENT" && variant.identitySource === "INDEPENDENT" && permissions.has("POS_INVENTORY") ? <TouchableOpacity
                       style={{ minHeight: 34, paddingHorizontal: 10, borderRadius: 7, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" }}
                       onPress={(event) => { event.stopPropagation(); setVariationGroup(null); setStockProduct(variant); }}
                     ><Text style={{ color: theme.onPrimary, fontSize: 11, fontWeight: "800" }}>Stock / Loss</Text></TouchableOpacity> : null}
@@ -691,7 +693,7 @@ export default function ProductsScreen() {
                 <Ionicons name="close" size={22} color={theme.accent} />
               </TouchableOpacity>
               <Text style={[styles.detailHeaderTitle, { color: theme.text }]}>Product Details</Text>
-              {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? (
+              {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
                 <TouchableOpacity
                   style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 6 }}
                   onPress={() => {
@@ -725,7 +727,7 @@ export default function ProductsScreen() {
                 </View>
 
                 <Text style={[styles.detailProductName, { color: theme.text }]}>{detailProduct.name}</Text>
-                {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? <TouchableOpacity
+                {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" && permissions.has("POS_INVENTORY") ? <TouchableOpacity
                   style={{ minHeight: 42, borderRadius: 8, backgroundColor: theme.primary, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 12 }}
                   onPress={() => setStockProduct(detailProduct)}
                 ><Ionicons name="warning-outline" size={18} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "800" }}>Manage Stock / Record Loss</Text></TouchableOpacity> : null}

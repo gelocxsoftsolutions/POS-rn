@@ -2,6 +2,7 @@ import { SettingsRepository } from "@/lib/repositories/settings.repository";
 import type { StoreSettingsRow, UpsertSettingsInput } from "@/lib/repositories/settings.repository";
 import { DEFAULT_RECEIPT_TEMPLATE } from "@/lib/business/defaults";
 import type { ReceiptTemplate } from "@/lib/business/types";
+import { requirePermission } from "@/lib/services/authorization.service";
 
 export type ResolvedSettings = StoreSettingsRow & ReceiptTemplate & {
   logoUri: string | null;
@@ -58,6 +59,7 @@ export const SettingsService = {
 
   async update(partial: UpsertSettingsInput): Promise<ResolvedSettings> {
     try {
+      await requirePermission("POS_SETTINGS", "change business settings");
       return resolve(await SettingsRepository.upsert(partial));
     } catch (e: any) {
       throw new Error(e.message ?? "Failed to update settings");

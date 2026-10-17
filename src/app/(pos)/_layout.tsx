@@ -76,7 +76,7 @@ const navItems = [
     icon: "bar-chart-outline" as const,
     activeIcon: "bar-chart" as const,
     href: "/(pos)/reports",
-    requiredPermission: "DASHBOARD",
+    requiredPermission: "POS_REPORTS",
   },
   {
     name: "transfers",
@@ -92,7 +92,7 @@ const navItems = [
     icon: "people-outline" as const,
     activeIcon: "people" as const,
     href: "/(pos)/customers",
-    requiredPermission: "DASHBOARD",
+    requiredPermission: "POS_CUSTOMERS",
   },
 ];
 
@@ -256,6 +256,7 @@ function POSHeader({
   sidebarOpen,
   onToggleSidebar,
   onAccountPress,
+  canAccessSettings,
   onLogoutPress,
 }: {
   transferCount: number;
@@ -266,6 +267,7 @@ function POSHeader({
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onAccountPress: () => void;
+  canAccessSettings: boolean;
   onLogoutPress: () => void;
 }) {
   const theme = usePosTheme();
@@ -521,7 +523,7 @@ function POSHeader({
             <Text style={[styles.overflowItemLabel, { color: theme.text }]}>My account</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.muted} />
           </TouchableOpacity>
-          <TouchableOpacity
+          {canAccessSettings ? <TouchableOpacity
             style={styles.overflowItem}
             onPress={handleOverflowSettings}
             activeOpacity={0.7}
@@ -529,7 +531,7 @@ function POSHeader({
             <Ionicons name="settings-outline" size={18} color={theme.accent} />
             <Text style={[styles.overflowItemLabel, { color: theme.text }]}>Settings</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.muted} />
-          </TouchableOpacity>
+          </TouchableOpacity> : null}
           <TouchableOpacity
             style={[styles.overflowItem, styles.overflowItemLast]}
             onPress={handleOverflowLogout}
@@ -611,6 +613,7 @@ export default function POSLayout() {
   const capabilities = capabilitiesFor(operatingMode);
 
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -767,17 +770,27 @@ export default function POSLayout() {
 
   // 2. Permission-gated navigation
   useEffect(() => {
-    if (!session?.roleId) return;
+    setPermissionsLoaded(false);
+    if (session?.isSuperAdmin) {
+      setGrantedPermissions([]);
+      setPermissionsLoaded(true);
+      return;
+    }
+    if (!session?.roleId) {
+      setGrantedPermissions([]);
+      setPermissionsLoaded(true);
+      return;
+    }
     PermissionService.getRolePermissions(session.roleId)
       .then(setGrantedPermissions)
-      .catch(() => {});
-  }, [session?.roleId]);
+      .catch(() => setGrantedPermissions([]))
+      .finally(() => setPermissionsLoaded(true));
+  }, [session?.isSuperAdmin, session?.roleId]);
 
   const visibleNavItems = navItems.filter(
     (item) =>
       (item.name !== "transfers" || capabilities.receiveNctTransfers) &&
-      (grantedPermissions.length === 0 ||
-      hasAnyRequiredPermission(item, grantedPermissions))
+      (session?.isSuperAdmin || (permissionsLoaded && hasAnyRequiredPermission(item, grantedPermissions)))
   );
 
   // 3. Auth redirect guard
@@ -859,14 +872,18 @@ export default function POSLayout() {
       router.replace("/(pos)");
       return;
     }
-    if (grantedPermissions.length === 0) return;
+    if (isNavItemActive(pathname, "/(pos)/settings") && !session?.isSuperAdmin && !["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code))) {
+      router.replace("/(pos)");
+      return;
+    }
+    if (session?.isSuperAdmin || !permissionsLoaded) return;
     const currentItem = navItems.find((item) => {
       return isNavItemActive(pathname, item.href);
     });
     if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
       router.replace("/(pos)");
     }
-  }, [pathname, grantedPermissions, router, capabilities.receiveNctTransfers]);
+  }, [pathname, grantedPermissions, permissionsLoaded, router, capabilities.receiveNctTransfers, session?.isSuperAdmin]);
 
   // Loading state
   if (!authHydrated || !uiHydrated || !cashierHydrated || !deviceHydrated) {
@@ -881,6 +898,7 @@ export default function POSLayout() {
           sidebarOpen={true}
           onToggleSidebar={() => {}}
           onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
+          canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
           onLogoutPress={() => {}}
         />
         <View style={styles.centered}>
@@ -924,6 +942,7 @@ export default function POSLayout() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
+        canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
         onLogoutPress={() => void handleLogout()}
       />
 

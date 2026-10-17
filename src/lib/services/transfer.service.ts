@@ -9,6 +9,7 @@ import { v4 as uuid } from "uuid";
 import type { InventoryTransferDTO, PaginatedResult } from "@/lib/types/inventory";
 import type { TransferFilter } from "@/lib/repositories/transfer.repository";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { requirePermission } from "@/lib/services/authorization.service";
 import { assertCapability } from "@/lib/business/capabilities";
 
 function requireNctTransfers() {
@@ -64,6 +65,7 @@ export const TransferService = {
     omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
     requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "receive product transfers");
     if (receiveInFlight.has(id)) {
       try {
         return await TransferRepository.findById(id);
@@ -294,6 +296,7 @@ export const TransferService = {
 
   async reject(id: string, rejectedByName: string): Promise<InventoryTransferDTO | null> {
     requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "reject product transfers");
     try {
       return await TransferRepository.updateStatus(id, "REJECTED", undefined, rejectedByName);
     } catch {
@@ -319,6 +322,7 @@ export const TransferService = {
     transferNumber?: string
   ): Promise<{ success: boolean; transferNumber: string } | null> {
     requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "confirm product transfers");
     try {
       // The server validates this body with zod (non-strict: unknown keys are
       // stripped, so sending the transfer number as well is harmless and

@@ -37,6 +37,7 @@ import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
 import { createCode128Svg } from "@/lib/barcodes/code128";
 import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
@@ -68,6 +69,8 @@ export default function ReceiptsScreen() {
   const setPageSize = useUiStore((state) => state.setPageSize);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const loadReceipts = useCallback(async () => {
     try {
@@ -365,7 +368,7 @@ export default function ReceiptsScreen() {
             </Text>
             <Text style={[styles.receiptDate, { color: theme.muted }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
-            {item.syncStatus === "FAILED" && item.syncError ? (
+            {showOmsSyncStatus && item.syncStatus === "FAILED" && item.syncError ? (
               <Text style={styles.syncError} numberOfLines={2}>{item.syncError}</Text>
             ) : null}
           </View>
@@ -377,7 +380,7 @@ export default function ReceiptsScreen() {
               size="sm"
               style={styles.receiptPaymentBadge}
             />
-            {(() => {
+            {showOmsSyncStatus && (() => {
               const info = syncInfo(item);
               if (!info) return null;
               return (
@@ -389,7 +392,7 @@ export default function ReceiptsScreen() {
                 />
               );
             })()}
-            {(item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
+            {showOmsSyncStatus && (item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
               <TouchableOpacity
                 style={[styles.retryBtn, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                 onPress={() => retrySale(item.id)}

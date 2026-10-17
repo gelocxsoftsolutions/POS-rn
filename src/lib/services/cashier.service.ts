@@ -8,6 +8,7 @@ import { sha256 } from "@/lib/crypto/ed25519";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { sha256 as secureSha256 } from "@noble/hashes/sha2.js";
 import { queryFirst } from "@/lib/db/connection";
+import { PermissionService } from "@/lib/services/permission.service";
 
 export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
 const SUPER_ADMIN_USERNAME_HASH = "67541e0a403c6868131cefa202501269b0079d088e8f2099afe3519004b6410d";
@@ -17,6 +18,13 @@ function secureCredentialHash(value: string): string {
   return Array.from(secureSha256(new TextEncoder().encode(value)))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function requireUserManagementPermission() {
+  const session = useCashierStore.getState().session;
+  if (!session) throw new Error("Sign in before managing users.");
+  if (session.isSuperAdmin) return;
+  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, "POS_USERS"))) throw new Error("Your role cannot manage users or permissions.");
 }
 
 async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {
@@ -162,6 +170,7 @@ export const CashierService = {
   },
 
   async unlockManagedUser(cashierId: string) {
+    await requireUserManagementPermission();
     const cashier = await CashierRepository.resetPinFailures(cashierId);
     if (!cashier) throw new Error("User not found.");
     return cashier;
@@ -253,6 +262,7 @@ export const CashierService = {
   },
 
   async createLocalUser(input: { displayName: string; username?: string; pin: string; roleId?: string }) {
+    await requireUserManagementPermission();
     const displayName = input.displayName.trim();
     const username = input.username?.trim().toLowerCase();
     if (!displayName) throw new Error("Enter a display name.");
@@ -268,7 +278,8 @@ export const CashierService = {
     });
   },
 
-  async updateManagedUser(cashierId: string, input: { displayName: string; username?: string; pin?: string }) {
+  async updateManagedUser(cashierId: string, input: { displayName: string; username?: string; pin?: string; roleId?: string }) {
+    await requireUserManagementPermission();
     const displayName = input.displayName.trim();
     const username = input.username?.trim().toLowerCase() || null;
     if (!displayName) throw new Error("Enter a display name.");
@@ -287,6 +298,7 @@ export const CashierService = {
       displayName,
       username,
       pinHash: input.pin ? sha256(input.pin) : undefined,
+      roleId: input.roleId,
     });
     if (!cashier) throw new Error("User not found.");
     const currentSession = useCashierStore.getState().session;
@@ -299,6 +311,7 @@ export const CashierService = {
   },
 
   async deleteLocalUser(cashierId: string) {
+    await requireUserManagementPermission();
     const current = useCashierStore.getState().session;
     if (current?.cashierId === cashierId) throw new Error("You cannot delete the account currently signed in.");
     const cashier = await CashierRepository.findById(cashierId);

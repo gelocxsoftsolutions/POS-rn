@@ -35,6 +35,9 @@ import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
+import { PermissionService, type PermissionRoleRow } from "@/lib/services/permission.service";
+import { PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
+import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.service";
@@ -45,7 +48,7 @@ import {
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
 
-export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
+export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
 type SettingsSectionDefinition = {
   id: SettingsSectionId;
   title: string;
@@ -60,6 +63,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
   { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
   { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },
+  { id: "permissions", title: "Roles & Permissions", description: "Apply access presets and control what each role can open or change.", icon: "key-outline", keywords: "permissions access roles administrator manager cashier inventory clerk auditor preset pages buttons create edit delete crud", adminOnly: true },
   { id: "security", title: "PIN Security", description: "Failed PIN limit and locked account recovery.", icon: "shield-checkmark-outline", keywords: "security pin failed attempts lock unlock accounts maximum", adminOnly: true },
   { id: "auto_lock", title: "Auto Lock", description: "Automatically sign out an idle POS terminal.", icon: "time-outline", keywords: "security auto lock idle timeout minutes sign out session", adminOnly: true },
   { id: "audit", title: "Audit Logs", description: "Review user, sale, login, and transfer activity.", icon: "document-text-outline", keywords: "audit logs activity events sale login failed logout transfer history", adminOnly: true },
@@ -80,6 +84,7 @@ const SECTION_MATCHERS: Record<SettingsSectionId, string[]> = {
   store: ["store details"],
   tax: ["tax profile"],
   users: ["users cashiers roles"],
+  permissions: ["permissions access roles presets"],
   security: ["security pin"],
   auto_lock: ["security auto lock"],
   audit: ["audit logs"],
@@ -205,6 +210,7 @@ interface CashierRow {
   displayName: string;
   username: string | null;
   roleName: string;
+  roleId: string | null;
   failedPinAttempts: number;
   accountLocked: number;
   accountLockedAt: string | null;
@@ -304,7 +310,12 @@ export default function SettingsScreen() {
   const [newUsername, setNewUsername] = useState("");
   const [newUserPin, setNewUserPin] = useState("");
   const [newUserPinConfirm, setNewUserPinConfirm] = useState("");
+  const [newUserRoleId, setNewUserRoleId] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
+  const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRow[]>([]);
+  const [selectedPermissionRoleId, setSelectedPermissionRoleId] = useState("");
+  const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
+  const [permissionsBusy, setPermissionsBusy] = useState(false);
   const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
   const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
   const [maxPinAttemptsValue, setMaxPinAttemptsValue] = useState(() => String(maxPinAttempts || 5));
@@ -315,6 +326,11 @@ export default function SettingsScreen() {
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanning, setQrScanning] = useState(false);
   const isSuperAdmin = Boolean(session?.isSuperAdmin);
+  const roleAccess = useRolePermissions();
+  const canManageSettings = isSuperAdmin || roleAccess.has("POS_SETTINGS");
+  const canManageUsers = isSuperAdmin || roleAccess.has("POS_USERS");
+  const canViewAudit = isSuperAdmin || roleAccess.has("POS_AUDIT");
+  const canManageBackups = isSuperAdmin || roleAccess.has("POS_BACKUP");
 
   useEffect(() => {
     const normalizedScale = Math.min(1.5, Math.max(0.5, Math.round(uiScale * 10) / 10));
@@ -366,7 +382,7 @@ export default function SettingsScreen() {
     try {
       // Prefer Role.name, fallback to raw roleId / CashierRole via join coalesce; ensure Role table may have been seeded as Admin
       const rows = await query<CashierRow>(
-        `SELECT c.id, c.displayName, c.username, c.failedPinAttempts, c.accountLocked, c.accountLockedAt,
+        `SELECT c.id, c.displayName, c.username, c.roleId, c.failedPinAttempts, c.accountLocked, c.accountLockedAt,
                 COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
          FROM Cashier c
          LEFT JOIN Role r ON c.roleId = r.id
@@ -379,6 +395,22 @@ export default function SettingsScreen() {
       setCashiers([]);
     }
   }, []);
+
+  const loadPermissionSettings = useCallback(async () => {
+    try {
+      await PermissionService.ensureDefaults();
+      const roles = await PermissionService.getRoles();
+      setPermissionRoles(roles);
+      const nextRoleId = selectedPermissionRoleId && roles.some((role) => role.id === selectedPermissionRoleId)
+        ? selectedPermissionRoleId
+        : roles.find((role) => role.name.toLowerCase() !== "admin")?.id ?? roles[0]?.id ?? "";
+      setSelectedPermissionRoleId(nextRoleId);
+      setSelectedRolePermissions(nextRoleId ? await PermissionService.getRolePermissions(nextRoleId) : []);
+    } catch {
+      setPermissionRoles([]);
+      setSelectedRolePermissions([]);
+    }
+  }, [selectedPermissionRoleId]);
 
   const applyPinSecurity = useCallback(() => {
     const attempts = Number(maxPinAttemptsValue);
@@ -421,16 +453,17 @@ export default function SettingsScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadSettings(), loadOmsSettings(), loadUsers(), loadAuditLogs()]);
+      await Promise.all([loadSettings(), loadOmsSettings(), loadUsers(), loadAuditLogs(), loadPermissionSettings()]);
       setLoading(false);
     })();
-  }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs]);
+  }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs, loadPermissionSettings]);
 
   useFocusEffect(useCallback(() => {
     loadOmsSettings();
     loadUsers();
     loadAuditLogs();
-  }, [loadOmsSettings, loadUsers, loadAuditLogs]));
+    loadPermissionSettings();
+  }, [loadOmsSettings, loadUsers, loadAuditLogs, loadPermissionSettings]));
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -805,6 +838,7 @@ export default function SettingsScreen() {
     setNewUsername("");
     setNewUserPin("");
     setNewUserPinConfirm("");
+    setNewUserRoleId(permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id ?? "");
     setEditingUser(null);
   };
 
@@ -819,6 +853,7 @@ export default function SettingsScreen() {
     setNewUsername(user.username ?? "");
     setNewUserPin("");
     setNewUserPinConfirm("");
+    setNewUserRoleId(user.roleId ?? permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id ?? "");
     setShowCreateUser(true);
   };
 
@@ -843,13 +878,14 @@ export default function SettingsScreen() {
           displayName: newUserName,
           username: newUsername,
           pin: newUserPin || undefined,
+          roleId: newUserRoleId || undefined,
         });
       } else {
         await CashierService.createLocalUser({
           displayName: newUserName,
           username: newUsername,
           pin: newUserPin,
-          roleId: session?.roleId,
+          roleId: newUserRoleId || permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id,
         });
       }
       const wasEditing = Boolean(editingUser);
@@ -890,6 +926,44 @@ export default function SettingsScreen() {
     );
   };
 
+  const selectPermissionRole = async (roleId: string) => {
+    setSelectedPermissionRoleId(roleId);
+    setPermissionsBusy(true);
+    try { setSelectedRolePermissions(await PermissionService.getRolePermissions(roleId)); }
+    catch { setSelectedRolePermissions([]); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const applyPermissionPreset = async (presetKey: PermissionPresetKey) => {
+    if (!selectedPermissionRoleId) return;
+    const selectedRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
+    if (selectedRole?.name.toLowerCase() === "admin" && presetKey !== "ADMINISTRATOR") {
+      Alert.alert("Administrator role", "The administrator role always retains full access.");
+      return;
+    }
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.applyPreset(selectedPermissionRoleId, presetKey);
+      setSelectedRolePermissions(await PermissionService.getRolePermissions(selectedPermissionRoleId));
+      Alert.alert("Permissions updated", `${PERMISSION_PRESETS[presetKey].name} access was applied to ${selectedRole?.name ?? "the role"}.`);
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to apply the permission preset."); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const toggleRolePermission = async (code: string) => {
+    const selectedRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
+    if (!selectedPermissionRoleId || selectedRole?.name.toLowerCase() === "admin") return;
+    const next = selectedRolePermissions.includes(code)
+      ? selectedRolePermissions.filter((permission) => permission !== code)
+      : [...selectedRolePermissions, code];
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.replaceRolePermissions(selectedPermissionRoleId, next);
+      setSelectedRolePermissions(next);
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to update this permission."); }
+    finally { setPermissionsBusy(false); }
+  };
+
   const applyAutoLock = () => {
     const amount = Number(autoLockValue);
     if (!Number.isInteger(amount) || amount < 1) {
@@ -914,8 +988,18 @@ export default function SettingsScreen() {
     const requested = keywords.join(" ").toLowerCase();
     return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
   };
+  const canOpenSettingsSection = (item: SettingsSectionDefinition) => {
+    if (isSuperAdmin) return true;
+    if (item.id === "store" || item.id === "tax" || item.id === "auto_lock") return canManageSettings;
+    if (!item.adminOnly) return true;
+    if (item.id === "users" || item.id === "security") return canManageUsers;
+    if (item.id === "audit") return canViewAudit;
+    if (item.id === "database") return canManageBackups;
+    if (item.id === "permissions") return false;
+    return canManageSettings;
+  };
   const visibleSettingsSections = SETTINGS_SECTIONS.filter((item) => {
-    if (item.adminOnly && !isSuperAdmin) return false;
+    if (!canOpenSettingsSection(item)) return false;
     if (!normalizedSettingsSearch) return true;
     return `${item.title} ${item.description} ${item.keywords}`.toLowerCase().includes(normalizedSettingsSearch);
   });
@@ -971,7 +1055,7 @@ export default function SettingsScreen() {
         <ScrollView ref={detailScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.settingsDetailContent} keyboardShouldPersistTaps="handled">
       <View style={styles.settingsDetailHeader}><View style={{ flex: 1 }}><Text style={[styles.screenTitle, { color: posTheme.text, marginBottom: 2 }]}>{activeSectionDefinition?.title ?? "Settings"}</Text><Text style={[styles.screenSubtitle, { color: posTheme.muted, marginBottom: 0 }]}>{activeSectionDefinition?.description}</Text></View></View>
 
-      {isSuperAdmin && showSettingsSection("business branding dealership operating mode receipt designer") && (
+      {canManageSettings && showSettingsSection("business branding dealership operating mode receipt designer") && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
           <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Dealership Platform</Text>
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
@@ -1185,6 +1269,20 @@ export default function SettingsScreen() {
       </Card>
 
       {isSuperAdmin && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("permissions access roles presets") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Roles & Permissions</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose a role, apply a safe preset, or adjust individual page and operation permissions. Changes apply at the next sign-in.</Text>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Role to configure</Text>
+          <View style={styles.permissionRoleRow}>{permissionRoles.map((role) => { const selected = role.id === selectedPermissionRoleId; return <TouchableOpacity key={role.id} style={[styles.permissionRole, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]} onPress={() => void selectPermissionRole(role.id)}><Text style={[styles.permissionRoleText, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{role.name}</Text></TouchableOpacity>; })}</View>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Recommended presets</Text>
+          <View style={styles.permissionPresetGrid}>{(Object.entries(PERMISSION_PRESETS) as Array<[PermissionPresetKey, typeof PERMISSION_PRESETS[PermissionPresetKey]]>).map(([key, preset]) => <TouchableOpacity key={key} disabled={permissionsBusy} style={[styles.permissionPreset, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => void applyPermissionPreset(key)}><Text style={[styles.permissionPresetTitle, { color: posTheme.text }]}>{preset.name}</Text><Text style={[styles.permissionPresetDesc, { color: posTheme.muted }]}>{preset.description}</Text></TouchableOpacity>)}</View>
+          <View style={[styles.permissionNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}><Ionicons name="information-circle-outline" size={19} color={posTheme.accent} /><Text style={{ color: posTheme.muted, flex: 1 }}>Administrator always has full access. Cashier, Inventory Clerk, and Auditor deliberately exclude configuration, users, and backup recovery.</Text></View>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Individual permissions</Text>
+          {POS_PERMISSIONS.map((permission) => { const enabled = permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin" || selectedRolePermissions.includes(permission.code); return <TouchableOpacity key={permission.code} disabled={permissionsBusy || permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin"} style={[styles.permissionItem, { borderBottomColor: posTheme.border }]} onPress={() => void toggleRolePermission(permission.code)}><View style={{ flex: 1 }}><Text style={[styles.permissionItemTitle, { color: posTheme.text }]}>{permission.name}</Text><Text style={[styles.permissionItemDesc, { color: posTheme.muted }]}>{permission.description}</Text><Text style={[styles.permissionItemGroup, { color: posTheme.accent }]}>{permission.group}</Text></View><Switch value={enabled} disabled={permissionsBusy || permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin"} onValueChange={() => void toggleRolePermission(permission.code)} trackColor={{ false: posTheme.surfaceAlt, true: posTheme.primary }} thumbColor={enabled ? posTheme.onPrimary : posTheme.muted} /></TouchableOpacity>; })}
+        </Card>
+      )}
+
+      {canManageUsers && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security pin failed attempts lock unlock accounts") && styles.hidden]}>
           <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Security</Text>
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Set the failed PIN limit and unlock cashier accounts.</Text>
@@ -1328,7 +1426,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* OMS Connection Card */}
-      {isSuperAdmin && (
+      {canManageSettings && (
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("oms connection server api key sync qr") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>OMS Connection</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>
@@ -1528,7 +1626,7 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
-      {isSuperAdmin && (
+      {canManageSettings && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("test open cash register drawer bluetooth printer hardware") && styles.hidden]}>
           <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Test</Text>
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Test connected POS hardware using the selected Bluetooth printer.</Text>
@@ -1790,7 +1888,7 @@ export default function SettingsScreen() {
         <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
-      {isSuperAdmin && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore") && styles.hidden]}>
+      {canManageBackups && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Database & Recovery</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the complete local database, branding assets, theme palettes, and device UI preferences, or validate and restore a compatible backup.</Text>
         <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Safe restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Import validates the format, schema version, checksum, business identity, and totals. Restoration is blocked when the installation already contains products, transfers, or sales.</Text></View></View>
@@ -1848,6 +1946,8 @@ export default function SettingsScreen() {
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserName} onChangeText={setNewUserName} placeholder="Cashier name" placeholderTextColor={fieldLabelColor} />
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Username (optional)</Text>
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUsername} onChangeText={setNewUsername} placeholder="Username" placeholderTextColor={fieldLabelColor} autoCapitalize="none" />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Access role</Text>
+            <View style={styles.permissionRoleRow}>{permissionRoles.filter((role) => role.name.toLowerCase() !== "admin" || editingUser?.roleId === role.id).map((role) => { const selected = newUserRoleId === role.id; return <TouchableOpacity key={`user-role-${role.id}`} onPress={() => setNewUserRoleId(role.id)} style={[styles.permissionRole, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]}><Text style={[styles.permissionRoleText, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{role.name}</Text></TouchableOpacity>; })}</View>
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>{editingUser ? "New 6-digit PIN (optional)" : "6-digit PIN"}</Text>
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPin} onChangeText={setNewUserPin} placeholder={editingUser ? "Keep current PIN" : "Enter PIN"} placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Confirm PIN</Text>
@@ -2852,6 +2952,18 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     minWidth: 220,
   },
+  permissionRoleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  permissionRole: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  permissionRoleText: { fontSize: 12, fontWeight: "800" },
+  permissionPresetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  permissionPreset: { width: "48%", minWidth: 210, flexGrow: 1, borderWidth: 1, borderRadius: 9, padding: 12 },
+  permissionPresetTitle: { fontSize: 13, fontWeight: "900" },
+  permissionPresetDesc: { fontSize: 11, lineHeight: 16, marginTop: 3 },
+  permissionNotice: { borderWidth: 1, borderRadius: 9, padding: 11, flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 },
+  permissionItem: { minHeight: 66, borderBottomWidth: 1, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 12 },
+  permissionItemTitle: { fontSize: 13, fontWeight: "800" },
+  permissionItemDesc: { fontSize: 11, lineHeight: 16, marginTop: 2 },
+  permissionItemGroup: { fontSize: 10, fontWeight: "800", marginTop: 4, textTransform: "uppercase" },
   dangerBtn: {
     marginTop: 16,
   },
