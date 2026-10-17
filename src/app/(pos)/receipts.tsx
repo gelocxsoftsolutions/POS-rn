@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -63,6 +63,8 @@ export default function ReceiptsScreen() {
   const [scannerVisible, setScannerVisible] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const searchScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchBurstRef = useRef({ startedAt: 0, lastAt: 0 });
   const dark = useIsDarkTheme();
   const theme = usePosTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
@@ -329,6 +331,38 @@ export default function ReceiptsScreen() {
     [receipts]
   );
 
+  const openExactReceiptFromSearch = useCallback((candidate: string) => {
+    const canonical = canonicalScannedCode(candidate);
+    if (!canonical) return false;
+    const exact = receipts.some((receipt) =>
+      canonicalScannedCode(receipt.receiptNumber) === canonical || canonicalScannedCode(receipt.id) === canonical
+    );
+    if (!exact) return false;
+    setSearch("");
+    setPage(1);
+    void handleScanReceipt(candidate);
+    return true;
+  }, [handleScanReceipt, receipts]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    const now = Date.now();
+    if (value.length <= 1 || now - searchBurstRef.current.lastAt > 140) searchBurstRef.current.startedAt = now;
+    searchBurstRef.current.lastAt = now;
+    setSearch(value);
+    setPage(1);
+    if (searchScanTimerRef.current) clearTimeout(searchScanTimerRef.current);
+    const candidate = normalizeScannedCode(value);
+    if (candidate.length >= 6) {
+      searchScanTimerRef.current = setTimeout(() => {
+        if (Date.now() - searchBurstRef.current.startedAt <= 1600) openExactReceiptFromSearch(candidate);
+      }, 100);
+    }
+  }, [openExactReceiptFromSearch]);
+
+  useEffect(() => () => {
+    if (searchScanTimerRef.current) clearTimeout(searchScanTimerRef.current);
+  }, []);
+
   const openScanner = useCallback(() => setScannerVisible(true), []);
   const closeScanner = useCallback(() => setScannerVisible(false), []);
   const handleBarcodeScanned = useCallback(
@@ -438,7 +472,9 @@ export default function ReceiptsScreen() {
             placeholder="Search receipts..."
             placeholderTextColor={theme.muted}
             value={search}
-            onChangeText={(value) => { setSearch(value); setPage(1); }}
+            onChangeText={handleSearchChange}
+            onSubmitEditing={({ nativeEvent }) => { if (!openExactReceiptFromSearch(nativeEvent.text)) setPage(1); }}
+            returnKeyType="search"
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>

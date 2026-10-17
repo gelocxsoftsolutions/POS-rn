@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,11 +12,10 @@ import {
   View,
 } from "react-native";
 import * as Print from "expo-print";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import dayjs from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
 import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
@@ -29,6 +29,7 @@ import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosEndOfDayReport } from "@/lib/printers/escpos-end-of-day";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { EndOfDayService } from "@/lib/backup/end-of-day.service";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 type Preset = "today" | "7days" | "30days" | "custom";
 type DateTarget = "start" | "end" | null;
@@ -91,6 +92,88 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+function DateRangeCalendar({
+  visible,
+  startDate,
+  endDate,
+  initialTarget,
+  onClose,
+  onApply,
+}: {
+  visible: boolean;
+  startDate: Date;
+  endDate: Date;
+  initialTarget: DateTarget;
+  onClose: () => void;
+  onApply: (start: Date, end: Date) => void;
+}) {
+  const theme = usePosTheme();
+  const [month, setMonth] = useState(dayjs(startDate).startOf("month"));
+  const [draftStart, setDraftStart] = useState(dayjs(startDate).startOf("day"));
+  const [draftEnd, setDraftEnd] = useState(dayjs(endDate).startOf("day"));
+  const [selecting, setSelecting] = useState<"start" | "end">("start");
+
+  useEffect(() => {
+    if (!visible) return;
+    const target = initialTarget === "end" ? dayjs(endDate) : dayjs(startDate);
+    setMonth(target.startOf("month"));
+    setDraftStart(dayjs(startDate).startOf("day"));
+    setDraftEnd(dayjs(endDate).startOf("day"));
+    setSelecting(initialTarget === "end" ? "end" : "start");
+  }, [endDate, initialTarget, startDate, visible]);
+
+  const leading = month.day();
+  const daysInMonth = month.daysInMonth();
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const dayNumber = index - leading + 1;
+    return dayNumber > 0 && dayNumber <= daysInMonth ? month.date(dayNumber) : null;
+  });
+
+  const choose = (day: Dayjs) => {
+    const selected = day.startOf("day");
+    if (selecting === "start") {
+      setDraftStart(selected);
+      if (selected.valueOf() > draftEnd.valueOf()) setDraftEnd(selected);
+      setSelecting("end");
+      return;
+    }
+    if (selected.valueOf() < draftStart.valueOf()) {
+      setDraftStart(selected);
+      setDraftEnd(selected);
+    } else {
+      setDraftEnd(selected);
+    }
+  };
+
+  return <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <View style={styles.calendarBackdrop}>
+      <View style={[styles.calendarModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <View style={styles.calendarTopRow}>
+          <View><Text style={[styles.calendarTitle, { color: theme.text }]}>Select report range</Text><Text style={[styles.calendarSubtitle, { color: theme.muted }]}>Choose a start date, then an end date</Text></View>
+          <TouchableOpacity style={[styles.calendarClose, { backgroundColor: theme.surfaceAlt }]} onPress={onClose}><Ionicons name="close" size={20} color={theme.text} /></TouchableOpacity>
+        </View>
+        <View style={styles.rangeSummaryRow}>
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "start" ? theme.primary : theme.border, backgroundColor: theme.surfaceAlt }]} onPress={() => setSelecting("start")}><Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>FROM</Text><Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftStart.format("MMM D, YYYY")}</Text></TouchableOpacity>
+          <Ionicons name="arrow-forward" size={18} color={theme.muted} />
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "end" ? theme.primary : theme.border, backgroundColor: theme.surfaceAlt }]} onPress={() => setSelecting("end")}><Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>TO</Text><Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftEnd.format("MMM D, YYYY")}</Text></TouchableOpacity>
+        </View>
+        <View style={styles.calendarMonthRow}><TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.subtract(1, "month"))}><Ionicons name="chevron-back" size={20} color={theme.accent} /></TouchableOpacity><Text style={[styles.calendarMonth, { color: theme.text }]}>{month.format("MMMM YYYY")}</Text><TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.add(1, "month"))}><Ionicons name="chevron-forward" size={20} color={theme.accent} /></TouchableOpacity></View>
+        <View style={styles.calendarWeek}>{["S", "M", "T", "W", "T", "F", "S"].map((label, index) => <Text key={`${label}-${index}`} style={[styles.calendarWeekday, { color: theme.muted }]}>{label}</Text>)}</View>
+        <View style={styles.calendarGrid}>{cells.map((day, index) => {
+          if (!day) return <View key={`blank-${index}`} style={styles.calendarDay} />;
+          const value = day.valueOf();
+          const isStart = value === draftStart.valueOf();
+          const isEnd = value === draftEnd.valueOf();
+          const inRange = value > draftStart.valueOf() && value < draftEnd.valueOf();
+          const selected = isStart || isEnd;
+          return <TouchableOpacity key={day.format("YYYY-MM-DD")} style={[styles.calendarDay, inRange && { backgroundColor: theme.surfaceAlt }, selected && { backgroundColor: theme.primary }]} onPress={() => choose(day)}><Text style={[styles.calendarDayText, { color: selected ? theme.onPrimary : theme.text }]}>{day.date()}</Text></TouchableOpacity>;
+        })}</View>
+        <View style={styles.calendarQuickRow}><TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => { const today = dayjs().startOf("day"); setDraftStart(today); setDraftEnd(today); }}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Today</Text></TouchableOpacity><TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => { const today = dayjs().startOf("day"); setDraftStart(today.subtract(6, "day")); setDraftEnd(today); }}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 7 days</Text></TouchableOpacity><TouchableOpacity style={[styles.calendarApply, { backgroundColor: theme.primary }]} onPress={() => onApply(draftStart.toDate(), draftEnd.toDate())}><Text style={{ color: theme.onPrimary, fontWeight: "900", fontSize: 12 }}>Apply range</Text></TouchableOpacity></View>
+      </View>
+    </View>
+  </Modal>;
+}
+
 export default function ReportsScreen() {
   const dark = useIsDarkTheme();
   const theme = usePosTheme();
@@ -100,6 +183,7 @@ export default function ReportsScreen() {
   const [startDate, setStartDate] = useState(dayjs().startOf("day").toDate());
   const [endDate, setEndDate] = useState(dayjs().endOf("day").toDate());
   const [dateTarget, setDateTarget] = useState<DateTarget>(null);
+  const [calendarVisible, setCalendarVisible] = useState(false);
   const [report, setReport] = useState<SalesReport>(emptyReport);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -110,6 +194,8 @@ export default function ReportsScreen() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const colors = useMemo(() => ({
     background: theme.background, panel: theme.surface, panelAlt: theme.surfaceAlt,
@@ -147,18 +233,17 @@ export default function ReportsScreen() {
     SettingsService.get().then(setSettings).catch(() => setSettings(null));
   }, []);
 
-  const chooseDate = (event: DateTimePickerEvent, selected?: Date) => {
-    const target = dateTarget;
-    setDateTarget(null);
-    if (event.type !== "set" || !selected || !target) return;
+  const openCalendar = (target: Exclude<DateTarget, null>) => {
+    setDateTarget(target);
+    setCalendarVisible(true);
+  };
+
+  const applyCustomRange = (selectedStart: Date, selectedEnd: Date) => {
     setPreset("custom");
-    if (target === "start") {
-      setStartDate(dayjs(selected).startOf("day").toDate());
-      if (selected > endDate) setEndDate(dayjs(selected).endOf("day").toDate());
-    } else {
-      setEndDate(dayjs(selected).endOf("day").toDate());
-      if (selected < startDate) setStartDate(dayjs(selected).startOf("day").toDate());
-    }
+    setStartDate(dayjs(selectedStart).startOf("day").toDate());
+    setEndDate(dayjs(selectedEnd).endOf("day").toDate());
+    setCalendarVisible(false);
+    setDateTarget(null);
   };
 
   const syncStatusInfo = (sale: ReportSaleRow) => {
@@ -202,14 +287,13 @@ export default function ReportsScreen() {
     if (!report.sales.length || exporting) return;
     setExporting(true);
     try {
-      const headers = ["Receipt Number", "Timestamp", "Cashier", "Customer", "Payment Method", "Item Count", "Subtotal", "Discount", "Tax", "Total", "Sync Status"];
+      const headers = ["Receipt Number", "Timestamp", "Cashier", "Customer", "Payment Method", "Item Count", "Subtotal", "Discount", "Tax", "Total"];
       const rows = report.sales.map((sale) => [
         sale.receiptNumber, sale.createdAt, sale.cashierName, sale.customerName ?? "", sale.paymentMethod,
         sale.itemCount, sale.subtotal, sale.discount, sale.tax, sale.total,
-        sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED"),
-        sale.syncError ?? "",
+        ...(showOmsSyncStatus ? [sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED"), sale.syncError ?? ""] : []),
       ]);
-      headers.push("Sync Error");
+      if (showOmsSyncStatus) headers.push("Sync Status", "Sync Error");
       const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
       const file = new File(Paths.cache, `sales-report-${dayjs(startDate).format("YYYYMMDD")}-${dayjs(endDate).format("YYYYMMDD")}.csv`);
       file.create({ overwrite: true, intermediates: true });
@@ -406,19 +490,19 @@ export default function ReportsScreen() {
           ))}
         </View>
         <View style={styles.customDates}>
-          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => setDateTarget("start")}>
+          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => openCalendar("start")}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={[styles.dateText, { color: colors.text }]}>{dayjs(startDate).format("MMM D, YYYY")}</Text>
           </TouchableOpacity>
           <Text style={{ color: colors.muted }}>to</Text>
-          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => setDateTarget("end")}>
+          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => openCalendar("end")}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={[styles.dateText, { color: colors.text }]}>{dayjs(endDate).format("MMM D, YYYY")}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {dateTarget && <DateTimePicker value={dateTarget === "start" ? startDate : endDate} mode="date" onChange={chooseDate} />}
+      <DateRangeCalendar visible={calendarVisible} startDate={startDate} endDate={endDate} initialTarget={dateTarget} onClose={() => { setCalendarVisible(false); setDateTarget(null); }} onApply={applyCustomRange} />
 
       {loading ? (
         <View style={styles.loading}><ActivityIndicator size="large" color={theme.accent} /></View>
@@ -492,10 +576,10 @@ export default function ReportsScreen() {
           <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.border }]}>
             <View style={styles.rowBetween}>
               <View style={styles.flex}>
-                <Text style={[styles.panelTitle, { color: colors.text }]}>Sales &amp; Sync Status</Text>
-                <Text style={[styles.panelCaption, { color: colors.muted }]}>Every recorded sale and whether it reached the OMS</Text>
+                <Text style={[styles.panelTitle, { color: colors.text }]}>{showOmsSyncStatus ? "Sales & Sync Status" : "Sales Records"}</Text>
+                <Text style={[styles.panelCaption, { color: colors.muted }]}>{showOmsSyncStatus ? "Every recorded sale and whether it reached the OMS" : "Every sale recorded locally for this dealership"}</Text>
               </View>
-              {report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
+              {showOmsSyncStatus && report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
                 <TouchableOpacity
                   style={[styles.retryAllButton, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                   onPress={retryFailedSales}
@@ -511,9 +595,9 @@ export default function ReportsScreen() {
               )}
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.salesTable}>
+              <View style={[styles.salesTable, !showOmsSyncStatus && styles.salesTableLocal]}>
                 <View style={[styles.salesRow, { backgroundColor: colors.panelAlt }]}>
-                  {["Receipt", "Date", "Cashier", "Total", "Status", "Reason", ""].map((label, index) => (
+                  {(showOmsSyncStatus ? ["Receipt", "Date", "Cashier", "Total", "Status", "Reason", ""] : ["Receipt", "Date", "Cashier", "Total"]).map((label, index) => (
                     <Text key={`${label}-${index}`} style={[styles.salesCell, styles.salesHeader, { color: colors.muted }]}>{label}</Text>
                   ))}
                 </View>
@@ -526,7 +610,7 @@ export default function ReportsScreen() {
                       <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{dayjs(sale.createdAt).format("MMM D, HH:mm")}</Text>
                       <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{sale.cashierName}</Text>
                       <Text style={[styles.salesCell, { color: colors.text }]}>{currency(sale.total)}</Text>
-                      <Text style={[styles.salesCell, { color: info.color, fontWeight: "700" }]} numberOfLines={1}>{info.label}</Text>
+                      {showOmsSyncStatus ? <><Text style={[styles.salesCell, { color: info.color, fontWeight: "700" }]} numberOfLines={1}>{info.label}</Text>
                       <Text style={[styles.salesReasonCell, { color: colors.muted }]} numberOfLines={2}>{sale.syncError ?? ""}</Text>
                       <View style={styles.salesCell}>
                         {canRetry && (
@@ -542,7 +626,7 @@ export default function ReportsScreen() {
                             )}
                           </TouchableOpacity>
                         )}
-                      </View>
+                      </View></> : null}
                     </View>
                   );
                 })}
@@ -626,4 +710,26 @@ const styles = StyleSheet.create({
   salesHeader: { fontWeight: "800", textTransform: "uppercase", fontSize: 10 },
   retryRowButton: { borderWidth: 1, borderColor: "#17386b", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 5, alignItems: "center", justifyContent: "center", minWidth: 60 },
   retryRowText: { color: "#17386b", fontSize: 12, fontWeight: "700" },
+  salesTableLocal: { minWidth: 520 },
+  calendarBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.58)", alignItems: "center", justifyContent: "center", padding: 20 },
+  calendarModal: { width: "100%", maxWidth: 560, borderWidth: 1, borderRadius: 18, padding: 18, elevation: 12 },
+  calendarTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  calendarTitle: { fontSize: 20, fontWeight: "900" },
+  calendarSubtitle: { fontSize: 11, marginTop: 3 },
+  calendarClose: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  rangeSummaryRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
+  rangeSummary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  rangeSummaryLabel: { fontSize: 9, fontWeight: "900" },
+  rangeSummaryValue: { fontSize: 12, fontWeight: "800", marginTop: 2 },
+  calendarMonthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 18, marginBottom: 10 },
+  calendarMonth: { fontSize: 15, fontWeight: "900" },
+  calendarNav: { width: 36, height: 36, borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  calendarWeek: { flexDirection: "row" },
+  calendarWeekday: { width: "14.2857%", textAlign: "center", fontSize: 10, fontWeight: "900", paddingVertical: 7 },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarDay: { width: "14.2857%", aspectRatio: 1.15, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  calendarDayText: { fontSize: 12, fontWeight: "700" },
+  calendarQuickRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  calendarQuick: { minHeight: 38, borderWidth: 1, borderRadius: 9, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  calendarApply: { minHeight: 40, borderRadius: 9, paddingHorizontal: 18, alignItems: "center", justifyContent: "center", marginLeft: "auto" },
 });

@@ -9,10 +9,12 @@ import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { sha256 as secureSha256 } from "@noble/hashes/sha2.js";
 import { queryFirst } from "@/lib/db/connection";
 import { PermissionService } from "@/lib/services/permission.service";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
 const SUPER_ADMIN_USERNAME_HASH = "67541e0a403c6868131cefa202501269b0079d088e8f2099afe3519004b6410d";
 const SUPER_ADMIN_PASSWORD_HASH = "7e02e30cc5cacafefd09dc764e8c5fe5165f0f75cecb4fd74aaec45fc72c7de2";
+const SUPER_ADMIN_PROFILE_KEY = "nct-pos-super-admin-profile";
 
 function secureCredentialHash(value: string): string {
   return Array.from(secureSha256(new TextEncoder().encode(value)))
@@ -143,11 +145,14 @@ export const CashierService = {
     }
     const now = new Date().toISOString();
     const sessionId = `super-admin-${Date.now()}`;
+    let profile: { displayName?: string; photoUri?: string | null } = {};
+    try { profile = JSON.parse(await AsyncStorage.getItem(SUPER_ADMIN_PROFILE_KEY) ?? "{}"); } catch { profile = {}; }
+    const displayName = profile.displayName?.trim() || "Super Admin";
     useCashierStore.getState().setSession({
       sessionId,
       cashierId: SUPER_ADMIN_ID,
-      cashierName: "Super Admin",
-      photoUri: null,
+      cashierName: displayName,
+      photoUri: profile.photoUri ?? null,
       cashierRole: "Super Admin",
       roleId: SUPER_ADMIN_ID,
       loginTime: now,
@@ -157,9 +162,10 @@ export const CashierService = {
     });
     useAuthStore.getState().signIn({
       id: SUPER_ADMIN_ID,
-      name: "Super Admin",
+      name: displayName,
       pin: "",
       role: "Super Admin",
+      avatarUrl: profile.photoUri ?? undefined,
       isSuperAdmin: true,
     });
     return { success: true, session: useCashierStore.getState().session };
@@ -239,6 +245,17 @@ export const CashierService = {
   },
 
   async updateProfile(cashierId: string, displayName: string, pin?: string, photoUri?: string | null) {
+    if (cashierId === SUPER_ADMIN_ID) {
+      const currentSession = useCashierStore.getState().session;
+      if (!currentSession?.isSuperAdmin) throw new Error("Only the Super Admin can update this profile.");
+      if (pin) throw new Error("Super Admin credentials cannot be changed from the local profile page.");
+      const normalizedName = displayName.trim() || "Super Admin";
+      await AsyncStorage.setItem(SUPER_ADMIN_PROFILE_KEY, JSON.stringify({ displayName: normalizedName, photoUri: photoUri ?? null }));
+      useCashierStore.getState().setSession({ ...currentSession, cashierName: normalizedName, photoUri: photoUri ?? null });
+      const currentAuth = useAuthStore.getState().cashier;
+      if (currentAuth) useAuthStore.getState().signIn({ ...currentAuth, name: normalizedName, avatarUrl: photoUri ?? undefined });
+      return { id: SUPER_ADMIN_ID, displayName: normalizedName, photoUri: photoUri ?? null };
+    }
     const updates: { displayName: string; pinHash?: string; photoUri?: string | null } = { displayName };
     if (pin) {
       const pinHash = sha256(pin);

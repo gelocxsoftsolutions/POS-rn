@@ -27,6 +27,8 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useIsDarkTheme, usePosTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
 import { ThemeColorEditor } from "@/components/ui/theme-color-editor";
+import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
@@ -69,7 +71,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   { id: "audit", title: "Audit Logs", description: "Review user, sale, login, and transfer activity.", icon: "document-text-outline", keywords: "audit logs activity events sale login failed logout transfer history", adminOnly: true },
   { id: "oms", title: "OMS & Synchronization", description: "OMS server connection, API key, QR setup, and synchronization.", icon: "cloud-outline", keywords: "oms connection server api key sync synchronization qr online offline" , adminOnly: true },
   { id: "printer", title: "Bluetooth Printer", description: "Pair, connect, and test the thermal receipt printer.", icon: "print-outline", keywords: "bluetooth thermal printer jk-5802h receipt esc pos paired device test print", adminOnly: true },
-  { id: "hardware_test", title: "Hardware Test", description: "Test the connected cash register drawer.", icon: "hardware-chip-outline", keywords: "test open cash register drawer bluetooth printer hardware", adminOnly: true },
+  { id: "hardware_test", title: "Hardware Test", description: "Test the cash drawer, camera scanner, and USB barcode scanner.", icon: "hardware-chip-outline", keywords: "test open cash register drawer bluetooth printer camera usb barcode scanner hardware", adminOnly: true },
   { id: "navigation", title: "Navigation Style", description: "Choose automatic, sidebar, or bottom navigation.", icon: "grid-outline", keywords: "navigation style sidebar bottom auto menu" },
   { id: "sales_layout", title: "Sales Layout", description: "Choose a left- or right-handed checkout layout.", icon: "swap-horizontal-outline", keywords: "sales layout handed left right cart dominant hand checkout" },
   { id: "theme", title: "Theme & Colors", description: "Light, dark, and custom colors throughout the POS.", icon: "color-palette-outline", keywords: "theme appearance light dark auto system color palette primary accent background navigation text border" },
@@ -225,10 +227,12 @@ interface AuditLogEntry {
 }
 
 const OMS_STORAGE_KEY = "nct-pos-oms";
+const LAST_SETTINGS_SECTION_KEY = "nct-pos-last-settings-section";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("store");
+  const settingsSectionRestoredRef = useRef(false);
   const detailAnimation = useRef(new Animated.Value(1)).current;
   const detailScrollRef = useRef<ScrollView | null>(null);
   const activeSectionDefinition = SETTINGS_SECTIONS.find((item) => item.id === activeSection) ?? null;
@@ -314,11 +318,15 @@ export default function SettingsScreen() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRow[]>([]);
   const [selectedPermissionRoleId, setSelectedPermissionRoleId] = useState("");
+  const selectedPermissionRoleIdRef = useRef("");
   const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
   const [permissionUsers, setPermissionUsers] = useState<PermissionUserRow[]>([]);
   const [selectedPermissionUserId, setSelectedPermissionUserId] = useState("");
+  const selectedPermissionUserIdRef = useRef("");
   const [selectedUserOverrides, setSelectedUserOverrides] = useState<UserPermissionOverrides>({});
   const [showPermissionRolePicker, setShowPermissionRolePicker] = useState(false);
+  const [hardwareScannerVisible, setHardwareScannerVisible] = useState(false);
+  const [hardwareScanResult, setHardwareScanResult] = useState("");
   const [permissionsBusy, setPermissionsBusy] = useState(false);
   const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
   const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
@@ -341,6 +349,20 @@ export default function SettingsScreen() {
     if (normalizedScale !== uiScale) setUiScale(normalizedScale);
   }, [setUiScale, uiScale]);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(LAST_SETTINGS_SECTION_KEY)
+      .then((saved) => {
+        if (active && saved && SETTINGS_SECTIONS.some((section) => section.id === saved)) setActiveSection(saved as SettingsSectionId);
+      })
+      .finally(() => { settingsSectionRestoredRef.current = true; });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (settingsSectionRestoredRef.current) void AsyncStorage.setItem(LAST_SETTINGS_SECTION_KEY, activeSection);
+  }, [activeSection]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -405,26 +427,32 @@ export default function SettingsScreen() {
       await PermissionService.ensureDefaults();
       const roles = await PermissionService.getRoles();
       setPermissionRoles(roles);
-      const nextRoleId = selectedPermissionRoleId && roles.some((role) => role.id === selectedPermissionRoleId)
-        ? selectedPermissionRoleId
+      const currentRoleId = selectedPermissionRoleIdRef.current;
+      const nextRoleId = currentRoleId && roles.some((role) => role.id === currentRoleId)
+        ? currentRoleId
         : roles.find((role) => role.name.toLowerCase() !== "admin")?.id ?? roles[0]?.id ?? "";
+      selectedPermissionRoleIdRef.current = nextRoleId;
       setSelectedPermissionRoleId(nextRoleId);
       setSelectedRolePermissions(nextRoleId ? await PermissionService.getRolePermissions(nextRoleId) : []);
       const users = nextRoleId ? await PermissionService.getUsersByRole(nextRoleId) : [];
       setPermissionUsers(users);
-      const nextUserId = users.some((user) => user.id === selectedPermissionUserId)
-        ? selectedPermissionUserId
+      const currentUserId = selectedPermissionUserIdRef.current;
+      const nextUserId = users.some((user) => user.id === currentUserId)
+        ? currentUserId
         : users[0]?.id ?? "";
+      selectedPermissionUserIdRef.current = nextUserId;
       setSelectedPermissionUserId(nextUserId);
       setSelectedUserOverrides(nextUserId ? await PermissionService.getUserPermissionOverrides(nextUserId) : {});
     } catch {
       setPermissionRoles([]);
       setSelectedRolePermissions([]);
       setPermissionUsers([]);
+      selectedPermissionRoleIdRef.current = "";
+      selectedPermissionUserIdRef.current = "";
       setSelectedPermissionUserId("");
       setSelectedUserOverrides({});
     }
-  }, [selectedPermissionRoleId, selectedPermissionUserId]);
+  }, []);
 
   const applyPinSecurity = useCallback(() => {
     const attempts = Number(maxPinAttemptsValue);
@@ -941,6 +969,7 @@ export default function SettingsScreen() {
   };
 
   const selectPermissionRole = async (roleId: string) => {
+    selectedPermissionRoleIdRef.current = roleId;
     setSelectedPermissionRoleId(roleId);
     setShowPermissionRolePicker(false);
     setPermissionsBusy(true);
@@ -952,11 +981,13 @@ export default function SettingsScreen() {
       setSelectedRolePermissions(rolePermissions);
       setPermissionUsers(users);
       const userId = users[0]?.id ?? "";
+      selectedPermissionUserIdRef.current = userId;
       setSelectedPermissionUserId(userId);
       setSelectedUserOverrides(userId ? await PermissionService.getUserPermissionOverrides(userId) : {});
     } catch {
       setSelectedRolePermissions([]);
       setPermissionUsers([]);
+      selectedPermissionUserIdRef.current = "";
       setSelectedPermissionUserId("");
       setSelectedUserOverrides({});
     }
@@ -964,6 +995,7 @@ export default function SettingsScreen() {
   };
 
   const selectPermissionUser = async (cashierId: string) => {
+    selectedPermissionUserIdRef.current = cashierId;
     setSelectedPermissionUserId(cashierId);
     setPermissionsBusy(true);
     try { setSelectedUserOverrides(await PermissionService.getUserPermissionOverrides(cashierId)); }
@@ -1054,6 +1086,11 @@ export default function SettingsScreen() {
   });
   const selectedPermissionRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
   const selectedPermissionUser = permissionUsers.find((user) => user.id === selectedPermissionUserId);
+  const accessibleSettingsSectionIds = SETTINGS_SECTIONS.filter(canOpenSettingsSection).map((item) => item.id).join("|");
+  useEffect(() => {
+    const accessible = accessibleSettingsSectionIds.split("|").filter(Boolean) as SettingsSectionId[];
+    if (!accessible.includes(activeSection) && accessible[0]) setActiveSection(accessible[0]);
+  }, [accessibleSettingsSectionIds, activeSection]);
   const openSettingsSection = (section: SettingsSectionId) => {
     if (section === activeSection) return;
     setActiveSection(section);
@@ -1686,17 +1723,30 @@ export default function SettingsScreen() {
       </Card>
 
       {canManageSettings && (
-        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("test open cash register drawer bluetooth printer hardware") && styles.hidden]}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Test</Text>
-          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Test connected POS hardware using the selected Bluetooth printer.</Text>
-          <Button
-            title="Open Cash Register"
-            onPress={handleCashRegisterTest}
-            loading={printerAction === "drawer"}
-            disabled={!selectedPrinter || (printerAction !== null && printerAction !== "drawer")}
-            icon="cash-outline"
-            style={styles.testActionButton}
-          />
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("test open cash register drawer bluetooth printer camera usb barcode scanner hardware") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Hardware Diagnostics</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Verify the cash drawer and both supported barcode input methods before serving customers.</Text>
+          <View style={styles.hardwareTestGrid}>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="cash-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Cash drawer</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Sends the drawer-open command through the selected printer.</Text>
+              <Button title="Open Cash Register" onPress={handleCashRegisterTest} loading={printerAction === "drawer"} disabled={!selectedPrinter || (printerAction !== null && printerAction !== "drawer")} icon="cash-outline" style={styles.hardwareTestButton} />
+            </View>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="camera-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Camera barcode scanner</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Open the in-app scanner and scan any supported product barcode.</Text>
+              <Button title="Test Camera Scanner" onPress={() => setHardwareScannerVisible(true)} icon="scan-outline" style={styles.hardwareTestButton} />
+            </View>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="barcode-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>USB barcode scanner</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Tap USB Ready, then scan a barcode with the connected scanner.</Text>
+              <UsbBarcodeScannerInput onScan={(code) => setHardwareScanResult(code)} dark={dark} disabled={activeSection !== "hardware_test"} />
+            </View>
+          </View>
+          {hardwareScanResult ? <View style={[styles.hardwareScanSuccess, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.accent }]}><Ionicons name="checkmark-circle" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Scanner is working</Text><Text selectable style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Received: {hardwareScanResult}</Text></View><TouchableOpacity onPress={() => setHardwareScanResult("")}><Ionicons name="close-circle" size={20} color={posTheme.muted} /></TouchableOpacity></View> : null}
         </Card>
       )}
 
@@ -2028,6 +2078,16 @@ export default function SettingsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <BarcodeScannerModal
+        visible={hardwareScannerVisible}
+        dark={dark}
+        onClose={() => setHardwareScannerVisible(false)}
+        onScan={(code) => {
+          setHardwareScanResult(code);
+          setHardwareScannerVisible(false);
+        }}
+      />
 
       {/* Currency Picker Modal */}
       <Modal visible={showCurrencyPicker} transparent animationType="fade">
@@ -3024,6 +3084,12 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     minWidth: 220,
   },
+  hardwareTestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  hardwareTestItem: { width: "31%", minWidth: 220, flexGrow: 1, borderWidth: 1, borderRadius: 10, padding: 14, gap: 7 },
+  hardwareTestTitle: { fontSize: 13, fontWeight: "900" },
+  hardwareTestHelp: { fontSize: 11, lineHeight: 16 },
+  hardwareTestButton: { marginTop: 5 },
+  hardwareScanSuccess: { marginTop: 12, borderWidth: 1, borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   permissionRoleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   permissionRole: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
   permissionRoleText: { fontSize: 12, fontWeight: "800" },

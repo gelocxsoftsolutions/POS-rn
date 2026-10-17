@@ -137,10 +137,20 @@ Assert-Contains "src/lib/permissions/catalog.ts" 'CRUD Operations' "permissions 
 Assert-Contains "src/lib/services/permission.service.ts" 'getEffectivePermissions' "runtime access combines role defaults with user overrides"
 Assert-Contains "src/app/(pos)/settings.tsx" 'Users in \{selectedPermissionRole' "role selection reveals assigned users"
 Assert-Contains "src/app/(pos)/settings.tsx" 'USER OVERRIDE' "individual access clearly distinguishes user overrides"
+Assert-Contains "src/app/(pos)/settings.tsx" 'LAST_SETTINGS_SECTION_KEY' "settings restore the last opened section"
+Assert-Contains "src/app/(pos)/settings.tsx" 'selectedPermissionRoleIdRef' "role selection does not recreate the page-loading callback"
+Assert-Contains "src/app/(pos)/settings.tsx" 'BarcodeScannerModal' "hardware diagnostics include a camera barcode test"
+Assert-Contains "src/app/(pos)/settings.tsx" 'UsbBarcodeScannerInput' "hardware diagnostics include a USB barcode test"
+Assert-Contains "src/lib/services/cashier.service.ts" 'SUPER_ADMIN_PROFILE_KEY' "My Account persists the Super Admin display profile"
+Assert-Contains "src/app/(pos)/_layout.tsx" 'onAccountPress=\{\(\) => router\.push\("/\(pos\)/user"' "My Account consistently opens the profile page"
+Assert-Contains "src/app/(pos)/receipts.tsx" 'openExactReceiptFromSearch' "receipt barcode bursts are separated from text search"
+Assert-Contains "src/app/(pos)/reports.tsx" 'DateRangeCalendar' "reports use the themed date-range calendar"
+Assert-Contains "src/app/(pos)/reports.tsx" 'showOmsSyncStatus \? "Sales & Sync Status" : "Sales Records"' "independent reports hide operational sync status"
+Assert-Contains "src/app/(pos)/index.tsx" '\.\.\.\(isIndependent \? \[\] : \[' "independent dashboard hides transfer and waiting-to-sync attention items"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (116 source contracts)."
+Write-Output "Dealership platform validation passed (126 source contracts)."

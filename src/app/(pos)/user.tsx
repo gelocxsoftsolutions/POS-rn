@@ -6,12 +6,12 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Card } from "@/components/ui/card";
 import { CashierService } from "@/lib/services/cashier.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 export default function UserScreen() {
   const router = useRouter();
   const session = useCashierStore((state) => state.session);
-  const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -69,13 +69,13 @@ export default function UserScreen() {
     }
   };
 
-  const surface = dark ? "#141922" : "#ffffff";
-  const border = dark ? "#28303d" : "#dde3ea";
-  const text = dark ? "#f8fafc" : "#17202b";
-  const muted = dark ? "#8f9baa" : "#667085";
+  const surface = theme.surface;
+  const border = theme.border;
+  const text = theme.text;
+  const muted = theme.muted;
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity style={[styles.backButton, { backgroundColor: surface, borderColor: border }]} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={20} color={text} />
@@ -88,7 +88,7 @@ export default function UserScreen() {
 
       <Card style={[styles.profileCard, { backgroundColor: surface, borderColor: border }]}>
         <View style={styles.identityRow}>
-          <View style={styles.avatar}>
+          <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.avatarImage} />
             ) : (
@@ -113,16 +113,13 @@ export default function UserScreen() {
         </View>
 
         <Text style={[styles.label, { color: text }]}>Display name</Text>
-        <TextInput style={[styles.input, { color: text, backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: border }]} value={name} onChangeText={setName} placeholder="Display name" placeholderTextColor={muted} />
+        <TextInput style={[styles.input, { color: text, backgroundColor: theme.surfaceAlt, borderColor: border }]} value={name} onChangeText={setName} placeholder="Display name" placeholderTextColor={muted} />
 
         <View style={[styles.rule, { backgroundColor: border }]} />
-        <Text style={[styles.sectionLabel, { color: text }]}>Change PIN</Text>
-        <Text style={[styles.helpText, { color: muted }]}>Leave these fields empty to keep your current PIN.</Text>
-        <TextInput style={[styles.input, { color: text, backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: border }]} value={pin} onChangeText={setPin} placeholder="New 6-digit PIN" placeholderTextColor={muted} keyboardType="number-pad" secureTextEntry maxLength={6} />
-        <TextInput style={[styles.input, { color: text, backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: border }]} value={confirmPin} onChangeText={setConfirmPin} placeholder="Confirm new PIN" placeholderTextColor={muted} keyboardType="number-pad" secureTextEntry maxLength={6} />
+        {session?.isSuperAdmin ? <View style={[styles.adminNotice, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}><Ionicons name="shield-checkmark-outline" size={20} color={theme.accent} /><View style={{ flex: 1 }}><Text style={[styles.sectionLabel, { color: text }]}>Protected Super Admin account</Text><Text style={[styles.helpText, { color: muted, marginBottom: 0 }]}>You can update this device’s display name and photo here. Super Admin credentials remain protected and cannot be changed from this page.</Text></View></View> : <><Text style={[styles.sectionLabel, { color: text }]}>Change PIN</Text><Text style={[styles.helpText, { color: muted }]}>Leave these fields empty to keep your current PIN.</Text><TextInput style={[styles.input, { color: text, backgroundColor: theme.surfaceAlt, borderColor: border }]} value={pin} onChangeText={setPin} placeholder="New 6-digit PIN" placeholderTextColor={muted} keyboardType="number-pad" secureTextEntry maxLength={6} /><TextInput style={[styles.input, { color: text, backgroundColor: theme.surfaceAlt, borderColor: border }]} value={confirmPin} onChangeText={setConfirmPin} placeholder="Confirm new PIN" placeholderTextColor={muted} keyboardType="number-pad" secureTextEntry maxLength={6} /></>}
 
-        <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color="#ffffff" /> : <><Ionicons name="checkmark" size={18} color="#ffffff" /><Text style={styles.saveButtonText}>Save changes</Text></>}
+        <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.primary }, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
+          {saving ? <ActivityIndicator color={theme.onPrimary} /> : <><Ionicons name="checkmark" size={18} color={theme.onPrimary} /><Text style={[styles.saveButtonText, { color: theme.onPrimary }]}>Save changes</Text></>}
         </TouchableOpacity>
       </Card>
     </ScrollView>
@@ -151,6 +148,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: "700", marginBottom: 7 },
   sectionLabel: { fontSize: 14, fontWeight: "700" },
   helpText: { fontSize: 11, marginTop: 4, marginBottom: 12 },
+  adminNotice: { borderWidth: 1, borderRadius: 9, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 10 },
   input: { width: "100%", borderWidth: 1, borderRadius: 8, paddingHorizontal: 13, paddingVertical: 11, fontSize: 14, marginBottom: 12 },
   rule: { height: 1, marginVertical: 18 },
   saveButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#17386b", borderRadius: 8, paddingVertical: 12, marginTop: 8 },

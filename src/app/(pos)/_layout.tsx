@@ -897,7 +897,7 @@ export default function POSLayout() {
           isWide={false}
           sidebarOpen={true}
           onToggleSidebar={() => {}}
-          onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
+          onAccountPress={() => router.push("/(pos)/user" as any)}
           canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
           onLogoutPress={() => {}}
         />
@@ -941,7 +941,7 @@ export default function POSLayout() {
         isWide={isWide}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
-        onAccountPress={() => router.push(session?.isSuperAdmin ? "/(pos)/settings" as any : "/(pos)/user" as any)}
+        onAccountPress={() => router.push("/(pos)/user" as any)}
         canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
         onLogoutPress={() => void handleLogout()}
       />

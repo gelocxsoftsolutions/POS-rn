@@ -22,6 +22,7 @@ import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 interface DashboardData {
   todaysSales: number;
@@ -59,6 +60,8 @@ export default function Dashboard() {
   const pendingSync = useSyncStore((state) => state.pendingCount);
   const refreshPendingCount = useSyncStore((state) => state.refreshPendingCount);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const isIndependent = operatingMode === "INDEPENDENT";
 
   const colors = useMemo(() => ({
     background: theme.background,
@@ -74,7 +77,9 @@ export default function Dashboard() {
       const [summary, lowStock, transfers, settings] = await Promise.all([
         SaleService.summary(),
         InventoryService.getLowStock(),
-        TransferService.list({ status: "IN_TRANSIT", page: 1, pageSize: 1 }),
+        operatingMode === "NCT_DEPENDENT"
+          ? TransferService.list({ status: "IN_TRANSIT", page: 1, pageSize: 1 })
+          : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 1 }),
         SettingsService.get(),
         refreshPendingCount(),
       ]);
@@ -89,7 +94,7 @@ export default function Dashboard() {
     } catch {
       setStoreName(device.branchName || "NCT Seafoods");
     }
-  }, [device.branchName, refreshPendingCount, salesGroupCashierIds]);
+  }, [device.branchName, operatingMode, refreshPendingCount, salesGroupCashierIds]);
 
   useEffect(() => {
     setLoading(true);
@@ -108,13 +113,17 @@ export default function Dashboard() {
     { label: "New Sale", detail: "Open checkout", icon: "cart-outline" as const, href: "/(pos)/sales", primary: true },
     { label: "Find Receipt", detail: "Review or reprint", icon: "receipt-outline" as const, href: "/(pos)/receipts" },
     { label: "Products", detail: "Prices and stock", icon: "cube-outline" as const, href: "/(pos)/products" },
-    { label: "Receive Stock", detail: "Open transfers", icon: "swap-horizontal-outline" as const, href: "/(pos)/transfers" },
+    isIndependent
+      ? { label: "Manage Stock", detail: "Receive or adjust", icon: "archive-outline" as const, href: "/(pos)/products" }
+      : { label: "Receive Stock", detail: "Open transfers", icon: "swap-horizontal-outline" as const, href: "/(pos)/transfers" },
   ];
 
   const attentionItems = [
     { label: "Low-stock products", value: data.lowStockCount, icon: "alert-circle-outline" as const, color: data.lowStockCount > 0 ? "#d97706" : "#16a34a", href: "/(pos)/products" },
-    { label: "Incoming transfers", value: data.incomingTransfers, icon: "archive-outline" as const, color: data.incomingTransfers > 0 ? "#2563eb" : "#16a34a", href: "/(pos)/transfers" },
-    { label: "Waiting to sync", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(pos)/settings" },
+    ...(isIndependent ? [] : [
+      { label: "Incoming transfers", value: data.incomingTransfers, icon: "archive-outline" as const, color: data.incomingTransfers > 0 ? "#2563eb" : "#16a34a", href: "/(pos)/transfers" },
+      { label: "Waiting to sync", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(pos)/settings" },
+    ]),
   ];
 
   if (loading) {
