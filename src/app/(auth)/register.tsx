@@ -12,7 +12,6 @@ import {
   ActivityIndicator,
   StatusBar,
   Image,
-  useColorScheme,
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -29,6 +28,7 @@ import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 import type { OperatingMode } from "@/lib/business/types";
 import * as Constants from "expo-constants";
 
@@ -128,23 +128,24 @@ export default function RegisterDevice() {
   const [stockResolution, setStockResolution] = useState("");
   const setDevice = useDeviceStore((s) => s.setDevice);
   const registering = useRef(false);
-  const isDark = useColorScheme() === "dark";
+  const theme = usePosTheme();
+  const isDark = theme.dark;
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const shortEdge = Math.min(width, height);
   const scannerSize = Math.max(160, Math.min(320, shortEdge - 64));
   const palette = {
-    background: isDark ? "#07111f" : "#f8fbff",
-    surface: isDark ? "#111c2e" : "#ffffff",
-    elevated: isDark ? "#17243a" : "#f0f4ff",
-    border: isDark ? "#2b3a50" : "#e2e8f0",
-    borderSoft: isDark ? "#213047" : "#eef2f7",
-    text: isDark ? "#f8fafc" : "#1a202c",
-    accent: isDark ? "#8abaff" : "#17386b",
-    muted: isDark ? "#a8b4c5" : "#6b7b8d",
-    subtle: isDark ? "#7f8da2" : "#94a3b8",
-    input: isDark ? "#0c1627" : "#f8fbff",
-    info: isDark ? "#12233a" : "#f0f4ff",
+    background: theme.background,
+    surface: theme.surface,
+    elevated: theme.surfaceAlt,
+    border: theme.border,
+    borderSoft: theme.border,
+    text: theme.text,
+    accent: theme.primary,
+    muted: theme.muted,
+    subtle: theme.muted,
+    input: theme.surface,
+    info: theme.surfaceAlt,
   };
   const logoSource = business.businessLogoUri
     ? { uri: business.businessLogoUri }

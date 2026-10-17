@@ -81,10 +81,18 @@ Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'ProductAuditDetailModal
 Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'ProductAuditDetailModal' "variation history opens detailed audit records"
 Assert-Contains "src/lib/business/independent-catalog.service.ts" 'INSERT INTO AuditLog' "product and loss actions reach central audit logs"
 Assert-Contains "src/app/(pos)/receipt-designer.tsx" 'previewLogo' "receipt logo appears in live preview with fallback"
+Assert-Contains "src/lib/stores/ui-store.ts" 'themePalettes' "light and dark dealership color palettes persist offline"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'COLOR_FIELDS' "theme editor exposes semantic color controls"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'Hex color' "theme editor supports manual color selection"
+Assert-Contains "src/app/(auth)/index.tsx" 'usePosTheme' "login uses the configured dealership theme"
+Assert-Contains "src/app/(auth)/register.tsx" 'usePosTheme' "device registration uses the configured dealership theme"
+Assert-Contains "src/app/(auth)/independent-setup.tsx" 'usePosTheme' "independent onboarding uses the configured dealership theme"
+Assert-Contains "src/app/(pos)/index.tsx" 'theme\.primary' "POS dashboard uses the configured dealership theme"
+Assert-Contains "src/app/(pos)/_layout.tsx" 'theme\.navigation' "POS navigation uses the configured dealership theme"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (59 source contracts)."
+Write-Output "Dealership platform validation passed (67 source contracts)."

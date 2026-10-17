@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
-  useColorScheme,
   useWindowDimensions,
   Modal,
   Alert,
@@ -23,6 +22,7 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 const PIN_LENGTH = 6;
 const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
@@ -52,7 +52,8 @@ export default function SignInScreen() {
   const brandLogo = business.businessLogoUri
     ? { uri: business.businessLogoUri }
     : require("../../../assets/nct-seafoods-logo.png");
-  const dark = useColorScheme() === "dark";
+  const theme = usePosTheme();
+  const dark = theme.dark;
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const isTablet = Math.min(winW, winH) >= 600;
@@ -62,13 +63,13 @@ export default function SignInScreen() {
     Math.min(isLandscape ? 240 : 200, Math.min(winW, winH) * (isLandscape ? 0.3 : 0.34))
   );
 
-  const screenBackground = dark ? "#0f1b33" : "#f4f6f8";
-  const primaryTextColor = dark ? "#ffffff" : "#17386b";
-  const bodyTextColor = dark ? "#ffffff" : "#17202b";
-  const secondaryTextColor = dark ? "#d7e0ec" : "#667085";
-  const keyBackground = dark ? "rgba(255,255,255,0.10)" : "#ffffff";
-  const keyBorder = dark ? "rgba(255,255,255,0.20)" : "#d7dee8";
-  const placeholderColor = dark ? "rgba(255,255,255,0.55)" : "#98a2b3";
+  const screenBackground = theme.background;
+  const primaryTextColor = theme.primary;
+  const bodyTextColor = theme.text;
+  const secondaryTextColor = theme.muted;
+  const keyBackground = theme.surface;
+  const keyBorder = theme.border;
+  const placeholderColor = theme.muted;
 
   // responsive keypad sizing — recomputes on rotate/resize
   const GAP = isLandscape ? 8 : isTablet ? 14 : 12;
@@ -253,7 +254,7 @@ export default function SignInScreen() {
       style={[
         styles.userSelector,
         {
-          backgroundColor: dark ? "rgba(255,255,255,0.035)" : "rgba(23,56,107,0.025)",
+          backgroundColor: theme.surfaceAlt,
           borderColor: keyBorder,
         },
       ]}
@@ -303,7 +304,7 @@ export default function SignInScreen() {
           isLandscape && styles.unregisteredContainerLandscape,
           { backgroundColor: keyBackground, borderColor: keyBorder },
         ]}>
-          <View style={[styles.unregisteredIconWrap, { backgroundColor: dark ? "#17243a" : "#f0f4ff", borderColor: keyBorder }]}>
+          <View style={[styles.unregisteredIconWrap, { backgroundColor: theme.surfaceAlt, borderColor: keyBorder }]}>
             <Ionicons name="phone-portrait-outline" size={48} color={primaryTextColor} />
             <View style={styles.unregDisconnectBadge}>
               <Ionicons name="close" size={12} color="#ffffff" />
@@ -314,12 +315,12 @@ export default function SignInScreen() {
             This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
           <TouchableOpacity
-            style={[styles.registerButton, { backgroundColor: dark ? "#17386b" : "#ffffff", borderColor: primaryTextColor }]}
+            style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
             onPress={() => router.push("/(auth)/register")}
             activeOpacity={0.85}
           >
-            <Ionicons name="qr-code" size={16} color={dark ? "#ffffff" : "#17386b"} style={{ marginRight: 8 }} />
-            <Text style={[styles.registerButtonText, { color: dark ? "#ffffff" : "#17386b" }]}>Register Device</Text>
+            <Ionicons name="qr-code" size={16} color={theme.onPrimary} style={{ marginRight: 8 }} />
+            <Text style={[styles.registerButtonText, { color: theme.onPrimary }]}>Register Device</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -528,7 +529,7 @@ export default function SignInScreen() {
 
       <Modal visible={showUserPicker} transparent animationType="fade" onRequestClose={() => setShowUserPicker(false)}>
         <TouchableOpacity style={styles.userPickerOverlay} activeOpacity={1} onPress={() => setShowUserPicker(false)}>
-          <View style={[styles.userPickerCard, { backgroundColor: dark ? "#141c2b" : "#ffffff", borderColor: keyBorder }]}>
+          <View style={[styles.userPickerCard, { backgroundColor: theme.surface, borderColor: keyBorder }]}>
             <Text style={[styles.userPickerTitle, { color: bodyTextColor }]}>Select a user</Text>
             <ScrollView style={styles.userPickerList} bounces={false}>
               {loginUsers.map((user) => (

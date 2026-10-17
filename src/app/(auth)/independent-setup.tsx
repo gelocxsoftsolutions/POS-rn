@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,28 +10,28 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { IndependentOnboardingService } from "@/lib/business/independent-onboarding.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type SetupStep = "loading" | "authorize" | "business" | "terminal" | "owner" | "receipt" | "review";
 
 export default function IndependentSetup() {
   const router = useRouter();
-  const dark = useColorScheme() === "dark";
-  const colors = useMemo(() => ({
-    bg: dark ? "#07111f" : "#f8fbff",
-    card: dark ? "#111c2e" : "#ffffff",
-    input: dark ? "#0c1627" : "#f8fbff",
-    text: dark ? "#f8fafc" : "#172033",
-    muted: dark ? "#a8b4c5" : "#667085",
-    border: dark ? "#2b3a50" : "#d9e2ec",
-    accent: dark ? "#8abaff" : "#17386b",
-  }), [dark]);
+  const theme = usePosTheme();
+  const colors = {
+    bg: theme.background,
+    card: theme.surface,
+    input: theme.surfaceAlt,
+    text: theme.text,
+    muted: theme.muted,
+    border: theme.border,
+    accent: theme.primary,
+  };
   const [step, setStep] = useState<SetupStep>("loading");
   const [authorizedSessionId, setAuthorizedSessionId] = useState<string | null>(null);
   const [adminUsername, setAdminUsername] = useState("");

@@ -4,7 +4,34 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColorScheme } from "react-native";
 
 type NavigationMode = "sidebar" | "bottom" | "auto";
-type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark" | "system";
+export type ThemePaletteMode = "light" | "dark";
+export interface PosThemeColors {
+  background: string;
+  surface: string;
+  surfaceAlt: string;
+  primary: string;
+  onPrimary: string;
+  accent: string;
+  text: string;
+  muted: string;
+  border: string;
+  navigation: string;
+  navigationText: string;
+}
+
+export const DEFAULT_POS_THEMES: Record<ThemePaletteMode, PosThemeColors> = {
+  light: {
+    background: "#f4f6f8", surface: "#ffffff", surfaceAlt: "#edf2f7",
+    primary: "#17386b", onPrimary: "#ffffff", accent: "#2563eb", text: "#172033",
+    muted: "#667085", border: "#dfe5ec", navigation: "#0f1b33", navigationText: "#ffffff",
+  },
+  dark: {
+    background: "#0b0f16", surface: "#141922", surfaceAlt: "#1b2432",
+    primary: "#60a5fa", onPrimary: "#07111f", accent: "#3b82f6", text: "#f4f7fb",
+    muted: "#93a0b2", border: "#293241", navigation: "#0f172a", navigationText: "#f8fafc",
+  },
+};
 export type SalesHandedness = "right" | "left";
 export type FeedbackSound = "checkout" | "transferReceived" | "omsConnected" | "omsConnectionFailed";
 export type PaginatedScreen = "sales" | "receipts" | "products" | "stock" | "transfers";
@@ -26,6 +53,7 @@ const DEFAULT_PAGE_SIZES: Record<PaginatedScreen, number> = {
 
 interface UiState {
   themeMode: ThemeMode;
+  themePalettes: Record<ThemePaletteMode, PosThemeColors>;
   navigationMode: NavigationMode;
   salesHandedness: SalesHandedness;
   uiScale: number;
@@ -34,6 +62,8 @@ interface UiState {
   soundVolumes: Record<FeedbackSound, number>;
   pageSizes: Record<PaginatedScreen, number>;
   setThemeMode: (mode: ThemeMode) => void;
+  setThemeColor: (mode: ThemePaletteMode, key: keyof PosThemeColors, color: string) => void;
+  resetThemePalette: (mode: ThemePaletteMode) => void;
   setNavigationMode: (mode: NavigationMode) => void;
   setSalesHandedness: (mode: SalesHandedness) => void;
   setUiScale: (scale: number) => void;
@@ -49,6 +79,7 @@ export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
       themeMode: "system",
+      themePalettes: DEFAULT_POS_THEMES,
       navigationMode: "auto",
       salesHandedness: "right",
       uiScale: 1,
@@ -58,6 +89,15 @@ export const useUiStore = create<UiState>()(
       pageSizes: DEFAULT_PAGE_SIZES,
       hydrated: false,
       setThemeMode: (themeMode) => set({ themeMode }),
+      setThemeColor: (mode, key, color) => set((state) => ({
+        themePalettes: {
+          ...state.themePalettes,
+          [mode]: { ...(state.themePalettes?.[mode] ?? DEFAULT_POS_THEMES[mode]), [key]: color },
+        },
+      })),
+      resetThemePalette: (mode) => set((state) => ({
+        themePalettes: { ...state.themePalettes, [mode]: { ...DEFAULT_POS_THEMES[mode] } },
+      })),
       setNavigationMode: (navigationMode) => set({ navigationMode }),
       setSalesHandedness: (salesHandedness) => set({ salesHandedness }),
       setUiScale: (uiScale) => set({ uiScale: Math.min(1.5, Math.max(0.5, uiScale)) }),
@@ -82,6 +122,7 @@ export const useUiStore = create<UiState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         themeMode: state.themeMode,
+        themePalettes: state.themePalettes,
         navigationMode: state.navigationMode,
         salesHandedness: state.salesHandedness,
         uiScale: state.uiScale,
@@ -101,4 +142,11 @@ export function useIsDarkTheme(): boolean {
   const themeMode = useUiStore((state) => state.themeMode);
   const systemTheme = useColorScheme();
   return themeMode === "dark" || (themeMode === "system" && systemTheme === "dark");
+}
+
+export function usePosTheme(): PosThemeColors & { dark: boolean } {
+  const dark = useIsDarkTheme();
+  const palettes = useUiStore((state) => state.themePalettes);
+  const mode: ThemePaletteMode = dark ? "dark" : "light";
+  return { ...DEFAULT_POS_THEMES[mode], ...(palettes?.[mode] ?? {}), dark };
 }

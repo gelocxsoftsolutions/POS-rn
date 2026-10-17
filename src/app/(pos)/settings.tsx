@@ -23,7 +23,8 @@ import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
+import { ThemeColorEditor } from "@/components/ui/theme-color-editor";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
@@ -201,6 +202,7 @@ export default function SettingsScreen() {
     setFeedbackSoundVolume,
   } = useUiStore();
   const dark = useIsDarkTheme();
+  const posTheme = usePosTheme();
   const autoLockMinutes = useAccessSettingsStore((state) => state.autoLockMinutes);
   const setAutoLockMinutes = useAccessSettingsStore((state) => state.setAutoLockMinutes);
   const maxPinAttempts = useAccessSettingsStore((state) => state.maxPinAttempts);
@@ -810,32 +812,32 @@ export default function SettingsScreen() {
   };
 
   // Dark-aware helpers
-  const cardBg = dark ? "#141922" : "#ffffff";
-  const cardBorder = dark ? "#28303d" : "#dde3ea";
-  const sectionTitleColor = dark ? "#e2e8f0" : "#1a202c";
-  const sectionDescColor = dark ? "#94a3b8" : "#6b7b8d";
-  const fieldLabelColor = dark ? "#94a3b8" : "#6b7b8d";
-  const fieldValueColor = dark ? "#e2e8f0" : "#1a202c";
-  const borderColor = dark ? "#1e293b" : "#f0f4ff";
-  const inputBg = dark ? "#1e293b" : "#f7f9fc";
-  const inputBorder = dark ? "#334155" : "#e2e8f0";
-  const inputColor = dark ? "#e2e8f0" : "#1a202c";
-  const pickerBg = dark ? "#1e293b" : "#f7f9fc";
-  const pickerBorder = dark ? "#334155" : "#e2e8f0";
-  const pickerTextColor = dark ? "#e2e8f0" : "#1a202c";
+  const cardBg = posTheme.surface;
+  const cardBorder = posTheme.border;
+  const sectionTitleColor = posTheme.text;
+  const sectionDescColor = posTheme.muted;
+  const fieldLabelColor = posTheme.muted;
+  const fieldValueColor = posTheme.text;
+  const borderColor = posTheme.border;
+  const inputBg = posTheme.surfaceAlt;
+  const inputBorder = posTheme.border;
+  const inputColor = posTheme.text;
+  const pickerBg = posTheme.surfaceAlt;
+  const pickerBorder = posTheme.border;
+  const pickerTextColor = posTheme.text;
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-        <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+      <View style={[styles.loadingContainer, { backgroundColor: posTheme.background }]}>
+        <ActivityIndicator size="large" color={posTheme.accent} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Settings</Text>
-      <Text style={[styles.screenSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Store, appearance, connections, and device preferences</Text>
+    <ScrollView style={[styles.container, { backgroundColor: posTheme.background }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.screenTitle, { color: posTheme.text }]}>Settings</Text>
+      <Text style={[styles.screenSubtitle, { color: posTheme.muted }]}>Store, appearance, connections, and device preferences</Text>
       <View style={[styles.settingsSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}>
         <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
         <TextInput
@@ -1507,9 +1509,9 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Theme Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("theme appearance light dark auto system") && styles.hidden]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("theme appearance light dark auto system color palette primary accent background navigation") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Theme</Text>
-        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select your preferred appearance.</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose an appearance and customize the colors shared by login, registration, navigation, and the main POS.</Text>
 
         <View style={styles.themeGrid}>
           <TouchableOpacity
@@ -1517,16 +1519,17 @@ export default function SettingsScreen() {
               styles.themeCard,
               { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
               themeMode === "light" && styles.themeCardActive,
+              themeMode === "light" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("light")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "light" && styles.themeIconWrapActive]}>
-              <Ionicons name="sunny-outline" size={22} color={themeMode === "light" ? "#fff" : "#f59e0b"} />
+            <View style={[styles.themeIconWrap, themeMode === "light" && styles.themeIconWrapActive, themeMode === "light" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="sunny-outline" size={22} color={themeMode === "light" ? posTheme.onPrimary : "#f59e0b"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "light" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "light" ? posTheme.onPrimary : posTheme.text }, themeMode === "light" && styles.themeLabelActive]}>
               Light
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "light" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "light" ? posTheme.onPrimary : posTheme.muted }, themeMode === "light" && styles.themeDescActive]}>
               Bright mode for daytime
             </Text>
           </TouchableOpacity>
@@ -1536,16 +1539,17 @@ export default function SettingsScreen() {
               styles.themeCard,
               { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
               themeMode === "dark" && styles.themeCardActive,
+              themeMode === "dark" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("dark")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "dark" && styles.themeIconWrapActive]}>
-              <Ionicons name="moon-outline" size={22} color={themeMode === "dark" ? "#fff" : "#6366f1"} />
+            <View style={[styles.themeIconWrap, themeMode === "dark" && styles.themeIconWrapActive, themeMode === "dark" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="moon-outline" size={22} color={themeMode === "dark" ? posTheme.onPrimary : "#6366f1"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "dark" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "dark" ? posTheme.onPrimary : posTheme.text }, themeMode === "dark" && styles.themeLabelActive]}>
               Dark
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "dark" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "dark" ? posTheme.onPrimary : posTheme.muted }, themeMode === "dark" && styles.themeDescActive]}>
               Low-light friendly
             </Text>
           </TouchableOpacity>
@@ -1555,20 +1559,22 @@ export default function SettingsScreen() {
               styles.themeCard,
               { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
               themeMode === "system" && styles.themeCardActive,
+              themeMode === "system" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("system")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "system" && styles.themeIconWrapActive]}>
-              <Ionicons name="contrast-outline" size={22} color={themeMode === "system" ? "#fff" : "#0ea5e9"} />
+            <View style={[styles.themeIconWrap, themeMode === "system" && styles.themeIconWrapActive, themeMode === "system" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="contrast-outline" size={22} color={themeMode === "system" ? posTheme.onPrimary : "#0ea5e9"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "system" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "system" ? posTheme.onPrimary : posTheme.text }, themeMode === "system" && styles.themeLabelActive]}>
               Auto
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "system" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "system" ? posTheme.onPrimary : posTheme.muted }, themeMode === "system" && styles.themeDescActive]}>
               Follow system appearance
             </Text>
           </TouchableOpacity>
         </View>
+        <ThemeColorEditor />
       </Card>
 
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("sounds audio volume mute notifications feedback") && styles.hidden]}>

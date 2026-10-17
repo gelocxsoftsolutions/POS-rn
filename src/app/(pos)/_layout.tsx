@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -268,6 +268,7 @@ function POSHeader({
   onAccountPress: () => void;
   onLogoutPress: () => void;
 }) {
+  const theme = usePosTheme();
   const business = useBusinessConfigStore((state) => state.configuration);
   const capabilities = capabilitiesFor(business.operatingMode);
   const brandLogo = business.businessLogoUri
@@ -367,6 +368,7 @@ function POSHeader({
         style={[
           styles.header,
           dark ? styles.headerDark : styles.headerLight,
+          { backgroundColor: theme.navigation, borderBottomColor: theme.border },
         ]}
       >
         <View style={styles.headerLeft}>
@@ -383,7 +385,7 @@ function POSHeader({
               <Ionicons
                 name={sidebarOpen ? "close" : "menu"}
                 size={22}
-                color={dark ? "#e2e8f0" : "#17386b"}
+                color={theme.navigationText}
               />
             </TouchableOpacity>
           )}
@@ -406,6 +408,7 @@ function POSHeader({
             style={[
               styles.headerTitle,
               dark ? styles.headerTitleDark : styles.headerTitleLight,
+              { color: theme.navigationText },
             ]}
             numberOfLines={1}
           >
@@ -450,7 +453,7 @@ function POSHeader({
               <Ionicons
                 name="ellipsis-vertical"
                 size={20}
-                color={dark ? "#e2e8f0" : "#17386b"}
+                color={theme.navigationText}
               />
             </TouchableOpacity>
           </View>
@@ -483,6 +486,7 @@ function POSHeader({
           style={[
             styles.overflowMenu,
             dark ? styles.overflowMenuDark : styles.overflowMenuLight,
+            { backgroundColor: theme.surface, borderColor: theme.border },
           ]}
         >
           <View style={styles.overflowStatusRow}>
@@ -553,27 +557,29 @@ function BottomNavigation({
   onNavigate: (href: string) => void;
   dark: boolean;
 }) {
+  const theme = usePosTheme();
   return (
-    <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight]}>
+    <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight, { backgroundColor: theme.navigation, borderTopColor: theme.border }]}>
       {visibleNavItems.map((item) => {
         const active = isNavItemActive(pathname, item.href);
         return (
           <TouchableOpacity
             key={item.name}
-            style={[styles.bottomNavItem, active && (dark ? styles.bottomNavItemActiveDark : styles.bottomNavItemActiveLight)]}
+            style={[styles.bottomNavItem, active && (dark ? styles.bottomNavItemActiveDark : styles.bottomNavItemActiveLight), active && { backgroundColor: theme.surfaceAlt }]}
             onPress={() => onNavigate(item.href)}
             activeOpacity={0.7}
           >
             <Ionicons
               name={active ? item.activeIcon : item.icon}
               size={20}
-              color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#ffffff"}
+              color={active ? theme.accent : theme.navigationText}
             />
             <Text
               style={[
                 styles.bottomNavLabel,
                 dark ? styles.bottomNavLabelDark : styles.bottomNavLabelLight,
                 active && (dark ? styles.bottomNavLabelActiveDark : styles.bottomNavLabelActiveLight),
+                { color: active ? theme.accent : theme.navigationText },
               ]}
             >
               {item.label}
@@ -639,7 +645,8 @@ export default function POSLayout() {
     setSidebarOpen(false);
   };
 
-  const dark = useIsDarkTheme();
+  const theme = usePosTheme();
+  const dark = theme.dark;
   const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
 
   const handleLogout = async () => {
@@ -864,7 +871,7 @@ export default function POSLayout() {
   // Loading state
   if (!authHydrated || !uiHydrated || !cashierHydrated || !deviceHydrated) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
         <POSHeader
           transferCount={0}
           transfers={[]}
@@ -877,7 +884,7 @@ export default function POSLayout() {
           onLogoutPress={() => {}}
         />
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#17386b" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       </View>
     );
@@ -885,7 +892,7 @@ export default function POSLayout() {
 
   return (
     <View
-      style={[styles.viewport, dark ? styles.bgDark : styles.bgLight]}
+      style={[styles.viewport, dark ? styles.bgDark : styles.bgLight, { backgroundColor: theme.background }]}
       onTouchStart={() => {
         if (lockCountdown === null) resetIdleTimer();
       }}
@@ -898,6 +905,7 @@ export default function POSLayout() {
         style={[
           styles.container,
           dark ? styles.bgDark : styles.bgLight,
+          { backgroundColor: theme.background },
           viewportSize.width > 0 && viewportSize.height > 0 ? {
             flex: 0,
             width: viewportSize.width / uiScale,
@@ -940,6 +948,7 @@ export default function POSLayout() {
               style={[
                 styles.sidebar,
                 dark ? styles.sidebarDark : styles.sidebarLight,
+                { backgroundColor: theme.navigation, borderRightColor: theme.border },
                 {
                   transform: [{
                     translateX: sidebarAnim.interpolate({
@@ -968,13 +977,14 @@ export default function POSLayout() {
                       <Ionicons
                         name={active ? item.activeIcon : item.icon}
                         size={20}
-                        color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#8e99a4"}
+                        color={active ? theme.accent : theme.navigationText}
                       />
                       <Text
                         style={[
                           styles.sidebarNavLabel,
                           dark ? styles.sidebarNavLabelDark : styles.sidebarNavLabelLight,
                           active && (dark ? styles.sidebarNavLabelActiveDark : styles.sidebarNavLabelActiveLight),
+                          { color: active ? theme.accent : theme.navigationText },
                         ]}
                       >
                         {item.label}
@@ -991,7 +1001,7 @@ export default function POSLayout() {
                 })}
               </View>
 
-              <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight]}>
+              <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight, { borderTopColor: theme.border }]}>
                 <TouchableOpacity style={styles.sidebarLogoutBtn} onPress={handleLogout} activeOpacity={0.75}>
                   <Ionicons name="log-out-outline" size={19} color="#dc3545" />
                   <Text style={styles.sidebarLogoutText}>Log out</Text>
