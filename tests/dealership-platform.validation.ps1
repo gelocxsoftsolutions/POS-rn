@@ -72,6 +72,9 @@ Assert-Contains "src/app/(pos)/products.tsx" 'VariationStockModal' "stock and lo
 Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'Expired / damaged / loss' "per-variation loss workflow"
 Assert-Contains "src/components/ui/media-capture-modal.tsx" 'recordAsync' "video proof capture"
 Assert-Contains "src/components/ui/media-capture-modal.tsx" 'launchImageLibraryAsync' "proof photo and video upload"
+Assert-NotContains "src/components/ui/media-capture-modal.tsx" 'MediaTypeOptions' "proof upload uses the current Expo media-type API"
+Assert-NotContains "src/app/(pos)/independent-catalog.tsx" 'MediaTypeOptions' "product upload uses the current Expo media-type API"
+Assert-NotContains "src/app/(auth)/register.tsx" 'MediaTypeOptions' "registration upload uses the current Expo media-type API"
 Assert-Contains "src/components/ui/media-capture-modal.tsx" 'StatusBar barStyle="light-content" backgroundColor="#0f172a"' "capture header extends through the Android status bar"
 Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'Recorded snapshots' "audit detail modal exposes complete before and after data"
 Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'ProductAuditDetailModal' "edit-product action history opens detailed audit records"
@@ -84,4 +87,4 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (56 source contracts)."
+Write-Output "Dealership platform validation passed (59 source contracts)."

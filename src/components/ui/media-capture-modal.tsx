@@ -78,7 +78,7 @@ export function MediaCaptureModal({
     setBusy(true);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: allowVideo ? ImagePicker.MediaTypeOptions.All : ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: allowVideo ? ["images", "videos"] : ["images"],
         quality: 0.8,
         base64: true,
       });

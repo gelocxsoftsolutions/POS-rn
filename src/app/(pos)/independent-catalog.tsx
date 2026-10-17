@@ -62,7 +62,7 @@ export default function IndependentCatalogScreen() {
 
   const pickProductPhoto = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7, base64: true });
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7, base64: true });
       if (result.canceled) return;
       const uri = dataUri(result.assets[0]);
       if (!uri) throw new Error("The selected image could not be read.");
