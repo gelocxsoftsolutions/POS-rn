@@ -491,7 +491,7 @@ function POSHeader({
         >
           <View style={styles.overflowStatusRow}>
             <View style={[styles.overflowStatusDot, { backgroundColor: syncColor }]} />
-            <Text style={[styles.overflowStatusText, dark && { color: "#e2e8f0" }]}>
+            <Text style={[styles.overflowStatusText, { color: theme.text }]}>
               {syncLabel}
             </Text>
             {pendingCount > 0 && (
@@ -506,29 +506,29 @@ function POSHeader({
             disabled={syncingNow || isSyncing}
             activeOpacity={0.7}
           >
-            <Ionicons name="sync-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
-            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>
+            <Ionicons name="sync-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>
               {syncingNow || isSyncing ? "Syncing..." : "Sync now"}
             </Text>
-            {(syncingNow || isSyncing) && <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />}
+            {(syncingNow || isSyncing) && <ActivityIndicator size="small" color={theme.accent} />}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.overflowItem}
             onPress={handleOverflowAccount}
             activeOpacity={0.7}
           >
-            <Ionicons name="person-circle-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
-            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>My account</Text>
-            <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+            <Ionicons name="person-circle-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>My account</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.muted} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.overflowItem}
             onPress={handleOverflowSettings}
             activeOpacity={0.7}
           >
-            <Ionicons name="settings-outline" size={18} color={dark ? "#93c5fd" : "#17386b"} />
-            <Text style={[styles.overflowItemLabel, dark && { color: "#e2e8f0" }]}>Settings</Text>
-            <Ionicons name="chevron-forward" size={16} color={dark ? "#64748b" : "#94a3b8"} />
+            <Ionicons name="settings-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>Settings</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.muted} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.overflowItem, styles.overflowItemLast]}

@@ -113,10 +113,16 @@ Assert-Contains "src/app/(pos)/products.tsx" 'usePosTheme' "product and detail c
 Assert-Contains "src/app/(pos)/reports.tsx" 'usePosTheme' "report controls consume the active semantic palette"
 Assert-Contains "src/app/(pos)/customers.tsx" 'usePosTheme' "customer controls consume the active semantic palette"
 Assert-Contains "src/components/ui/usb-barcode-scanner-input.tsx" 'usePosTheme' "shared scanner state follows the active semantic palette"
+Assert-Contains "src/components/layout/session-indicator.tsx" 'usePosTheme' "header session identity follows the active semantic palette"
+Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'backgroundColor: theme\.primary' "catalog editor actions follow the active semantic palette"
+Assert-Contains "src/app/(pos)/products.tsx" 'borderBottomColor: theme\.border' "product detail dividers follow the active semantic palette"
+Assert-Contains "src/app/(pos)/receipts.tsx" 'color: theme\.primary' "receipt totals follow the active semantic palette"
+Assert-Contains "src/app/(pos)/settings.tsx" 'bg: posTheme\.surfaceAlt' "unknown audit event badges follow the active semantic palette"
+Assert-Contains "src/app/(pos)/settings.tsx" 'backgroundColor: posTheme\.surfaceAlt' "settings status and empty states follow the active semantic palette"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (92 source contracts)."
+Write-Output "Dealership platform validation passed (98 source contracts)."

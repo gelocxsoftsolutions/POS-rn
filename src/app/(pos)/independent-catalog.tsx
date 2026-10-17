@@ -6,7 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { IndependentCatalogService, type ProductActionHistoryRow } from "@/lib/business/independent-catalog.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { MediaCaptureModal, type CapturedMedia } from "@/components/ui/media-capture-modal";
 import { ProductAuditDetailModal } from "@/components/ui/product-audit-detail-modal";
@@ -22,6 +22,7 @@ export default function IndependentCatalogScreen() {
   const { edit } = useLocalSearchParams<{ edit?: string }>();
   const { width } = useWindowDimensions();
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const mode = useBusinessConfigStore((s) => s.configuration.operatingMode);
   const session = useCashierStore((s) => s.session);
   const isSystemSuperAdmin = session?.cashierId === SUPER_ADMIN_ID;
@@ -55,10 +56,9 @@ export default function IndependentCatalogScreen() {
   }, [editingId]);
 
   const palette = useMemo(() => ({
-    bg: dark ? "#0b0f16" : "#f4f6f8", surface: dark ? "#141922" : "#ffffff",
-    input: dark ? "#0f141d" : "#f8fafc", border: dark ? "#334155" : "#dbe3ec",
-    text: dark ? "#f8fafc" : "#172033", muted: dark ? "#94a3b8" : "#64748b",
-  }), [dark]);
+    bg: theme.background, surface: theme.surface, input: theme.surfaceAlt,
+    border: theme.border, text: theme.text, muted: theme.muted,
+  }), [theme.background, theme.surface, theme.surfaceAlt, theme.border, theme.text, theme.muted]);
 
   const pickProductPhoto = async () => {
     try {
@@ -132,7 +132,7 @@ export default function IndependentCatalogScreen() {
   };
 
   const inputStyle = [styles.input, { color: palette.text, borderColor: palette.border, backgroundColor: palette.input }];
-  if (loadingEdit) return <View style={[styles.loading, { backgroundColor: palette.bg }]}><ActivityIndicator size="large" color="#17386b" /></View>;
+  if (loadingEdit) return <View style={[styles.loading, { backgroundColor: palette.bg }]}><ActivityIndicator size="large" color={theme.accent} /></View>;
   return <ScrollView style={[styles.screen, { backgroundColor: palette.bg }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
     <View style={styles.header}><TouchableOpacity style={[styles.back, { borderColor: palette.border, backgroundColor: palette.surface }]} onPress={() => router.back()}><Ionicons name="arrow-back" size={20} color={palette.text} /></TouchableOpacity><View style={{ flex: 1 }}><Text style={[styles.title, { color: palette.text }]}>{editingId ? "Edit Product" : "Add Product to Inventory"}</Text><Text style={[styles.subtitle, { color: palette.muted }]}>{editingId ? "Reuse the product form while preserving barcode identity and history" : "Create an offline product with one or more variations"}</Text></View></View>
 
@@ -144,19 +144,19 @@ export default function IndependentCatalogScreen() {
       <View style={styles.settingsColumn}>
         <Text style={[styles.section, { color: palette.text }]}>Product settings</Text>
         <Text style={[styles.label, { color: palette.text }]}>Product name</Text><TextInput style={inputStyle} placeholder="Product name" placeholderTextColor={palette.muted} value={productName} onChangeText={setProductName} />
-        <View style={styles.sectionHeader}><Text style={[styles.section, { color: palette.text, marginBottom: 0 }]}>Variations</Text><TouchableOpacity onPress={addVariation} style={styles.addSmall}><Ionicons name="add" size={17} color="#fff" /><Text style={styles.white}>Add variation</Text></TouchableOpacity></View>
+        <View style={styles.sectionHeader}><Text style={[styles.section, { color: palette.text, marginBottom: 0 }]}>Variations</Text><TouchableOpacity onPress={addVariation} style={[styles.addSmall, { backgroundColor: theme.primary }]}><Ionicons name="add" size={17} color={theme.onPrimary} /><Text style={[styles.white, { color: theme.onPrimary }]}>Add variation</Text></TouchableOpacity></View>
         {variations.map((row, index) => <View key={row.key} style={[styles.variation, { backgroundColor: palette.input, borderColor: palette.border }]}>
           <View style={styles.variationTitle}><Text style={[styles.label, { color: palette.text, marginBottom: 0 }]}>Variation {index + 1}</Text><TouchableOpacity onPress={() => removeVariation(row.key)}><Ionicons name="trash-outline" size={19} color="#dc2626" /></TouchableOpacity></View>
           <TextInput style={inputStyle} placeholder="Variation name" placeholderTextColor={palette.muted} value={row.name} onChangeText={(value) => updateVariation(row.key, "name", value)} />
           <View style={styles.row}><TextInput style={[inputStyle, styles.flex]} placeholder="Price" keyboardType="decimal-pad" placeholderTextColor={palette.muted} value={row.price} onChangeText={(value) => updateVariation(row.key, "price", value)} />{row.id ? <View style={[styles.stockReadOnly, { borderColor: palette.border }]}><Text style={{ color: palette.muted, fontSize: 11 }}>Current stock</Text><Text style={{ color: palette.text, fontWeight: "800" }}>{row.currentStock ?? 0}</Text></View> : <TextInput style={[inputStyle, styles.flex]} placeholder="Stock (optional)" keyboardType="decimal-pad" placeholderTextColor={palette.muted} value={row.stock} onChangeText={(value) => updateVariation(row.key, "stock", value)} />}</View>
         </View>)}
-        {editingId ? <View style={[styles.evidenceBox, { borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Required change evidence</Text><TextInput style={[inputStyle, styles.notes]} placeholder="Reason for editing or archiving" placeholderTextColor={palette.muted} value={editReason} onChangeText={setEditReason} multiline /><TouchableOpacity style={[styles.secondary, { borderColor: palette.border }]} onPress={() => setCaptureTarget("edit")}><Ionicons name="camera" size={17} color={palette.text} /><Text style={{ color: palette.text }}>{editProof ? "Retake proof" : "Take photo or video proof"}</Text></TouchableOpacity>{editProof ? editProof.startsWith("data:video/") ? <View style={[styles.videoProof, { borderColor: palette.border }]}><Ionicons name="videocam" size={24} color="#2563eb" /><Text style={{ color: palette.text }}>Video proof attached</Text></View> : <Image source={{ uri: editProof }} style={styles.proofPreview} /> : null}</View> : null}
-        <TouchableOpacity style={styles.primary} disabled={saving} onPress={() => void saveProduct()}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.white}>{editingId ? "Save Changes" : "Add product and variations"}</Text>}</TouchableOpacity>
+        {editingId ? <View style={[styles.evidenceBox, { borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Required change evidence</Text><TextInput style={[inputStyle, styles.notes]} placeholder="Reason for editing or archiving" placeholderTextColor={palette.muted} value={editReason} onChangeText={setEditReason} multiline /><TouchableOpacity style={[styles.secondary, { borderColor: palette.border }]} onPress={() => setCaptureTarget("edit")}><Ionicons name="camera" size={17} color={palette.text} /><Text style={{ color: palette.text }}>{editProof ? "Retake proof" : "Take photo or video proof"}</Text></TouchableOpacity>{editProof ? editProof.startsWith("data:video/") ? <View style={[styles.videoProof, { borderColor: palette.border, backgroundColor: theme.surfaceAlt }]}><Ionicons name="videocam" size={24} color={theme.accent} /><Text style={{ color: palette.text }}>Video proof attached</Text></View> : <Image source={{ uri: editProof }} style={styles.proofPreview} /> : null}</View> : null}
+        <TouchableOpacity style={[styles.primary, { backgroundColor: theme.primary }]} disabled={saving} onPress={() => void saveProduct()}>{saving ? <ActivityIndicator color={theme.onPrimary} /> : <Text style={[styles.white, { color: theme.onPrimary }]}>{editingId ? "Save Changes" : "Add product and variations"}</Text>}</TouchableOpacity>
         {editingId ? <View style={styles.dangerRow}><TouchableOpacity style={[styles.archive, { borderColor: "#d97706" }]} onPress={archive}><Text style={{ color: "#d97706", fontWeight: "800" }}>Archive product</Text></TouchableOpacity>{isSystemSuperAdmin ? <View style={styles.deleteArea}><TextInput style={[inputStyle, { marginBottom: 5 }]} placeholder={`Type DELETE ${productName}`} placeholderTextColor={palette.muted} value={deleteConfirmation} onChangeText={setDeleteConfirmation} /><TouchableOpacity style={styles.delete} onPress={permanentlyDelete}><Ionicons name="trash" size={17} color="#fff" /><Text style={styles.white}>Delete permanently</Text></TouchableOpacity></View> : null}</View> : null}
       </View>
     </View>
 
-    {editingId && history.length > 0 ? <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Product action history</Text>{history.map((entry) => <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${entry.action.replace(/_/g, " ")} audit details`} onPress={() => setSelectedHistory(entry)} key={entry.id} style={[styles.historyRow, { borderBottomColor: palette.border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={[styles.historyProof, styles.historyVideo]}><Ionicons name="videocam" size={22} color="#2563eb" /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyProof} />}<View style={{ flex: 1 }}><Text style={{ color: palette.text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: palette.muted, marginTop: 2 }}>{entry.reason}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 4 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View>{entry.quantity != null ? <Text style={{ color: palette.text, fontWeight: "800" }}>−{entry.quantity}</Text> : null}<Ionicons name="chevron-forward" size={19} color={palette.muted} /></TouchableOpacity>)}</View> : null}
+    {editingId && history.length > 0 ? <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}><Text style={[styles.section, { color: palette.text }]}>Product action history</Text>{history.map((entry) => <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${entry.action.replace(/_/g, " ")} audit details`} onPress={() => setSelectedHistory(entry)} key={entry.id} style={[styles.historyRow, { borderBottomColor: palette.border }]}>{entry.proofImageDataUri.startsWith("data:video/") ? <View style={[styles.historyProof, styles.historyVideo, { backgroundColor: theme.surfaceAlt }]}><Ionicons name="videocam" size={22} color={theme.accent} /></View> : <Image source={{ uri: entry.proofImageDataUri }} style={styles.historyProof} />}<View style={{ flex: 1 }}><Text style={{ color: palette.text, fontWeight: "800" }}>{entry.action.replace(/_/g, " ")}{entry.reasonCategory ? ` · ${entry.reasonCategory.replace(/_/g, " ")}` : ""}</Text><Text style={{ color: palette.muted, marginTop: 2 }}>{entry.reason}</Text><Text style={{ color: palette.muted, fontSize: 11, marginTop: 4 }}>{entry.createdByName || "System"} · {new Date(entry.createdAt).toLocaleString()}</Text></View>{entry.quantity != null ? <Text style={{ color: palette.text, fontWeight: "800" }}>−{entry.quantity}</Text> : null}<Ionicons name="chevron-forward" size={19} color={palette.muted} /></TouchableOpacity>)}</View> : null}
     <MediaCaptureModal visible={captureTarget !== null} allowVideo={captureTarget === "edit"} title={captureTarget === "product" ? "Take product photo" : "Capture change proof"} onClose={() => setCaptureTarget(null)} onUse={handleCapturedMedia} />
     <ProductAuditDetailModal visible={selectedHistory !== null} entry={selectedHistory} dark={dark} onClose={() => setSelectedHistory(null)} />
   </ScrollView>;

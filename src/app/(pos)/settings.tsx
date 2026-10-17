@@ -1210,7 +1210,7 @@ export default function SettingsScreen() {
 
           <Text style={[styles.securityListTitle, { color: fieldValueColor }]}>Locked accounts</Text>
           {cashiers.filter((user) => Boolean(user.accountLocked)).length === 0 ? (
-            <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+            <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
               <Text style={[styles.emptyText, { color: sectionDescColor }]}>No accounts are locked.</Text>
             </View>
           ) : (
@@ -1298,13 +1298,13 @@ export default function SettingsScreen() {
         </ScrollView>
 
         {filteredAuditLogs.length === 0 ? (
-          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+          <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
             <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>No audit logs recorded yet.</Text>
           </View>
         ) : (
           <View style={styles.auditList}>
             {filteredAuditLogs.map((log) => {
-              const colors = EVENT_COLORS[log.eventType] ?? { bg: dark ? "#1e293b" : "#f3f4f6", text: dark ? "#94a3b8" : "#6b7280" };
+              const colors = EVENT_COLORS[log.eventType] ?? { bg: posTheme.surfaceAlt, text: posTheme.accent };
               return (
                 <View key={log.id} style={[styles.auditRow, { borderBottomColor: borderColor }]}>
                   <View style={[styles.eventBadge, { backgroundColor: colors.bg }]}>
@@ -1386,7 +1386,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <View style={[styles.statusBar, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+        <View style={[styles.statusBar, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
           <View
             style={[
               styles.statusDot,
@@ -1396,7 +1396,7 @@ export default function SettingsScreen() {
               liveStatus === "idle" && styles.statusIdle,
             ]}
           />
-          <Text style={[styles.statusText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
+          <Text style={[styles.statusText, { color: posTheme.muted }]}>
             {liveStatus === "connected" && "Connected to OMS"}
             {liveStatus === "connecting" && "Connecting to OMS..."}
             {liveStatus === "offline" && "Offline"}
@@ -1418,7 +1418,7 @@ export default function SettingsScreen() {
             <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Bluetooth Thermal Printer</Text>
             <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select a paired 58mm ESC/POS printer for receipts.</Text>
           </View>
-          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : (dark ? "#2a303a" : "#eef2f6") }]}>
+          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : posTheme.surfaceAlt, borderColor: connectedPrinterId ? "#22c55e" : posTheme.border }]}>
             <View style={[styles.printerStatusDot, { backgroundColor: connectedPrinterId ? "#22c55e" : "#94a3b8" }]} />
             <Text style={[styles.printerStatusText, { color: connectedPrinterId ? (dark ? "#86efac" : "#166534") : fieldLabelColor }]}>
               {connectedPrinterId ? "Connected" : "Not connected"}
@@ -1472,12 +1472,12 @@ export default function SettingsScreen() {
                     styles.printerDeviceRow,
                     { borderBottomColor: inputBorder },
                     index === pairedPrinters.length - 1 && styles.printerDeviceRowLast,
-                    selected && { backgroundColor: dark ? "#162845" : "#eef4ff" },
+                    selected && { backgroundColor: posTheme.surfaceAlt },
                   ]}
                   onPress={() => setSelectedPrinter(printer)}
                 >
-                  <View style={[styles.printerRadio, { borderColor: selected ? "#2563a6" : (dark ? "#64748b" : "#94a3b8") }]}>
-                    {selected && <View style={styles.printerRadioSelected} />}
+                  <View style={[styles.printerRadio, { borderColor: selected ? posTheme.accent : posTheme.muted }]}>
+                    {selected && <View style={[styles.printerRadioSelected, { backgroundColor: posTheme.accent }]} />}
                   </View>
                   <View style={styles.printerDeviceCopy}>
                     <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{printer.name}</Text>
@@ -1489,8 +1489,8 @@ export default function SettingsScreen() {
             })}
           </View>
         ) : (
-          <View style={[styles.printerEmpty, { backgroundColor: dark ? "#101722" : "#f8fafc", borderColor: inputBorder }]}>
-            <Ionicons name="bluetooth-outline" size={20} color={fieldLabelColor} />
+          <View style={[styles.printerEmpty, { backgroundColor: posTheme.surfaceAlt, borderColor: inputBorder }]}>
+            <Ionicons name="bluetooth-outline" size={20} color={posTheme.accent} />
             <Text style={[styles.printerEmptyText, { color: fieldLabelColor }]}>Pair the JK-5802H in Android settings, then refresh this list.</Text>
           </View>
         )}
@@ -1864,7 +1864,7 @@ export default function SettingsScreen() {
           activeOpacity={1}
           onPress={() => setShowCurrencyPicker(false)}
         >
-          <View style={[styles.modalContent, { backgroundColor: dark ? "#1e293b" : "#fff" }]}>
+          <View style={[styles.modalContent, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
             <Text style={[styles.modalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Select Currency</Text>
             {CURRENCY_OPTIONS.map((c) => (
               <TouchableOpacity

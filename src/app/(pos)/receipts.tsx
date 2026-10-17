@@ -370,7 +370,7 @@ export default function ReceiptsScreen() {
             ) : null}
           </View>
           <View style={styles.receiptRight}>
-            <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
+            <Text style={[styles.receiptTotal, { color: theme.primary }]}>₱{item.total.toFixed(2)}</Text>
             <Badge
               label={paymentMethodLabel(item.paymentMethod)}
               color={methodColor(item.paymentMethod)}
@@ -391,14 +391,14 @@ export default function ReceiptsScreen() {
             })()}
             {(item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
               <TouchableOpacity
-                style={styles.retryBtn}
+                style={[styles.retryBtn, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                 onPress={() => retrySale(item.id)}
                 disabled={retryingId === item.id}
               >
                 {retryingId === item.id ? (
                   <ActivityIndicator size="small" color={theme.accent} />
                 ) : (
-                  <Text style={styles.retryBtnText}>Retry</Text>
+                  <Text style={[styles.retryBtnText, { color: theme.accent }]}>Retry</Text>
                 )}
               </TouchableOpacity>
             )}
