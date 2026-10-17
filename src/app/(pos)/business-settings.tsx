@@ -7,13 +7,13 @@ import { BusinessConfigurationService } from "@/lib/business/configuration.servi
 import type { OperatingMode } from "@/lib/business/types";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
 export default function BusinessSettingsScreen() {
   const router = useRouter();
-  const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const session = useCashierStore((state) => state.session);
   const configuration = useBusinessConfigStore((state) => state.configuration);
   const [businessName, setBusinessName] = useState(configuration.businessName);
@@ -101,13 +101,13 @@ export default function BusinessSettingsScreen() {
     }
   };
 
-  const surface = dark ? "#141922" : "#ffffff";
-  const border = dark ? "#334155" : "#dbe3ec";
-  const text = dark ? "#f8fafc" : "#172033";
-  const muted = dark ? "#94a3b8" : "#64748b";
+  const surface = theme.surface;
+  const border = theme.border;
+  const text = theme.text;
+  const muted = theme.muted;
   const logo = businessLogoUri ? { uri: businessLogoUri } : require("../../../assets/nct-seafoods-logo.png");
 
-  return <ScrollView style={[styles.screen, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
+  return <ScrollView style={[styles.screen, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
     <View style={styles.header}>
       <TouchableOpacity style={[styles.back, { borderColor: border, backgroundColor: surface }]} onPress={() => router.back()}><Ionicons name="arrow-back" size={20} color={text} /></TouchableOpacity>
       <View><Text style={[styles.title, { color: text }]}>Business & Branding</Text><Text style={[styles.subtitle, { color: muted }]}>One offline configuration for every POS surface</Text></View>
@@ -129,20 +129,20 @@ export default function BusinessSettingsScreen() {
         ["Address", address, setAddress],
         ["Contact phone", supportPhone, setSupportPhone],
         ["Contact email", contactEmail, setContactEmail],
-      ].map(([label, value, setter]) => <View key={label as string} style={styles.field}><Text style={[styles.label, { color: text }]}>{label as string}</Text><TextInput value={value as string} onChangeText={setter as (value: string) => void} style={[styles.input, { color: text, borderColor: border, backgroundColor: dark ? "#0f141d" : "#f8fafc" }]} placeholderTextColor={muted} /></View>)}
+      ].map(([label, value, setter]) => <View key={label as string} style={styles.field}><Text style={[styles.label, { color: text }]}>{label as string}</Text><TextInput value={value as string} onChangeText={setter as (value: string) => void} style={[styles.input, { color: text, borderColor: border, backgroundColor: theme.surfaceAlt }]} placeholderTextColor={muted} /></View>)}
     </View>
     <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
       <Text style={[styles.sectionTitle, { color: text }]}>Operating mode</Text>
       <Text style={[styles.help, { color: muted }]}>Mode changes are audited and never delete products, stock, transfers, or transactions.</Text>
-      {(["NCT_DEPENDENT", "INDEPENDENT"] as OperatingMode[]).map((mode) => <TouchableOpacity key={mode} style={[styles.mode, { borderColor: mode === nextMode ? "#2563eb" : border }]} onPress={() => setNextMode(mode)}><Ionicons name={mode === nextMode ? "radio-button-on" : "radio-button-off"} size={20} color="#2563eb" /><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{mode === "INDEPENDENT" ? "Fully Independent POS" : "NCT OMS-Dependent POS"}</Text><Text style={[styles.help, { color: muted }]}>{mode === "INDEPENDENT" ? "Local catalog and stock; OMS transfers disabled; EOD and backups remain enabled." : "NCT catalog and QR transfers; checkout remains local-first."}</Text></View></TouchableOpacity>)}
+      {(["NCT_DEPENDENT", "INDEPENDENT"] as OperatingMode[]).map((mode) => <TouchableOpacity key={mode} style={[styles.mode, { borderColor: mode === nextMode ? theme.accent : border, backgroundColor: mode === nextMode ? theme.surfaceAlt : surface }]} onPress={() => setNextMode(mode)}><Ionicons name={mode === nextMode ? "radio-button-on" : "radio-button-off"} size={20} color={mode === nextMode ? theme.accent : muted} /><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{mode === "INDEPENDENT" ? "Fully Independent POS" : "NCT OMS-Dependent POS"}</Text><Text style={[styles.help, { color: muted }]}>{mode === "INDEPENDENT" ? "Local catalog and stock; OMS transfers disabled; EOD and backups remain enabled." : "NCT catalog and QR transfers; checkout remains local-first."}</Text></View></TouchableOpacity>)}
       {configuration.operatingMode === "INDEPENDENT" && nextMode === "NCT_DEPENDENT" ? <>
-        <TextInput multiline value={stockResolution} onChangeText={setStockResolution} placeholder="Required: describe how existing stock will be reconciled" placeholderTextColor={muted} style={[styles.input, styles.notes, { color: text, borderColor: border, backgroundColor: dark ? "#0f141d" : "#f8fafc" }]} />
+        <TextInput multiline value={stockResolution} onChangeText={setStockResolution} placeholder="Required: describe how existing stock will be reconciled" placeholderTextColor={muted} style={[styles.input, styles.notes, { color: text, borderColor: border, backgroundColor: theme.surfaceAlt }]} />
         <Text style={[styles.label, { color: text, marginTop: 14 }]}>Map stocked local variations to NCT OMS variation IDs</Text>
-        {mappings.filter((row) => row.availableQty !== 0).map((row) => <View key={row.productId} style={styles.mappingRow}><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{row.name}</Text><Text style={[styles.help, { color: muted }]}>Local {row.sku} · Stock {row.availableQty}</Text></View><TextInput value={mappingValues[row.productId] ?? ""} onChangeText={(value) => setMappingValues((current) => ({ ...current, [row.productId]: value }))} keyboardType="number-pad" placeholder="OMS variation ID" placeholderTextColor={muted} style={[styles.mappingInput, { color: text, borderColor: border }]} /><TouchableOpacity style={styles.mappingSave} onPress={() => void saveMapping(row.productId)}><Ionicons name="checkmark" size={18} color="#fff" /></TouchableOpacity></View>)}
+        {mappings.filter((row) => row.availableQty !== 0).map((row) => <View key={row.productId} style={styles.mappingRow}><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{row.name}</Text><Text style={[styles.help, { color: muted }]}>Local {row.sku} · Stock {row.availableQty}</Text></View><TextInput value={mappingValues[row.productId] ?? ""} onChangeText={(value) => setMappingValues((current) => ({ ...current, [row.productId]: value }))} keyboardType="number-pad" placeholder="OMS variation ID" placeholderTextColor={muted} style={[styles.mappingInput, { color: text, borderColor: border, backgroundColor: theme.surfaceAlt }]} /><TouchableOpacity style={[styles.mappingSave, { backgroundColor: theme.primary }]} onPress={() => void saveMapping(row.productId)}><Ionicons name="checkmark" size={18} color={theme.onPrimary} /></TouchableOpacity></View>)}
       </> : null}
     </View>
-    <TouchableOpacity style={styles.designerButton} onPress={() => router.push("/(pos)/receipt-designer" as any)}><Ionicons name="receipt-outline" size={18} color="#ffffff" /><Text style={styles.primaryText}>Open receipt designer</Text></TouchableOpacity>
-    <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.6 }]} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryText}>Save business configuration</Text>}</TouchableOpacity>
+    <TouchableOpacity style={[styles.designerButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} onPress={() => router.push("/(pos)/receipt-designer" as any)}><Ionicons name="receipt-outline" size={18} color={theme.accent} /><Text style={[styles.primaryText, { color: theme.text }]}>Open receipt designer</Text></TouchableOpacity>
+    <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.primary }, saving && { opacity: 0.6 }]} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color={theme.onPrimary} /> : <Text style={[styles.primaryText, { color: theme.onPrimary }]}>Save business configuration</Text>}</TouchableOpacity>
   </ScrollView>;
 }
 
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   field: { marginTop: 13 }, label: { fontSize: 12, fontWeight: "700", marginBottom: 6 }, input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 }, notes: { minHeight: 90, marginTop: 12, textAlignVertical: "top" },
   mode: { borderWidth: 1, borderRadius: 9, padding: 12, flexDirection: "row", gap: 10, marginTop: 10 }, modeTitle: { fontSize: 14, fontWeight: "700" },
-  mappingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }, mappingInput: { width: 150, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 }, mappingSave: { width: 38, height: 38, borderRadius: 8, backgroundColor: "#2563eb", alignItems: "center", justifyContent: "center" },
-  designerButton: { width: "100%", maxWidth: 760, minHeight: 46, backgroundColor: "#475569", borderRadius: 8, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  saveButton: { width: "100%", maxWidth: 760, minHeight: 48, backgroundColor: "#17386b", borderRadius: 8, alignItems: "center", justifyContent: "center" }, primaryText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
+  mappingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }, mappingInput: { width: 150, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 }, mappingSave: { width: 38, height: 38, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  designerButton: { width: "100%", maxWidth: 760, minHeight: 46, borderWidth: 1, borderRadius: 8, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  saveButton: { width: "100%", maxWidth: 760, minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" }, primaryText: { fontSize: 14, fontWeight: "800" },
 });

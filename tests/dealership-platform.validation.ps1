@@ -75,7 +75,7 @@ Assert-Contains "src/components/ui/media-capture-modal.tsx" 'launchImageLibraryA
 Assert-NotContains "src/components/ui/media-capture-modal.tsx" 'MediaTypeOptions' "proof upload uses the current Expo media-type API"
 Assert-NotContains "src/app/(pos)/independent-catalog.tsx" 'MediaTypeOptions' "product upload uses the current Expo media-type API"
 Assert-NotContains "src/app/(auth)/register.tsx" 'MediaTypeOptions' "registration upload uses the current Expo media-type API"
-Assert-Contains "src/components/ui/media-capture-modal.tsx" 'StatusBar barStyle="light-content" backgroundColor="#0f172a"' "capture header extends through the Android status bar"
+Assert-Contains "src/components/ui/media-capture-modal.tsx" 'backgroundColor=\{theme\.navigation\}' "capture header applies the active palette through the Android status bar"
 Assert-Contains "src/components/ui/product-audit-detail-modal.tsx" 'Recorded snapshots' "audit detail modal exposes complete before and after data"
 Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'ProductAuditDetailModal' "edit-product action history opens detailed audit records"
 Assert-Contains "src/components/ui/variation-stock-modal.tsx" 'ProductAuditDetailModal' "variation history opens detailed audit records"
@@ -113,6 +113,8 @@ Assert-Contains "src/app/(pos)/products.tsx" 'usePosTheme' "product and detail c
 Assert-Contains "src/app/(pos)/reports.tsx" 'usePosTheme' "report controls consume the active semantic palette"
 Assert-Contains "src/app/(pos)/customers.tsx" 'usePosTheme' "customer controls consume the active semantic palette"
 Assert-Contains "src/components/ui/usb-barcode-scanner-input.tsx" 'usePosTheme' "shared scanner state follows the active semantic palette"
+Assert-Contains "src/app/(pos)/business-settings.tsx" 'usePosTheme' "business configuration controls follow the active semantic palette"
+Assert-Contains "src/app/(pos)/receipt-designer.tsx" 'trackColor=\{\{ false: theme\.surfaceAlt, true: theme\.primary \}\}' "receipt designer switches follow the active semantic palette"
 Assert-Contains "src/components/layout/session-indicator.tsx" 'usePosTheme' "header session identity follows the active semantic palette"
 Assert-Contains "src/app/(pos)/independent-catalog.tsx" 'backgroundColor: theme\.primary' "catalog editor actions follow the active semantic palette"
 Assert-Contains "src/app/(pos)/products.tsx" 'borderBottomColor: theme\.border' "product detail dividers follow the active semantic palette"
@@ -125,4 +127,4 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (98 source contracts)."
+Write-Output "Dealership platform validation passed (100 source contracts)."
