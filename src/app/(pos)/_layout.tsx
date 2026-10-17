@@ -781,11 +781,11 @@ export default function POSLayout() {
       setPermissionsLoaded(true);
       return;
     }
-    PermissionService.getRolePermissions(session.roleId)
+    PermissionService.getEffectivePermissions(session.roleId, session.cashierId)
       .then(setGrantedPermissions)
       .catch(() => setGrantedPermissions([]))
       .finally(() => setPermissionsLoaded(true));
-  }, [session?.isSuperAdmin, session?.roleId]);
+  }, [session?.cashierId, session?.isSuperAdmin, session?.roleId]);
 
   const visibleNavItems = navItems.filter(
     (item) =>

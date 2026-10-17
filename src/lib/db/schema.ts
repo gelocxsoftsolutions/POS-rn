@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -40,6 +40,17 @@ export const CREATE_TABLES = [
     permissionId TEXT NOT NULL,
     PRIMARY KEY (roleId, permissionId),
     FOREIGN KEY (roleId) REFERENCES Role(id) ON DELETE CASCADE,
+    FOREIGN KEY (permissionId) REFERENCES Permission(id) ON DELETE CASCADE
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS UserPermission (
+    cashierId TEXT NOT NULL,
+    permissionId TEXT NOT NULL,
+    granted INTEGER NOT NULL DEFAULT 1 CHECK (granted IN (0, 1)),
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (cashierId, permissionId),
+    FOREIGN KEY (cashierId) REFERENCES Cashier(id) ON DELETE CASCADE,
     FOREIGN KEY (permissionId) REFERENCES Permission(id) ON DELETE CASCADE
   )`,
 

@@ -24,7 +24,7 @@ async function requireUserManagementPermission() {
   const session = useCashierStore.getState().session;
   if (!session) throw new Error("Sign in before managing users.");
   if (session.isSuperAdmin) return;
-  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, "POS_USERS"))) throw new Error("Your role cannot manage users or permissions.");
+  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, "POS_USERS", session.cashierId))) throw new Error("Your account cannot manage users or permissions.");
 }
 
 async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {

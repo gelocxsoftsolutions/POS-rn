@@ -98,7 +98,7 @@ async function requireAuthorizedUser(permission: "POS_PRODUCTS" | "POS_INVENTORY
   const session = useCashierStore.getState().session;
   if (!session) throw new Error("Sign in before changing dealership catalog or stock.");
   if (session.isSuperAdmin) return;
-  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, permission))) throw new Error("Your account is not authorized for this operation.");
+  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, permission, session.cashierId))) throw new Error("Your account is not authorized for this operation.");
 }
 
 function validateImage(dataUri: string | null | undefined, label: string): string {

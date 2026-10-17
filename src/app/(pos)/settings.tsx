@@ -35,8 +35,8 @@ import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
-import { PermissionService, type PermissionRoleRow } from "@/lib/services/permission.service";
-import { PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
+import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
+import { PERMISSION_CATEGORIES, PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
 import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
@@ -315,6 +315,10 @@ export default function SettingsScreen() {
   const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRow[]>([]);
   const [selectedPermissionRoleId, setSelectedPermissionRoleId] = useState("");
   const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
+  const [permissionUsers, setPermissionUsers] = useState<PermissionUserRow[]>([]);
+  const [selectedPermissionUserId, setSelectedPermissionUserId] = useState("");
+  const [selectedUserOverrides, setSelectedUserOverrides] = useState<UserPermissionOverrides>({});
+  const [showPermissionRolePicker, setShowPermissionRolePicker] = useState(false);
   const [permissionsBusy, setPermissionsBusy] = useState(false);
   const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
   const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
@@ -406,11 +410,21 @@ export default function SettingsScreen() {
         : roles.find((role) => role.name.toLowerCase() !== "admin")?.id ?? roles[0]?.id ?? "";
       setSelectedPermissionRoleId(nextRoleId);
       setSelectedRolePermissions(nextRoleId ? await PermissionService.getRolePermissions(nextRoleId) : []);
+      const users = nextRoleId ? await PermissionService.getUsersByRole(nextRoleId) : [];
+      setPermissionUsers(users);
+      const nextUserId = users.some((user) => user.id === selectedPermissionUserId)
+        ? selectedPermissionUserId
+        : users[0]?.id ?? "";
+      setSelectedPermissionUserId(nextUserId);
+      setSelectedUserOverrides(nextUserId ? await PermissionService.getUserPermissionOverrides(nextUserId) : {});
     } catch {
       setPermissionRoles([]);
       setSelectedRolePermissions([]);
+      setPermissionUsers([]);
+      setSelectedPermissionUserId("");
+      setSelectedUserOverrides({});
     }
-  }, [selectedPermissionRoleId]);
+  }, [selectedPermissionRoleId, selectedPermissionUserId]);
 
   const applyPinSecurity = useCallback(() => {
     const attempts = Number(maxPinAttemptsValue);
@@ -928,39 +942,74 @@ export default function SettingsScreen() {
 
   const selectPermissionRole = async (roleId: string) => {
     setSelectedPermissionRoleId(roleId);
+    setShowPermissionRolePicker(false);
     setPermissionsBusy(true);
-    try { setSelectedRolePermissions(await PermissionService.getRolePermissions(roleId)); }
-    catch { setSelectedRolePermissions([]); }
+    try {
+      const [rolePermissions, users] = await Promise.all([
+        PermissionService.getRolePermissions(roleId),
+        PermissionService.getUsersByRole(roleId),
+      ]);
+      setSelectedRolePermissions(rolePermissions);
+      setPermissionUsers(users);
+      const userId = users[0]?.id ?? "";
+      setSelectedPermissionUserId(userId);
+      setSelectedUserOverrides(userId ? await PermissionService.getUserPermissionOverrides(userId) : {});
+    } catch {
+      setSelectedRolePermissions([]);
+      setPermissionUsers([]);
+      setSelectedPermissionUserId("");
+      setSelectedUserOverrides({});
+    }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const selectPermissionUser = async (cashierId: string) => {
+    setSelectedPermissionUserId(cashierId);
+    setPermissionsBusy(true);
+    try { setSelectedUserOverrides(await PermissionService.getUserPermissionOverrides(cashierId)); }
+    catch { setSelectedUserOverrides({}); }
     finally { setPermissionsBusy(false); }
   };
 
   const applyPermissionPreset = async (presetKey: PermissionPresetKey) => {
-    if (!selectedPermissionRoleId) return;
-    const selectedRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
-    if (selectedRole?.name.toLowerCase() === "admin" && presetKey !== "ADMINISTRATOR") {
-      Alert.alert("Administrator role", "The administrator role always retains full access.");
-      return;
-    }
+    if (!selectedPermissionUserId) return;
+    const selectedUser = permissionUsers.find((user) => user.id === selectedPermissionUserId);
     setPermissionsBusy(true);
     try {
-      await PermissionService.applyPreset(selectedPermissionRoleId, presetKey);
-      setSelectedRolePermissions(await PermissionService.getRolePermissions(selectedPermissionRoleId));
-      Alert.alert("Permissions updated", `${PERMISSION_PRESETS[presetKey].name} access was applied to ${selectedRole?.name ?? "the role"}.`);
+      await PermissionService.applyPresetToUser(selectedPermissionUserId, presetKey);
+      setSelectedUserOverrides(await PermissionService.getUserPermissionOverrides(selectedPermissionUserId));
+      Alert.alert("User permissions updated", `${PERMISSION_PRESETS[presetKey].name} access was applied only to ${selectedUser?.displayName ?? "this user"}.`);
     } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to apply the permission preset."); }
     finally { setPermissionsBusy(false); }
   };
 
-  const toggleRolePermission = async (code: string) => {
-    const selectedRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
-    if (!selectedPermissionRoleId || selectedRole?.name.toLowerCase() === "admin") return;
-    const next = selectedRolePermissions.includes(code)
-      ? selectedRolePermissions.filter((permission) => permission !== code)
-      : [...selectedRolePermissions, code];
+  const toggleUserPermission = async (code: string) => {
+    if (!selectedPermissionUserId) return;
+    const inherited = selectedRolePermissions.includes(code);
+    const current = selectedUserOverrides[code] ?? inherited;
+    const next = !current;
+    const storedOverride = next === inherited ? null : next;
     setPermissionsBusy(true);
     try {
-      await PermissionService.replaceRolePermissions(selectedPermissionRoleId, next);
-      setSelectedRolePermissions(next);
+      await PermissionService.setUserPermission(selectedPermissionUserId, code, storedOverride);
+      setSelectedUserOverrides((currentOverrides) => {
+        const updated = { ...currentOverrides };
+        if (storedOverride === null) delete updated[code];
+        else updated[code] = storedOverride;
+        return updated;
+      });
     } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to update this permission."); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const resetUserPermissions = async () => {
+    if (!selectedPermissionUserId) return;
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.clearUserPermissionOverrides(selectedPermissionUserId);
+      setSelectedUserOverrides({});
+      Alert.alert("Role defaults restored", "This user now inherits every permission from the selected role.");
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to restore role defaults."); }
     finally { setPermissionsBusy(false); }
   };
 
@@ -1003,6 +1052,8 @@ export default function SettingsScreen() {
     if (!normalizedSettingsSearch) return true;
     return `${item.title} ${item.description} ${item.keywords}`.toLowerCase().includes(normalizedSettingsSearch);
   });
+  const selectedPermissionRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
+  const selectedPermissionUser = permissionUsers.find((user) => user.id === selectedPermissionUserId);
   const openSettingsSection = (section: SettingsSectionId) => {
     if (section === activeSection) return;
     setActiveSection(section);
@@ -1271,14 +1322,22 @@ export default function SettingsScreen() {
       {isSuperAdmin && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("permissions access roles presets") && styles.hidden]}>
           <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Roles & Permissions</Text>
-          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose a role, apply a safe preset, or adjust individual page and operation permissions. Changes apply at the next sign-in.</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose a role to find its users, then customize access for one person. Role permissions remain the default until a user override is added.</Text>
           <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Role to configure</Text>
-          <View style={styles.permissionRoleRow}>{permissionRoles.map((role) => { const selected = role.id === selectedPermissionRoleId; return <TouchableOpacity key={role.id} style={[styles.permissionRole, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]} onPress={() => void selectPermissionRole(role.id)}><Text style={[styles.permissionRoleText, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{role.name}</Text></TouchableOpacity>; })}</View>
-          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Recommended presets</Text>
-          <View style={styles.permissionPresetGrid}>{(Object.entries(PERMISSION_PRESETS) as Array<[PermissionPresetKey, typeof PERMISSION_PRESETS[PermissionPresetKey]]>).map(([key, preset]) => <TouchableOpacity key={key} disabled={permissionsBusy} style={[styles.permissionPreset, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => void applyPermissionPreset(key)}><Text style={[styles.permissionPresetTitle, { color: posTheme.text }]}>{preset.name}</Text><Text style={[styles.permissionPresetDesc, { color: posTheme.muted }]}>{preset.description}</Text></TouchableOpacity>)}</View>
-          <View style={[styles.permissionNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}><Ionicons name="information-circle-outline" size={19} color={posTheme.accent} /><Text style={{ color: posTheme.muted, flex: 1 }}>Administrator always has full access. Cashier, Inventory Clerk, and Auditor deliberately exclude configuration, users, and backup recovery.</Text></View>
-          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Individual permissions</Text>
-          {POS_PERMISSIONS.map((permission) => { const enabled = permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin" || selectedRolePermissions.includes(permission.code); return <TouchableOpacity key={permission.code} disabled={permissionsBusy || permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin"} style={[styles.permissionItem, { borderBottomColor: posTheme.border }]} onPress={() => void toggleRolePermission(permission.code)}><View style={{ flex: 1 }}><Text style={[styles.permissionItemTitle, { color: posTheme.text }]}>{permission.name}</Text><Text style={[styles.permissionItemDesc, { color: posTheme.muted }]}>{permission.description}</Text><Text style={[styles.permissionItemGroup, { color: posTheme.accent }]}>{permission.group}</Text></View><Switch value={enabled} disabled={permissionsBusy || permissionRoles.find((role) => role.id === selectedPermissionRoleId)?.name.toLowerCase() === "admin"} onValueChange={() => void toggleRolePermission(permission.code)} trackColor={{ false: posTheme.surfaceAlt, true: posTheme.primary }} thumbColor={enabled ? posTheme.onPrimary : posTheme.muted} /></TouchableOpacity>; })}
+          <TouchableOpacity style={[styles.permissionSelect, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => setShowPermissionRolePicker(true)}>
+            <View><Text style={[styles.permissionSelectValue, { color: posTheme.text }]}>{selectedPermissionRole?.name ?? "Select a role"}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>{selectedPermissionRole?.description ?? "Choose which role's users to display"}</Text></View>
+            <Ionicons name="chevron-down" size={20} color={posTheme.accent} />
+          </TouchableOpacity>
+
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Users in {selectedPermissionRole?.name ?? "role"}</Text>
+          {permissionUsers.length === 0 ? <View style={[styles.permissionNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}><Ionicons name="people-outline" size={19} color={posTheme.accent} /><Text style={{ color: posTheme.muted, flex: 1 }}>No active users are assigned to this role.</Text></View> : <View style={styles.permissionUserGrid}>{permissionUsers.map((user) => { const selected = user.id === selectedPermissionUserId; return <TouchableOpacity key={user.id} style={[styles.permissionUser, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]} onPress={() => void selectPermissionUser(user.id)}><Ionicons name="person-circle-outline" size={22} color={selected ? posTheme.onPrimary : posTheme.accent} /><View style={{ flex: 1 }}><Text style={[styles.permissionUserName, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{user.displayName}</Text><Text style={[styles.permissionUserHandle, { color: selected ? posTheme.onPrimary : posTheme.muted }]}>{user.username ? `@${user.username}` : "PIN account"}</Text></View>{Object.keys(selectedUserOverrides).length > 0 && selected ? <View style={[styles.overrideBadge, { backgroundColor: posTheme.accent }]}><Text style={[styles.overrideBadgeText, { color: posTheme.onPrimary }]}>CUSTOM</Text></View> : null}</TouchableOpacity>; })}</View>}
+
+          {selectedPermissionUser ? <>
+            <View style={styles.permissionHeadingRow}><View><Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Access for {selectedPermissionUser.displayName}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>Switches show effective access. “Override” differs from the {selectedPermissionRole?.name} default.</Text></View><TouchableOpacity disabled={permissionsBusy || Object.keys(selectedUserOverrides).length === 0} onPress={() => void resetUserPermissions()} style={[styles.resetPermissionButton, { borderColor: posTheme.border, opacity: Object.keys(selectedUserOverrides).length === 0 ? 0.5 : 1 }]}><Ionicons name="refresh" size={16} color={posTheme.accent} /><Text style={{ color: posTheme.text, fontSize: 11, fontWeight: "800" }}>Use role defaults</Text></TouchableOpacity></View>
+            <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Apply a preset to this user</Text>
+            <View style={styles.permissionPresetGrid}>{(Object.entries(PERMISSION_PRESETS) as Array<[PermissionPresetKey, typeof PERMISSION_PRESETS[PermissionPresetKey]]>).map(([key, preset]) => <TouchableOpacity key={key} disabled={permissionsBusy} style={[styles.permissionPreset, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => void applyPermissionPreset(key)}><Text style={[styles.permissionPresetTitle, { color: posTheme.text }]}>{preset.name}</Text><Text style={[styles.permissionPresetDesc, { color: posTheme.muted }]}>{preset.description}</Text></TouchableOpacity>)}</View>
+            {PERMISSION_CATEGORIES.map((category) => <View key={category} style={[styles.permissionCategory, { borderColor: posTheme.border }]}><View style={[styles.permissionCategoryHeader, { backgroundColor: posTheme.surfaceAlt }]}><Ionicons name={category === "Pages" ? "documents-outline" : category === "Buttons & Actions" ? "hand-left-outline" : "create-outline"} size={18} color={posTheme.accent} /><View><Text style={[styles.permissionCategoryTitle, { color: posTheme.text }]}>{category}</Text><Text style={[styles.permissionCategoryHint, { color: posTheme.muted }]}>{category === "Pages" ? "Controls which screens this user can open." : category === "Buttons & Actions" ? "Controls operational buttons and sensitive actions." : "Controls creating, updating, and removing records."}</Text></View></View>{POS_PERMISSIONS.filter((permission) => permission.category === category).map((permission) => { const inherited = selectedRolePermissions.includes(permission.code); const overridden = Object.prototype.hasOwnProperty.call(selectedUserOverrides, permission.code); const enabled = selectedUserOverrides[permission.code] ?? inherited; return <TouchableOpacity key={permission.code} disabled={permissionsBusy} style={[styles.permissionItem, { borderBottomColor: posTheme.border }]} onPress={() => void toggleUserPermission(permission.code)}><View style={{ flex: 1 }}><View style={styles.permissionItemTitleRow}><Text style={[styles.permissionItemTitle, { color: posTheme.text }]}>{permission.name}</Text><View style={[styles.permissionSourceBadge, { backgroundColor: overridden ? posTheme.primary : posTheme.surfaceAlt, borderColor: posTheme.border }]}><Text style={{ color: overridden ? posTheme.onPrimary : posTheme.muted, fontSize: 9, fontWeight: "900" }}>{overridden ? "USER OVERRIDE" : "ROLE DEFAULT"}</Text></View></View><Text style={[styles.permissionItemDesc, { color: posTheme.muted }]}>{permission.description}</Text><Text style={[styles.permissionItemGroup, { color: posTheme.accent }]}>{permission.group}</Text></View><Switch value={enabled} disabled={permissionsBusy} onValueChange={() => void toggleUserPermission(permission.code)} trackColor={{ false: posTheme.surfaceAlt, true: posTheme.primary }} thumbColor={enabled ? posTheme.onPrimary : posTheme.muted} /></TouchableOpacity>; })}</View>)}
+          </> : null}
         </Card>
       )}
 
@@ -1955,6 +2014,19 @@ export default function SettingsScreen() {
             <Button title={creatingUser ? "Saving..." : editingUser ? "Save User" : "Create User"} onPress={handleSaveUser} loading={creatingUser} icon={editingUser ? "checkmark-circle-outline" : "person-add-outline"} style={styles.createUserSubmit} />
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={showPermissionRolePicker} transparent animationType="fade" onRequestClose={() => setShowPermissionRolePicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowPermissionRolePicker(false)}>
+          <View style={[styles.permissionRolePicker, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
+            <Text style={[styles.modalTitle, { color: posTheme.text }]}>Select role</Text>
+            <Text style={[styles.permissionSelectHint, { color: posTheme.muted, marginBottom: 8 }]}>The user list will be filtered to this role.</Text>
+            {permissionRoles.map((role) => {
+              const selected = role.id === selectedPermissionRoleId;
+              return <TouchableOpacity key={`permission-role-option-${role.id}`} style={[styles.permissionRoleOption, { backgroundColor: selected ? posTheme.surfaceAlt : "transparent", borderBottomColor: posTheme.border }]} onPress={() => void selectPermissionRole(role.id)}><View style={{ flex: 1 }}><Text style={[styles.permissionRoleOptionTitle, { color: posTheme.text }]}>{role.name}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>{role.description || "POS access role"}</Text></View>{selected ? <Ionicons name="checkmark-circle" size={21} color={posTheme.accent} /> : null}</TouchableOpacity>;
+            })}
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Currency Picker Modal */}
@@ -2955,15 +3027,35 @@ const styles = StyleSheet.create({
   permissionRoleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   permissionRole: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
   permissionRoleText: { fontSize: 12, fontWeight: "800" },
+  permissionSelect: { minHeight: 64, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  permissionSelectValue: { fontSize: 14, fontWeight: "900" },
+  permissionSelectHint: { fontSize: 10, lineHeight: 15, marginTop: 2 },
+  permissionUserGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  permissionUser: { width: "48%", minWidth: 220, flexGrow: 1, minHeight: 58, borderWidth: 1, borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  permissionUserName: { fontSize: 12, fontWeight: "900" },
+  permissionUserHandle: { fontSize: 10, marginTop: 2 },
+  overrideBadge: { borderRadius: 999, paddingHorizontal: 7, paddingVertical: 4 },
+  overrideBadgeText: { fontSize: 8, fontWeight: "900" },
+  permissionHeadingRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
+  resetPermissionButton: { minHeight: 36, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
   permissionPresetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
   permissionPreset: { width: "48%", minWidth: 210, flexGrow: 1, borderWidth: 1, borderRadius: 9, padding: 12 },
   permissionPresetTitle: { fontSize: 13, fontWeight: "900" },
   permissionPresetDesc: { fontSize: 11, lineHeight: 16, marginTop: 3 },
   permissionNotice: { borderWidth: 1, borderRadius: 9, padding: 11, flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 },
+  permissionCategory: { borderWidth: 1, borderRadius: 10, overflow: "hidden", marginTop: 14 },
+  permissionCategoryHeader: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  permissionCategoryTitle: { fontSize: 13, fontWeight: "900" },
+  permissionCategoryHint: { fontSize: 10, lineHeight: 14, marginTop: 1 },
   permissionItem: { minHeight: 66, borderBottomWidth: 1, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 12 },
+  permissionItemTitleRow: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  permissionSourceBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
   permissionItemTitle: { fontSize: 13, fontWeight: "800" },
   permissionItemDesc: { fontSize: 11, lineHeight: 16, marginTop: 2 },
   permissionItemGroup: { fontSize: 10, fontWeight: "800", marginTop: 4, textTransform: "uppercase" },
+  permissionRolePicker: { width: "86%", maxWidth: 520, maxHeight: "80%", borderWidth: 1, borderRadius: 14, padding: 16 },
+  permissionRoleOption: { minHeight: 58, borderBottomWidth: 1, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  permissionRoleOptionTitle: { fontSize: 13, fontWeight: "900" },
   dangerBtn: {
     marginTop: 16,
   },

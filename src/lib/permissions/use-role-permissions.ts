@@ -20,12 +20,12 @@ export function useRolePermissions() {
       setLoaded(true);
       return () => { active = false; };
     }
-    PermissionService.getRolePermissions(session.roleId)
+    PermissionService.getEffectivePermissions(session.roleId, session.cashierId)
       .then((permissions) => { if (active) setCodes(permissions); })
       .catch(() => { if (active) setCodes([]); })
       .finally(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [session?.isSuperAdmin, session?.roleId]);
+  }, [session?.cashierId, session?.isSuperAdmin, session?.roleId]);
 
   return useMemo(() => ({
     loaded,

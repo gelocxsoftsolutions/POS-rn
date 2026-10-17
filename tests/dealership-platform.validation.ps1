@@ -22,7 +22,7 @@ function Assert-NotContains([string]$relativePath, [string]$pattern, [string]$de
   if ($content -match $pattern) { $failures.Add("${relativePath}: $description") }
 }
 
-Assert-Contains "src/lib/db/schema.ts" 'SCHEMA_VERSION = 9' "versioned dealership migration"
+Assert-Contains "src/lib/db/schema.ts" 'SCHEMA_VERSION = 10' "versioned dealership migration"
 Assert-Contains "src/lib/db/schema.ts" 'OperatingModeAudit' "audited operating-mode changes"
 Assert-Contains "src/lib/db/schema.ts" 'ProductOmsMapping' "explicit independent-to-NCT variation mapping"
 Assert-Contains "src/lib/business/capabilities.ts" 'receiveNctTransfers: false' "Independent mode transfer denial"
@@ -132,10 +132,15 @@ Assert-Contains "src/lib/services/permission.service.ts" 'replaceRolePermissions
 Assert-Contains "src/app/(pos)/settings.tsx" 'Roles & Permissions' "settings includes role and permission management"
 Assert-Contains "src/lib/services/authorization.service.ts" 'requirePermission' "direct operations share a deny-by-default permission guard"
 Assert-Contains "src/app/(pos)/_layout.tsx" 'permissionsLoaded && hasAnyRequiredPermission' "navigation denies unassigned permissions after loading"
+Assert-Contains "src/lib/db/schema.ts" 'UserPermission' "versioned per-user permission overrides persist locally"
+Assert-Contains "src/lib/permissions/catalog.ts" 'CRUD Operations' "permissions are categorized by access type"
+Assert-Contains "src/lib/services/permission.service.ts" 'getEffectivePermissions' "runtime access combines role defaults with user overrides"
+Assert-Contains "src/app/(pos)/settings.tsx" 'Users in \{selectedPermissionRole' "role selection reveals assigned users"
+Assert-Contains "src/app/(pos)/settings.tsx" 'USER OVERRIDE' "individual access clearly distinguishes user overrides"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (111 source contracts)."
+Write-Output "Dealership platform validation passed (116 source contracts)."

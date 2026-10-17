@@ -5,7 +5,7 @@ export async function requirePermission(permissionCode: string, action = "perfor
   const session = useCashierStore.getState().session;
   if (!session) throw new Error(`Sign in before trying to ${action}.`);
   if (session.isSuperAdmin) return;
-  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, permissionCode))) {
-    throw new Error(`Your role is not permitted to ${action}.`);
+  if (!session.roleId || !(await PermissionService.hasPermission(session.roleId, permissionCode, session.cashierId))) {
+    throw new Error(`Your account is not permitted to ${action}.`);
   }
 }

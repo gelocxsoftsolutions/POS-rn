@@ -111,6 +111,9 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
   await database.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_product_action_audit_business ON ProductActionAudit(businessId, createdAt)"
   );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_user_permission_cashier ON UserPermission(cashierId)"
+  );
 
   await database.execAsync("PRAGMA foreign_keys = ON;");
 
