@@ -37,7 +37,7 @@ import { SaleService } from "@/lib/services/sale.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService } from "@/lib/services/settings.service";
 import { InventoryService } from "@/lib/services/inventory.service";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import type { PosCartItem, PaymentMethodType, ProductSort, StoreSettings } from "@/lib/types/pos";
 import type { ProductDTO } from "@/lib/types/inventory";
@@ -136,6 +136,7 @@ export default function SalesScreen() {
   const cashier = useAuthStore((s) => s.cashier);
   const device = useDeviceStore((s) => s.device);
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const productPageSize = useUiStore((state) => state.pageSizes?.sales ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
@@ -729,8 +730,8 @@ export default function SalesScreen() {
           effective <= 0 && styles.productCardDisabled,
           {
             width: productCardWidth,
-            backgroundColor: dark ? "#141922" : "#ffffff",
-            borderColor: dark ? "#28303d" : "#dde3ea",
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
           },
         ]}
         onPress={() => handleAddToCart(item)}
@@ -741,11 +742,11 @@ export default function SalesScreen() {
           {item.imageUrl ? (
             <Image source={{ uri: item.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
           ) : (
-            <Ionicons name="fish" size={32} color="#17386b" />
+            <Ionicons name="fish" size={32} color={theme.accent} />
           )}
         </View>
         <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
+        <Text style={[styles.productPrice, { color: theme.primary }]}>₱{item.unitPrice.toFixed(2)}</Text>
         <View style={styles.productFooter}>
           <Badge
             label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -753,7 +754,7 @@ export default function SalesScreen() {
             size="sm"
           />
           {inCart && (
-            <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />
+            <Badge label={`×${inCart.quantity}`} color={theme.primary} textColor={theme.onPrimary} size="sm" />
           )}
         </View>
       </TouchableOpacity>
@@ -772,8 +773,8 @@ export default function SalesScreen() {
           styles.productCardList,
           effective <= 0 && styles.productCardDisabled,
           {
-            backgroundColor: dark ? "#141922" : "#ffffff",
-            borderColor: dark ? "#28303d" : "#dde3ea",
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
           },
         ]}
         onPress={() => handleAddToCart(item)}
@@ -784,19 +785,19 @@ export default function SalesScreen() {
           {item.imageUrl ? (
             <Image source={{ uri: item.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
           ) : (
-            <Ionicons name="fish" size={30} color="#17386b" />
+            <Ionicons name="fish" size={30} color={theme.accent} />
           )}
         </View>
         <View style={styles.productListDetails}>
           <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{item.unitPrice.toFixed(2)}</Text>
+          <Text style={[styles.productPrice, { color: theme.primary }]}>₱{item.unitPrice.toFixed(2)}</Text>
           <View style={styles.productFooter}>
             <Badge
               label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
               color={effective > 0 ? "#28a745" : "#dc3545"}
               size="sm"
             />
-            {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
+            {inCart && <Badge label={`×${inCart.quantity}`} color={theme.primary} textColor={theme.onPrimary} size="sm" />}
           </View>
         </View>
       </TouchableOpacity>
@@ -849,7 +850,7 @@ export default function SalesScreen() {
             styles.productCard,
             styles.productCardList,
             effectiveTotal <= 0 && styles.productCardDisabled,
-            { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+            { backgroundColor: theme.surface, borderColor: theme.border },
           ]}
           onPress={() => handleGroupPress(group)}
           onLongPress={() => handleGroupLongPress(group)}
@@ -861,7 +862,7 @@ export default function SalesScreen() {
             {base.imageUrl ? (
               <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
             ) : (
-              <Ionicons name="fish" size={30} color="#17386b" />
+              <Ionicons name="fish" size={30} color={theme.accent} />
             )}
           </View>
           <View style={styles.productListDetails}>
@@ -874,10 +875,10 @@ export default function SalesScreen() {
                 {group.map((g) => `${g.sku}${g.weight ? ` • ${g.weight}${g.unitName ?? ""}` : ""}`).join(" • ")}
               </Text>
             )}
-            <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+            <Text style={[styles.productPrice, { color: theme.primary }]}>{priceText}</Text>
             <View style={styles.productFooter}>
               <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
-              {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
+              {cartCount > 0 && <Badge label={`×${cartCount}`} color={theme.primary} textColor={theme.onPrimary} size="sm" />}
             </View>
           </View>
           {isMulti && <Ionicons name="chevron-forward" size={16} color="#8e99a4" style={{ marginLeft: 8 }} />}
@@ -890,7 +891,7 @@ export default function SalesScreen() {
         style={[
           styles.productCard,
           effectiveTotal <= 0 && styles.productCardDisabled,
-          { width: productCardWidth, backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" },
+          { width: productCardWidth, backgroundColor: theme.surface, borderColor: theme.border },
         ]}
         onPress={() => handleGroupPress(group)}
         onLongPress={() => handleGroupLongPress(group)}
@@ -902,7 +903,7 @@ export default function SalesScreen() {
           {base.imageUrl ? (
             <Image source={{ uri: base.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
           ) : (
-            <Ionicons name="fish" size={32} color="#17386b" />
+            <Ionicons name="fish" size={32} color={theme.accent} />
           )}
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
@@ -910,17 +911,17 @@ export default function SalesScreen() {
           {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
         </View>
         {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ alignSelf: "flex-start", marginBottom: 4 }} />}
-        <Text style={[styles.productPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+        <Text style={[styles.productPrice, { color: theme.primary }]}>{priceText}</Text>
         <View style={styles.productFooter}>
           <Badge label={effectiveTotal > 0 ? `Stock: ${effectiveTotal}` : "Out of Stock"} color={effectiveTotal > 0 ? "#28a745" : "#dc3545"} size="sm" />
-          {cartCount > 0 && <Badge label={`×${cartCount}`} color="#17386b" size="sm" />}
+          {cartCount > 0 && <Badge label={`×${cartCount}`} color={theme.primary} textColor={theme.onPrimary} size="sm" />}
         </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.layout, { flexDirection: isPortrait ? "column" : isWideLayout ? (isCartOnLeft ? "row-reverse" : "row") : "column" }]}>
         <View
           style={styles.productSection}
@@ -941,20 +942,20 @@ export default function SalesScreen() {
                 disabled={Boolean(quantityItem || variationGroup || checkoutVisible || receiptVisible || scannerVisible || processing)}
               />
               {catalogToolsExpanded && (
-                <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+                <View style={[styles.viewToggle, { backgroundColor: theme.surfaceAlt }]}>
                   <TouchableOpacity
-                    style={[styles.viewToggleButton, viewMode === "grid" && styles.viewToggleButtonActive]}
+                    style={[styles.viewToggleButton, viewMode === "grid" && { backgroundColor: theme.primary }]}
                     onPress={() => setViewMode("grid")}
                     accessibilityLabel="Grid view"
                   >
-                    <Ionicons name="grid" size={18} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                    <Ionicons name="grid" size={18} color={viewMode === "grid" ? theme.onPrimary : theme.muted} />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.viewToggleButton, viewMode === "list" && styles.viewToggleButtonActive]}
+                    style={[styles.viewToggleButton, viewMode === "list" && { backgroundColor: theme.primary }]}
                     onPress={() => setViewMode("list")}
                     accessibilityLabel="List view"
                   >
-                    <Ionicons name="list" size={19} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                    <Ionicons name="list" size={19} color={viewMode === "list" ? theme.onPrimary : theme.muted} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -962,8 +963,8 @@ export default function SalesScreen() {
                 style={[
                   styles.catalogCollapseButton,
                   {
-                    backgroundColor: dark ? "#18202c" : "#ffffff",
-                    borderColor: dark ? "#28303d" : "#dde3ea",
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
                   },
                 ]}
                 onPress={() => setCatalogToolsExpanded((expanded) => !expanded)}
@@ -974,7 +975,7 @@ export default function SalesScreen() {
                 <Ionicons
                   name={catalogToolsExpanded ? "chevron-up" : "chevron-down"}
                   size={20}
-                  color={dark ? "#cbd5e1" : "#17386b"}
+                  color={theme.accent}
                 />
               </TouchableOpacity>
             </View>
@@ -982,23 +983,23 @@ export default function SalesScreen() {
           {catalogToolsExpanded && (
             <>
               <View style={styles.searchTools}>
-                <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-                  <Ionicons name="search" size={18} color="#8e99a4" />
+                <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Ionicons name="search" size={18} color={theme.muted} />
                   <TextInput
-                    style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+                    style={[styles.searchInput, { color: theme.text }]}
                     placeholder="Search products..."
-                    placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
+                    placeholderTextColor={theme.muted}
                     value={search}
                     onChangeText={setSearch}
                   />
                   {search.length > 0 && (
                     <TouchableOpacity onPress={() => setSearch("")}>
-                      <Ionicons name="close-circle" size={18} color="#8e99a4" />
+                      <Ionicons name="close-circle" size={18} color={theme.muted} />
                     </TouchableOpacity>
                   )}
                 </View>
-                <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan product barcode">
-                  <Ionicons name="camera-outline" size={20} color="#ffffff" />
+                <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={openScanner} accessibilityLabel="Scan product barcode">
+                  <Ionicons name="camera-outline" size={20} color={theme.onPrimary} />
                 </TouchableOpacity>
               </View>
 
@@ -1013,15 +1014,13 @@ export default function SalesScreen() {
                     key={opt.value}
                     style={[
                       styles.sortBtn,
-                      { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#e2e8f0" },
-                      sort === opt.value && styles.sortBtnActive,
+                      { backgroundColor: sort === opt.value ? theme.primary : theme.surface, borderColor: sort === opt.value ? theme.primary : theme.border },
                     ]}
                     onPress={() => setSort(opt.value)}
                   >
                     <Text style={[
                       styles.sortBtnText,
-                      { color: dark ? "#9ca3af" : "#6b7b8d" },
-                      sort === opt.value && styles.sortBtnTextActive,
+                      { color: sort === opt.value ? theme.onPrimary : theme.muted },
                     ]}>
                       {opt.label}
                     </Text>
@@ -1033,7 +1032,7 @@ export default function SalesScreen() {
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#17386b" />
+              <ActivityIndicator size="large" color={theme.accent} />
             </View>
           ) : (
             <>
@@ -1068,10 +1067,10 @@ export default function SalesScreen() {
           )}
         </View>
 
-        <Card style={[styles.cartPanel, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea", width: isWideLayout ? (windowWidth >= 1200 ? 480 : 440) : "100%", maxHeight: isWideLayout ? undefined : 420 }]}>
+        <Card style={[styles.cartPanel, { backgroundColor: theme.surface, borderColor: theme.border, width: isWideLayout ? (windowWidth >= 1200 ? 480 : 440) : "100%", maxHeight: isWideLayout ? undefined : 420 }]}>
             <View style={styles.cartHeader}>
-              <Ionicons name="cart" size={20} color="#17386b" />
-              <Text style={[styles.cartTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Cart ({cart.items.length})</Text>
+              <Ionicons name="cart" size={20} color={theme.accent} />
+              <Text style={[styles.cartTitle, { color: theme.text }]}>Cart ({cart.items.length})</Text>
               {cart.items.length > 0 && (
                 <TouchableOpacity onPress={() => cart.clear()}>
                   <Text style={styles.clearText}>Clear</Text>
@@ -1088,11 +1087,11 @@ export default function SalesScreen() {
               ) : (
                 cart.items.map((item) => (
                   <View key={item.productId} style={styles.cartItem}>
-                    <View style={[styles.cartItemImage, { backgroundColor: dark ? "#202938" : "#f0f4ff" }]}>
+                    <View style={[styles.cartItemImage, { backgroundColor: theme.surfaceAlt }]}>
                       {item.imageUrl ? (
                         <Image source={{ uri: item.imageUrl }} style={styles.catalogImage} resizeMode="contain" />
                       ) : (
-                        <Ionicons name="fish" size={22} color={dark ? "#8fb4e8" : "#17386b"} />
+                        <Ionicons name="fish" size={22} color={theme.accent} />
                       )}
                     </View>
                     <View style={styles.cartItemInfo}>
@@ -1111,7 +1110,7 @@ export default function SalesScreen() {
                         style={styles.qtyBtn}
                         onPress={() => cart.updateQuantity(item.productId, item.quantity - 1)}
                       >
-                        <Ionicons name="remove" size={14} color="#17386b" />
+                        <Ionicons name="remove" size={14} color={theme.accent} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.qtyValueBtn, { borderColor: dark ? "#475569" : "#cbd5e1" }]}
@@ -1124,7 +1123,7 @@ export default function SalesScreen() {
                         style={styles.qtyBtn}
                         onPress={() => cart.updateQuantity(item.productId, Math.min(item.quantity + 1, item.maxQuantity))}
                       >
-                        <Ionicons name="add" size={14} color="#17386b" />
+                        <Ionicons name="add" size={14} color={theme.accent} />
                       </TouchableOpacity>
                     </View>
                     <Text style={[styles.cartItemTotal, { color: dark ? "#ffffff" : "#17386b" }]}>
@@ -1160,14 +1159,14 @@ export default function SalesScreen() {
               title="Checkout"
               onPress={handleCheckout}
               icon="card-outline"
-              style={styles.checkoutBtn}
+              style={{ marginTop: 12, backgroundColor: theme.primary }}
             />
         </Card>
       </View>
 
       <Modal visible={!!quantityItem} transparent animationType="fade" onRequestClose={closeQuantityModal}>
         <View style={styles.quantityModalOverlay}>
-          <View style={[styles.quantityModal, { backgroundColor: dark ? "#141922" : "#ffffff" }]}>
+          <View style={[styles.quantityModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.quantityModalHeader}>
               <View style={styles.quantityModalHeading}>
                 <Text style={[styles.quantityModalTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>Set quantity</Text>
@@ -1178,7 +1177,7 @@ export default function SalesScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.quantityDisplay, { backgroundColor: dark ? "#0f1729" : "#f7f9fc", borderColor: dark ? "#334155" : "#dde3ea" }]}>
+            <View style={[styles.quantityDisplay, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
               <Text style={[styles.quantityDisplayValue, { color: dark ? "#f8fafc" : "#17202b" }]}>{quantityInput || "0"}</Text>
               <Text style={[styles.quantityAvailable, { color: dark ? "#9ca3af" : "#667085" }]}>Available: {quantityItem?.maxQuantity ?? 0}</Text>
             </View>
@@ -1209,7 +1208,7 @@ export default function SalesScreen() {
 
       <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
         <View style={styles.variationModalOverlay}>
-          <View style={[styles.variationModal, { backgroundColor: dark ? "#141922" : "#ffffff" }]}>
+          <View style={[styles.variationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.variationModalHeader}>
               <View style={styles.variationModalHeading}>
                 <Text style={[styles.variationModalTitle, { color: dark ? "#f8fafc" : "#17202b" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
@@ -1246,7 +1245,7 @@ export default function SalesScreen() {
                       {variant.imageUrl ? (
                         <Image source={{ uri: variant.imageUrl }} style={styles.variationImage} resizeMode="contain" />
                       ) : (
-                        <Ionicons name="fish" size={24} color="#17386b" />
+                        <Ionicons name="fish" size={24} color={theme.accent} />
                       )}
                     </View>
                     <View style={styles.variationInfo}>
@@ -1255,12 +1254,12 @@ export default function SalesScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{variant.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{variant.unitPrice.toFixed(2)}</Text>
                       <Text style={[styles.variationStock, { color: effective > 0 ? "#16a34a" : "#dc2626" }]}>Stock: {effective}</Text>
                     </View>
                     <View style={styles.variationAdd}>
-                      <Ionicons name="add-circle" size={28} color={effective > 0 ? "#17386b" : "#9ca3af"} />
-                      {inCart && <Badge label={`×${inCart.quantity}`} color="#17386b" size="sm" />}
+                      <Ionicons name="add-circle" size={28} color={effective > 0 ? theme.accent : theme.muted} />
+                      {inCart && <Badge label={`×${inCart.quantity}`} color={theme.primary} textColor={theme.onPrimary} size="sm" />}
                     </View>
                   </TouchableOpacity>
                 );
@@ -1273,14 +1272,14 @@ export default function SalesScreen() {
       <BottomSheet
         visible={checkoutVisible}
         onClose={() => setCheckoutVisible(false)}
-        style={[styles.checkoutSheet, { backgroundColor: dark ? "#141922" : "#ffffff" }]}
+        style={[styles.checkoutSheet, { backgroundColor: theme.surface }]}
       >
         <View style={[styles.checkoutLayout, { flexDirection: windowWidth >= 700 ? "row" : "column" }]}>
           <View style={styles.checkoutDetails}>
             <Text style={[styles.checkoutTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>Checkout</Text>
 
             <TextInput
-              style={[styles.checkoutInput, { backgroundColor: dark ? "#0f1729" : "#f7f9fc", borderColor: dark ? "#334155" : "#e2e8f0", color: dark ? "#e2e8f0" : "#1a202c" }]}
+              style={[styles.checkoutInput, { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text }]}
               placeholder="Customer name (optional)"
               placeholderTextColor={dark ? "#6b7280" : "#b0b8c1"}
               value={customerName}
@@ -1296,21 +1295,19 @@ export default function SalesScreen() {
                     key={method}
                     style={[
                       styles.paymentBtn,
-                      { borderColor: dark ? "#475569" : "#17386b" },
-                      selected && styles.paymentBtnActive,
+                      { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.primary : theme.surfaceAlt },
                     ]}
                     onPress={() => setPaymentMethod(method)}
                   >
                     <Ionicons
                       name={method === "CASH" ? "cash" : method === "CARD" ? "card" : "qr-code-outline"}
                       size={18}
-                      color={selected ? "#ffffff" : dark ? "#cbd5e1" : "#17386b"}
+                      color={selected ? theme.onPrimary : theme.accent}
                     />
                     <Text
                       style={[
                         styles.paymentBtnText,
-                        { color: dark ? "#cbd5e1" : "#17386b" },
-                        selected && styles.paymentBtnTextActive,
+                        { color: selected ? theme.onPrimary : theme.text },
                       ]}
                       numberOfLines={1}
                       adjustsFontSizeToFit
@@ -1324,7 +1321,7 @@ export default function SalesScreen() {
             </View>
 
             <Text style={[styles.checkoutLabel, { color: dark ? "#9ca3af" : "#4a5568" }]}>Order Summary</Text>
-            <View style={[styles.checkoutBreakdown, { backgroundColor: dark ? "#0f1729" : "#f7f9fc", borderColor: dark ? "#334155" : "#e2e8f0" }]}>
+            <View style={[styles.checkoutBreakdown, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
               <View style={styles.checkoutBreakdownRow}>
                 <Text style={[styles.checkoutBreakdownLabel, { color: dark ? "#94a3b8" : "#667085" }]}>Items</Text>
                 <Text style={[styles.checkoutBreakdownValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{checkoutItemCount}</Text>
@@ -1364,10 +1361,10 @@ export default function SalesScreen() {
             />
           </View>
 
-          <View style={[styles.checkoutKeypadPanel, { borderColor: dark ? "#334155" : "#e2e8f0", borderLeftWidth: windowWidth >= 700 ? 1 : 0, borderTopWidth: windowWidth >= 700 ? 0 : 1, paddingLeft: windowWidth >= 700 ? 20 : 0, paddingTop: windowWidth >= 700 ? 0 : 16 }]}>
+          <View style={[styles.checkoutKeypadPanel, { borderColor: theme.border, borderLeftWidth: windowWidth >= 700 ? 1 : 0, borderTopWidth: windowWidth >= 700 ? 0 : 1, paddingLeft: windowWidth >= 700 ? 20 : 0, paddingTop: windowWidth >= 700 ? 0 : 16 }]}>
             <Text style={[styles.keypadTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>Enter payment</Text>
-            <View style={[styles.keypadDisplay, { backgroundColor: dark ? "#0f1729" : "#f4f7fb", borderColor: dark ? "#334155" : "#dbe3ec" }]}>
-              <Text style={[styles.keypadAmount, { color: dark ? "#f8fafc" : "#17386b" }]} numberOfLines={1} adjustsFontSizeToFit>
+            <View style={[styles.keypadDisplay, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+              <Text style={[styles.keypadAmount, { color: theme.primary }]} numberOfLines={1} adjustsFontSizeToFit>
                 ₱{paidAmount || "0.00"}
               </Text>
             </View>
@@ -1375,14 +1372,14 @@ export default function SalesScreen() {
               {PAYMENT_KEYPAD_KEYS.map((key) => (
                 <TouchableOpacity
                   key={key}
-                  style={[styles.paymentKey, { backgroundColor: dark ? "#202938" : "#eef3f9", borderColor: dark ? "#38465a" : "#dbe3ec" }]}
+                  style={[styles.paymentKey, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
                   onPress={() => key === "backspace" ? removePaidAmountDigit() : appendPaidAmount(key)}
                   accessibilityLabel={key === "backspace" ? "Delete last digit" : `Enter ${key}`}
                 >
                   {key === "backspace" ? (
-                    <Ionicons name="backspace-outline" size={24} color={dark ? "#f8fafc" : "#17386b"} />
+                    <Ionicons name="backspace-outline" size={24} color={theme.accent} />
                   ) : (
-                    <Text style={[styles.paymentKeyText, { color: dark ? "#f8fafc" : "#17386b" }]}>{key}</Text>
+                    <Text style={[styles.paymentKeyText, { color: theme.text }]}>{key}</Text>
                   )}
                 </TouchableOpacity>
               ))}

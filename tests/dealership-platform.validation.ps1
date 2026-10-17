@@ -96,6 +96,8 @@ Assert-Contains "src/app/(pos)/settings.tsx" 'Animated\.spring' "settings detail
 Assert-Contains "src/components/ui/theme-color-editor.tsx" 'THEME_PRESETS' "theme editor offers designated light and dark presets"
 Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "Coral"' "light palette includes ten preset choices"
 Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "High Contrast"' "dark palette includes ten preset choices"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "Pastel Lilac"' "light palette includes coordinated pastel choices"
+Assert-Contains "src/components/ui/theme-color-editor.tsx" 'name: "Dusky Blue"' "dark palette includes low-light pastel choices"
 Assert-Contains "src/lib/stores/ui-store.ts" 'setThemePalette' "selected theme presets persist atomically"
 Assert-Contains "src/lib/stores/ui-store.ts" 'exportUiPreferences' "persisted UI preferences can be included in recovery backups"
 Assert-Contains "src/lib/stores/ui-store.ts" 'restoreUiPreferences' "persisted UI preferences can be restored safely"
@@ -105,10 +107,16 @@ Assert-Contains "src/lib/backup/recovery.service.ts" 'restoreUiPreferences' "fre
 Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.createBackup' "database export uses the verified recovery format"
 Assert-Contains "src/app/(pos)/settings.tsx" 'File\.pickFileAsync' "database import uses the native file picker"
 Assert-Contains "src/app/(pos)/settings.tsx" 'RecoveryService\.restoreFreshInstallation' "database import preserves fresh-install restore safety"
+Assert-Contains "src/app/(pos)/sales.tsx" 'usePosTheme' "sales controls consume the active semantic palette"
+Assert-Contains "src/app/(pos)/receipts.tsx" 'usePosTheme' "receipt controls consume the active semantic palette"
+Assert-Contains "src/app/(pos)/products.tsx" 'usePosTheme' "product and detail controls consume the active semantic palette"
+Assert-Contains "src/app/(pos)/reports.tsx" 'usePosTheme' "report controls consume the active semantic palette"
+Assert-Contains "src/app/(pos)/customers.tsx" 'usePosTheme' "customer controls consume the active semantic palette"
+Assert-Contains "src/components/ui/usb-barcode-scanner-input.tsx" 'usePosTheme' "shared scanner state follows the active semantic palette"
 
 if ($failures.Count -gt 0) {
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
 
-Write-Output "Dealership platform validation passed (84 source contracts)."
+Write-Output "Dealership platform validation passed (92 source contracts)."

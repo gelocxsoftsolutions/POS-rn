@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/receipt-preview-modal";
 import { printReceiptPaper } from "@/lib/printing/print-receipt-paper";
 import { usePrinterStore } from "@/lib/stores/printer-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 
@@ -114,26 +114,27 @@ function InsightCard({
   value: string;
   sub: string;
 }) {
+  const theme = usePosTheme();
   return (
     <View
       style={[
         styles.insightCard,
-        { backgroundColor: dark ? "#141922" : tint, borderColor: dark ? "#28303d" : "#00000010" },
+        { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
       ]}
     >
-      <View style={[styles.insightIcon, { backgroundColor: dark ? "#ffffff14" : "#ffffffcc" }]}>
+      <View style={[styles.insightIcon, { backgroundColor: theme.surface }]}>
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
-      <Text style={[styles.insightLabel, { color: dark ? "#94a3b8" : "#5b6b7f" }]}>{label}</Text>
+      <Text style={[styles.insightLabel, { color: theme.muted }]}>{label}</Text>
       <Text
-        style={[styles.insightValue, { color: dark ? "#f8fafc" : "#17202b" }]}
+        style={[styles.insightValue, { color: theme.text }]}
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.65}
       >
         {value}
       </Text>
-      <Text style={[styles.insightSub, { color: dark ? "#64748b" : "#6b7b8d" }]} numberOfLines={1}>
+      <Text style={[styles.insightSub, { color: theme.muted }]} numberOfLines={1}>
         {sub}
       </Text>
     </View>
@@ -142,6 +143,7 @@ function InsightCard({
 
 export default function CustomersScreen() {
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const session = useCashierStore((s) => s.session);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [walkIn, setWalkIn] = useState<CustomerSummary | null>(null);
@@ -344,18 +346,18 @@ export default function CustomersScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiles.length, pageSize]);
 
-  const cardBg = dark ? "#141922" : "#ffffff";
-  const cardBorder = dark ? "#28303d" : "#e6ebf2";
-  const titleColor = dark ? "#f8fafc" : "#17202b";
-  const descColor = dark ? "#94a3b8" : "#6b7b8d";
-  const rowBorder = dark ? "#1e293b" : "#eef2f7";
-  const inputBg = dark ? "#141922" : "#ffffff";
-  const inputBorder = dark ? "#28303d" : "#e2e8f0";
+  const cardBg = theme.surface;
+  const cardBorder = theme.border;
+  const titleColor = theme.text;
+  const descColor = theme.muted;
+  const rowBorder = theme.border;
+  const inputBg = theme.surface;
+  const inputBorder = theme.border;
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: dark ? "#0b0f16" : "#f2f5f9" }]}>
-        <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
@@ -363,19 +365,19 @@ export default function CustomersScreen() {
   const hasAnyData = customers.length > 0 || walkIn !== null;
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f2f5f9" }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <View style={styles.headerCopy}>
-            <Text style={[styles.screenTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Customers</Text>
-            <Text style={[styles.screenSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>
+            <Text style={[styles.screenTitle, { color: theme.text }]}>Customers</Text>
+            <Text style={[styles.screenSubtitle, { color: theme.muted }]}>
               Spending records from completed sales
             </Text>
           </View>
           {hasAnyData && (
-            <View style={[styles.countPill, { backgroundColor: dark ? "#1e293b" : "#17386b" }]}>
-              <Ionicons name="people" size={14} color="#ffffff" />
-              <Text style={styles.countPillText}>{customers.length + (walkIn ? 1 : 0)}</Text>
+            <View style={[styles.countPill, { backgroundColor: theme.primary }]}>
+              <Ionicons name="people" size={14} color={theme.onPrimary} />
+              <Text style={[styles.countPillText, { color: theme.onPrimary }]}>{customers.length + (walkIn ? 1 : 0)}</Text>
             </View>
           )}
         </View>
@@ -433,7 +435,7 @@ export default function CustomersScreen() {
                     <Text style={[styles.cardTitle, { color: titleColor }]}>Customer favorites</Text>
                     <Text style={[styles.cardDesc, { color: descColor }]}>What named customers buy most.</Text>
                   </View>
-                  <View style={[styles.miniBadge, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}>
+                  <View style={[styles.miniBadge, { backgroundColor: theme.surfaceAlt }]}>
                     <Ionicons name="heart" size={13} color="#e11d48" />
                   </View>
                 </View>
@@ -448,21 +450,21 @@ export default function CustomersScreen() {
                   >
                     <View style={styles.favMain}>
                       <View style={styles.favTop}>
-                        <View style={[styles.rankBadge, { backgroundColor: dark ? "#1e293b" : "#17386b" }]}>
-                          <Text style={styles.rankText}>{index + 1}</Text>
+                        <View style={[styles.rankBadge, { backgroundColor: theme.primary }]}>
+                          <Text style={[styles.rankText, { color: theme.onPrimary }]}>{index + 1}</Text>
                         </View>
                         <Text style={[styles.itemName, { color: titleColor }]} numberOfLines={1}>
                           {item.productName}
                         </Text>
-                        <Text style={[styles.favQty, { color: dark ? "#93c5fd" : "#17386b" }]}>
+                        <Text style={[styles.favQty, { color: theme.accent }]}>
                           {item.quantity}×
                         </Text>
                       </View>
-                      <View style={[styles.favTrack, { backgroundColor: dark ? "#1e293b" : "#eef2f7" }]}>
+                      <View style={[styles.favTrack, { backgroundColor: theme.surfaceAlt }]}>
                         <View
                           style={[
                             styles.favFill,
-                            { width: `${Math.max(4, Math.round((item.quantity / topQty) * 100))}%` },
+                            { width: `${Math.max(4, Math.round((item.quantity / topQty) * 100))}%`, backgroundColor: theme.accent },
                           ]}
                         />
                       </View>
@@ -478,42 +480,42 @@ export default function CustomersScreen() {
               <Text style={[styles.sectionTitle, { color: titleColor, marginBottom: 0 }]}>All customers</Text>
               <View style={styles.listHeadingRight}>
                 {walkIn && (
-                  <View style={[styles.walkInTag, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}>
-                    <Text style={[styles.walkInTagText, { color: dark ? "#93c5fd" : "#17386b" }]}>
+                  <View style={[styles.walkInTag, { backgroundColor: theme.surfaceAlt }]}>
+                    <Text style={[styles.walkInTagText, { color: theme.accent }]}>
                       incl. no-name sales
                     </Text>
                   </View>
                 )}
-                <View style={[styles.viewToggle, { backgroundColor: dark ? "#18202c" : "#e8edf3" }]}>
+                <View style={[styles.viewToggle, { backgroundColor: theme.surfaceAlt }]}>
                   <TouchableOpacity
-                    style={[styles.viewToggleButton, viewMode === "grid" && styles.viewToggleButtonActive]}
+                    style={[styles.viewToggleButton, viewMode === "grid" && { backgroundColor: theme.primary }]}
                     onPress={() => setViewMode("grid")}
                     accessibilityLabel="Grid view"
                   >
-                    <Ionicons name="grid" size={16} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                    <Ionicons name="grid" size={16} color={viewMode === "grid" ? theme.onPrimary : theme.muted} />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.viewToggleButton, viewMode === "list" && styles.viewToggleButtonActive]}
+                    style={[styles.viewToggleButton, viewMode === "list" && { backgroundColor: theme.primary }]}
                     onPress={() => setViewMode("list")}
                     accessibilityLabel="List view"
                   >
-                    <Ionicons name="list" size={17} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+                    <Ionicons name="list" size={17} color={viewMode === "list" ? theme.onPrimary : theme.muted} />
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
             <View style={[styles.searchBar, { backgroundColor: inputBg, borderColor: inputBorder }]}>
-              <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+              <Ionicons name="search" size={18} color={theme.muted} />
               <TextInput
                 style={[styles.searchInput, { color: titleColor }]}
                 placeholder="Search customers..."
-                placeholderTextColor={dark ? "#64748b" : "#9aa4b2"}
+                placeholderTextColor={theme.muted}
                 value={search}
                 onChangeText={setSearch}
               />
               {search.length > 0 && (
                 <TouchableOpacity onPress={() => setSearch("")} accessibilityLabel="Clear search">
-                  <Ionicons name="close-circle" size={18} color={dark ? "#64748b" : "#8e99a4"} />
+                  <Ionicons name="close-circle" size={18} color={theme.muted} />
                 </TouchableOpacity>
               )}
             </View>
@@ -642,7 +644,7 @@ export default function CustomersScreen() {
                   disabled={safePage === 1}
                   accessibilityLabel="Previous page"
                 >
-                  <Ionicons name="chevron-back" size={16} color={dark ? "#e2e8f0" : "#17386b"} />
+                  <Ionicons name="chevron-back" size={16} color={theme.accent} />
                 </TouchableOpacity>
                 <Text style={[styles.pagerText, { color: descColor }]}>
                   Page {safePage} of {totalPages} • {viewMode === "grid" ? "5 × 5 grid" : "10 per page"}
@@ -657,7 +659,7 @@ export default function CustomersScreen() {
                   disabled={safePage === totalPages}
                   accessibilityLabel="Next page"
                 >
-                  <Ionicons name="chevron-forward" size={16} color={dark ? "#e2e8f0" : "#17386b"} />
+                  <Ionicons name="chevron-forward" size={16} color={theme.accent} />
                 </TouchableOpacity>
               </View>
             )}
@@ -667,7 +669,7 @@ export default function CustomersScreen() {
 
       {/* Customer profile */}
       <Modal visible={profileKey !== undefined} animationType="slide" onRequestClose={closeProfile}>
-        <View style={[styles.profileContainer, { backgroundColor: dark ? "#0b0f16" : "#f2f5f9" }]}>
+        <View style={[styles.profileContainer, { backgroundColor: theme.background }]}>
           <View style={[styles.profileHeader, { backgroundColor: cardBg, borderBottomColor: cardBorder }]}>
             <View style={styles.profileHeading}>
               <Text style={[styles.profileTitle, { color: titleColor }]} numberOfLines={1}>
@@ -678,16 +680,16 @@ export default function CustomersScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              style={[styles.profileClose, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}
+              style={[styles.profileClose, { backgroundColor: theme.surfaceAlt }]}
               onPress={closeProfile}
               accessibilityLabel="Close profile"
             >
-              <Ionicons name="close" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+              <Ionicons name="close" size={20} color={theme.accent} />
             </TouchableOpacity>
           </View>
           {profileLoading || !profile ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+              <ActivityIndicator size="large" color={theme.accent} />
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

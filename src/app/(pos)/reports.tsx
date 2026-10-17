@@ -17,7 +17,7 @@ import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import dayjs from "dayjs";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
@@ -51,6 +51,7 @@ const escapeHtml = (value: unknown) =>
 const paymentLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
 function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean }) {
+  const theme = usePosTheme();
   const width = 760;
   const height = 210;
   const padX = 48;
@@ -63,8 +64,8 @@ function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean
     y: padY + chartHeight - (Number(point.revenue) / max) * chartHeight,
     point,
   }));
-  const stroke = dark ? "#60a5fa" : "#1d4ed8";
-  const muted = dark ? "#64748b" : "#94a3b8";
+  const stroke = theme.accent;
+  const muted = theme.muted;
 
   return (
     <View style={styles.chartWrap}>
@@ -92,6 +93,7 @@ function csvCell(value: unknown) {
 
 export default function ReportsScreen() {
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const { width } = useWindowDimensions();
   const wide = width >= 900;
   const [preset, setPreset] = useState<Preset>("today");
@@ -110,13 +112,9 @@ export default function ReportsScreen() {
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
 
   const colors = useMemo(() => ({
-    background: dark ? "#0b0f16" : "#f4f6f8",
-    panel: dark ? "#141922" : "#ffffff",
-    panelAlt: dark ? "#101722" : "#f8fafc",
-    border: dark ? "#293241" : "#dfe5ec",
-    text: dark ? "#f4f7fb" : "#172033",
-    muted: dark ? "#93a0b2" : "#667085",
-  }), [dark]);
+    background: theme.background, panel: theme.surface, panelAlt: theme.surfaceAlt,
+    border: theme.border, text: theme.text, muted: theme.muted,
+  }), [theme.background, theme.surface, theme.surfaceAlt, theme.border, theme.text, theme.muted]);
 
   const applyPreset = useCallback((next: Preset) => {
     const now = dayjs();
@@ -383,18 +381,18 @@ export default function ReportsScreen() {
           <TouchableOpacity
             style={[
               styles.printButton,
-              { backgroundColor: colors.panel, borderColor: dark ? "#8abaff" : "#17386b" },
+              { backgroundColor: colors.panel, borderColor: theme.primary },
               !report.sales.length && styles.disabled,
             ]}
             onPress={() => setEodVisible(true)}
             disabled={!report.sales.length || loading}
           >
-            <Ionicons name="print-outline" size={18} color={dark ? "#8abaff" : "#17386b"} />
-            <Text style={[styles.printButtonText, { color: dark ? "#8abaff" : "#17386b" }]}>End of Day</Text>
+            <Ionicons name="print-outline" size={18} color={theme.primary} />
+            <Text style={[styles.printButtonText, { color: theme.primary }]}>End of Day</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.exportButton, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
-            {exporting ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="download-outline" size={18} color="#ffffff" />}
-            <Text style={styles.exportText}>Export CSV</Text>
+          <TouchableOpacity style={[styles.exportButton, { backgroundColor: theme.primary }, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
+            {exporting ? <ActivityIndicator color={theme.onPrimary} /> : <Ionicons name="download-outline" size={18} color={theme.onPrimary} />}
+            <Text style={[styles.exportText, { color: theme.onPrimary }]}>Export CSV</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -402,8 +400,8 @@ export default function ReportsScreen() {
       <View style={styles.rangeRow}>
         <View style={styles.presets}>
           {([['today', 'Today'], ['7days', '7 Days'], ['30days', '30 Days']] as const).map(([key, label]) => (
-            <TouchableOpacity key={key} style={[styles.presetButton, { borderColor: colors.border, backgroundColor: colors.panel }, preset === key && styles.presetActive]} onPress={() => applyPreset(key)}>
-              <Text style={[styles.presetText, { color: colors.muted }, preset === key && styles.presetTextActive]}>{label}</Text>
+            <TouchableOpacity key={key} style={[styles.presetButton, { borderColor: preset === key ? theme.primary : colors.border, backgroundColor: preset === key ? theme.primary : colors.panel }]} onPress={() => applyPreset(key)}>
+              <Text style={[styles.presetText, { color: preset === key ? theme.onPrimary : colors.muted }]}>{label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -423,7 +421,7 @@ export default function ReportsScreen() {
       {dateTarget && <DateTimePicker value={dateTarget === "start" ? startDate : endDate} mode="date" onChange={chooseDate} />}
 
       {loading ? (
-        <View style={styles.loading}><ActivityIndicator size="large" color="#2563eb" /></View>
+        <View style={styles.loading}><ActivityIndicator size="large" color={theme.accent} /></View>
       ) : report.summary.transactionCount === 0 ? (
         <View style={[styles.empty, { backgroundColor: colors.panel, borderColor: colors.border }]}>
           <Ionicons name="bar-chart-outline" size={46} color={colors.muted} />
@@ -454,7 +452,7 @@ export default function ReportsScreen() {
               {report.payments.map((payment) => (
                 <View key={payment.method} style={styles.paymentRow}>
                   <View style={styles.rowBetween}><Text style={[styles.rowName, { color: colors.text }]}>{payment.method}</Text><Text style={[styles.rowValue, { color: colors.text }]}>{currency(payment.amount)}</Text></View>
-                  <View style={[styles.progressTrack, { backgroundColor: colors.panelAlt }]}><View style={[styles.progressFill, { width: `${Math.max(3, (payment.amount / paymentMax) * 100)}%` }]} /></View>
+                  <View style={[styles.progressTrack, { backgroundColor: colors.panelAlt }]}><View style={[styles.progressFill, { width: `${Math.max(3, (payment.amount / paymentMax) * 100)}%`, backgroundColor: theme.accent }]} /></View>
                   <Text style={[styles.smallText, { color: colors.muted }]}>{payment.transactions} transactions</Text>
                 </View>
               ))}
@@ -499,16 +497,16 @@ export default function ReportsScreen() {
               </View>
               {report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
                 <TouchableOpacity
-                  style={[styles.retryAllButton, { borderColor: colors.border }]}
+                  style={[styles.retryAllButton, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                   onPress={retryFailedSales}
                   disabled={retryingId !== null}
                 >
                   {retryingId === "all" ? (
-                    <ActivityIndicator size="small" color="#17386b" />
+                    <ActivityIndicator size="small" color={theme.accent} />
                   ) : (
-                    <Ionicons name="refresh" size={15} color="#17386b" />
+                    <Ionicons name="refresh" size={15} color={theme.accent} />
                   )}
-                  <Text style={styles.retryAllText}>Retry failed</Text>
+                  <Text style={[styles.retryAllText, { color: theme.accent }]}>Retry failed</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -533,14 +531,14 @@ export default function ReportsScreen() {
                       <View style={styles.salesCell}>
                         {canRetry && (
                           <TouchableOpacity
-                            style={styles.retryRowButton}
+                            style={[styles.retryRowButton, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                             onPress={() => retrySale(sale.id)}
                             disabled={retryingId !== null}
                           >
                             {retryingId === sale.id ? (
-                              <ActivityIndicator size="small" color="#17386b" />
+                              <ActivityIndicator size="small" color={theme.accent} />
                             ) : (
-                              <Text style={styles.retryRowText}>Retry</Text>
+                              <Text style={[styles.retryRowText, { color: theme.accent }]}>Retry</Text>
                             )}
                           </TouchableOpacity>
                         )}

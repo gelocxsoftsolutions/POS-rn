@@ -25,7 +25,7 @@ import { VariationStockModal } from "@/components/ui/variation-stock-modal";
 import { groupByVariation } from "@/lib/products/group-variations";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
@@ -75,6 +75,7 @@ export default function ProductsScreen() {
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
   const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
@@ -216,16 +217,16 @@ export default function ProductsScreen() {
     const badge = stockBadge(item);
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
-        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
             {item.imageUrl ? (
               <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
             ) : (
-              <Ionicons name="fish" size={32} color="#17386b" />
+              <Ionicons name="fish" size={32} color={theme.accent} />
             )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
@@ -237,20 +238,20 @@ export default function ProductsScreen() {
     const badge = stockBadge(item);
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
-        <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.listCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.listRow}>
             <View style={styles.listImagePlaceholder}>
               {item.imageUrl ? (
                 <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
               ) : (
-                <Ionicons name="fish" size={28} color="#17386b" />
+                <Ionicons name="fish" size={28} color={theme.accent} />
               )}
             </View>
             <View style={styles.listInfo}>
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
               <View style={styles.listMeta}>
-                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+                <Text style={[styles.listProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
                 <Badge label={badge.label} color={badge.color} size="sm" />
               </View>
               {item.categoryName && (
@@ -368,12 +369,12 @@ export default function ProductsScreen() {
     const totalBadge = isMulti ? { label: `${group.length} variations`, color: "#6f42c1" } : badge;
     return (
       <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
-        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
             {base.imageUrl ? (
               <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
             ) : (
-              <Ionicons name="fish" size={32} color="#17386b" />
+              <Ionicons name="fish" size={32} color={theme.accent} />
             )}
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
@@ -381,7 +382,7 @@ export default function ProductsScreen() {
             {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
           </View>
           {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ marginTop: 4, alignSelf: "flex-start" }} />}
-          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>{priceText}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {isMulti ? totalStock : base.availableQty ?? 0}</Text>
           <Badge label={totalBadge.label} color={totalBadge.color} size="sm" style={{ marginTop: 6 }} />
           {isMulti && (
@@ -403,13 +404,13 @@ export default function ProductsScreen() {
     const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
     return (
       <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
-        <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.listCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.listRow}>
             <View style={styles.listImagePlaceholder}>
               {base.imageUrl ? (
                 <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
               ) : (
-                <Ionicons name="fish" size={28} color="#17386b" />
+                <Ionicons name="fish" size={28} color={theme.accent} />
               )}
             </View>
             <View style={styles.listInfo}>
@@ -419,7 +420,7 @@ export default function ProductsScreen() {
               </View>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{base.sku}{isMulti ? ` +${group.length - 1} more` : ""}</Text>
               <View style={styles.listMeta}>
-                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+                <Text style={[styles.listProductPrice, { color: theme.primary }]}>{priceText}</Text>
                 <Badge label={isMulti ? `Stock:${totalStock}` : stockBadge(base).label} color={isMulti ? "#6f42c1" : stockBadge(base).color} size="sm" />
               </View>
               {base.categoryName && <Text style={styles.listCategory}>{base.categoryName}</Text>}
@@ -432,16 +433,16 @@ export default function ProductsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.pageHeader}>
         <View>
-          <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
-          <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
+          <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
+          <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
         </View>
         {operatingMode === "INDEPENDENT" ? (
-          <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
-            <Ionicons name="add-circle-outline" size={18} color="#ffffff" />
-            <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
+          <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
+            <Ionicons name="add-circle-outline" size={18} color={theme.onPrimary} />
+            <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -452,74 +453,74 @@ export default function ProductsScreen() {
           { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
           { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
         ].map((metric) => (
-          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
+          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Ionicons name={metric.icon as any} size={14} color={metric.color} />
             <View>
-              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
-              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
+              <Text style={[styles.summaryValue, { color: theme.text }]}>{metric.value}</Text>
+              <Text style={[styles.summaryLabel, { color: theme.muted }]}>{metric.label}</Text>
             </View>
           </View>
         ))}
       </View>
 
       <View style={[styles.searchTools, { zIndex: 20 }]}>
-        <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
+        <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Ionicons name="search" size={16} color={theme.muted} />
           <TextInput
-            style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder="Search products..."
-            placeholderTextColor={dark ? "#4a6785" : "#b0b8c1"}
+            placeholderTextColor={theme.muted}
             value={search}
             onChangeText={(t) => { setSearch(t); setPage(1); }}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
+              <Ionicons name="close-circle" size={16} color={theme.muted} />
             </TouchableOpacity>
           )}
         </View>
         <View
           style={[
             styles.viewToggle,
-            { backgroundColor: dark ? "#141922" : "#eef2f7", borderColor: dark ? "#334155" : "#d8e0ea" },
+            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
           ]}
         >
-          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
-            <Ionicons name="grid" size={15} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && { backgroundColor: theme.primary }]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
+            <Ionicons name="grid" size={15} color={viewMode === "grid" ? theme.onPrimary : theme.muted} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
-            <Ionicons name="list" size={15} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && { backgroundColor: theme.primary }]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
+            <Ionicons name="list" size={15} color={viewMode === "list" ? theme.onPrimary : theme.muted} />
           </TouchableOpacity>
         </View>
         <View style={styles.categoryMenuWrap}>
           <TouchableOpacity
-            style={[styles.categoryButton, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}
+            style={[styles.categoryButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={() => setShowCategoryMenu((visible) => !visible)}
             accessibilityLabel="Choose product category"
           >
-            <Ionicons name="funnel-outline" size={17} color={dark ? "#cbd5e1" : "#17386b"} />
-            <Text style={[styles.categoryButtonText, { color: dark ? "#e2e8f0" : "#17386b" }]} numberOfLines={1}>
+            <Ionicons name="funnel-outline" size={17} color={theme.accent} />
+            <Text style={[styles.categoryButtonText, { color: theme.text }]} numberOfLines={1}>
               {allCategories.find((category) => category.id === selectedCategoryId)?.name ?? "Category"}
             </Text>
-            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={dark ? "#94a3b8" : "#64748b"} />
+            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={theme.muted} />
           </TouchableOpacity>
           {showCategoryMenu && (
-            <View style={[styles.categoryDropdown, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}>
+            <View style={[styles.categoryDropdown, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <ScrollView style={styles.categoryDropdownScroll} nestedScrollEnabled>
                 {allCategories.map((category) => {
                   const selected = selectedCategoryId === category.id;
                   return (
                     <TouchableOpacity
                       key={category.id ?? "all"}
-                      style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
+                      style={[styles.categoryOption, selected && { backgroundColor: theme.primary }]}
                       onPress={() => {
                         setSelectedCategoryId(category.id);
                         setPage(1);
                         setShowCategoryMenu(false);
                       }}
                     >
-                      <Text style={[styles.categoryOptionText, { color: selected ? "#ffffff" : dark ? "#e2e8f0" : "#334155" }]}>{category.name}</Text>
-                      {selected && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                      <Text style={[styles.categoryOptionText, { color: selected ? theme.onPrimary : theme.text }]}>{category.name}</Text>
+                      {selected && <Ionicons name="checkmark" size={16} color={theme.onPrimary} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -533,13 +534,13 @@ export default function ProductsScreen() {
           compact
           disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || Boolean(stockProduct) || detailLoading}
         />
-        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
-          <Ionicons name="scan" size={18} color="#ffffff" />
+        <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
+          <Ionicons name="scan" size={18} color={theme.onPrimary} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.stockFilterLine}>
-        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Stock</Text>
+        <Text style={[styles.filterLabel, { color: theme.muted }]}>Stock</Text>
         <FlatList
           data={STOCK_FILTERS}
           horizontal
@@ -548,10 +549,10 @@ export default function ProductsScreen() {
           contentContainerStyle={styles.stockFilterContent}
           renderItem={({ item: sf }) => (
             <TouchableOpacity
-              style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, stockFilter === sf && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: stockFilter === sf ? theme.primary : theme.surfaceAlt, borderColor: stockFilter === sf ? theme.primary : theme.border }]}
               onPress={() => { setStockFilter(sf); setPage(1); }}
             >
-              <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, stockFilter === sf && styles.filterTextActive]}>
+              <Text style={[styles.filterText, { color: stockFilter === sf ? theme.onPrimary : theme.text }]}>
                 {sf}
               </Text>
             </TouchableOpacity>
@@ -562,7 +563,7 @@ export default function ProductsScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#17386b" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       ) : viewMode === "grid" ? (
         <FlatList
@@ -611,7 +612,7 @@ export default function ProductsScreen() {
 
       <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
         <View style={styles.variationModalOverlay}>
-          <View style={[styles.variationModal, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+          <View style={[styles.variationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.variationModalHeader}>
               <View style={styles.variationModalHeading}>
                 <Text style={[styles.variationModalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
@@ -627,7 +628,7 @@ export default function ProductsScreen() {
                 return (
                   <TouchableOpacity
                     key={variant.id}
-                    style={[styles.variationRow, { backgroundColor: dark ? "#0f1729" : "#f8fafc", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}
+                    style={[styles.variationRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
                     onPress={() => {
                       setVariationGroup(null);
                       openDetail(variant);
@@ -654,9 +655,9 @@ export default function ProductsScreen() {
                       </View>
                     </View>
                     {operatingMode === "INDEPENDENT" && variant.identitySource === "INDEPENDENT" ? <TouchableOpacity
-                      style={{ minHeight: 34, paddingHorizontal: 10, borderRadius: 7, backgroundColor: "#17386b", alignItems: "center", justifyContent: "center" }}
+                      style={{ minHeight: 34, paddingHorizontal: 10, borderRadius: 7, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" }}
                       onPress={(event) => { event.stopPropagation(); setVariationGroup(null); setStockProduct(variant); }}
-                    ><Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>Stock / Loss</Text></TouchableOpacity> : null}
+                    ><Text style={{ color: theme.onPrimary, fontSize: 11, fontWeight: "800" }}>Stock / Loss</Text></TouchableOpacity> : null}
                     <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
                   </TouchableOpacity>
                 );
@@ -680,27 +681,27 @@ export default function ProductsScreen() {
         onRequestClose={() => setDetailProduct(null)}
       >
         {detailLoading ? (
-          <View style={[styles.detailLoadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-            <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+          <View style={[styles.detailLoadingContainer, { backgroundColor: theme.background }]}>
+            <ActivityIndicator size="large" color={theme.accent} />
           </View>
         ) : detailProduct ? (
-          <View style={[styles.detailContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-            <View style={[styles.detailHeader, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+          <View style={[styles.detailContainer, { backgroundColor: theme.background }]}>
+            <View style={[styles.detailHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={() => setDetailProduct(null)} style={styles.detailBackBtn}>
-                <Ionicons name="close" size={22} color="#17386b" />
+                <Ionicons name="close" size={22} color={theme.accent} />
               </TouchableOpacity>
               <Text style={[styles.detailHeaderTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Details</Text>
               {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? (
                 <TouchableOpacity
-                  style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "#17386b", flexDirection: "row", alignItems: "center", gap: 6 }}
+                  style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 6 }}
                   onPress={() => {
                     const productId = detailProduct.id;
                     setDetailProduct(null);
                     router.push(`/(pos)/independent-catalog?edit=${encodeURIComponent(productId)}` as any);
                   }}
                 >
-                  <Ionicons name="create-outline" size={16} color="#ffffff" />
-                  <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "800" }}>Edit</Text>
+                  <Ionicons name="create-outline" size={16} color={theme.onPrimary} />
+                  <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Edit</Text>
                 </TouchableOpacity>
               ) : <View style={{ width: 36 }} />}
             </View>
@@ -725,12 +726,12 @@ export default function ProductsScreen() {
 
                 <Text style={[styles.detailProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.name}</Text>
                 {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" ? <TouchableOpacity
-                  style={{ minHeight: 42, borderRadius: 8, backgroundColor: "#17386b", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 12 }}
+                  style={{ minHeight: 42, borderRadius: 8, backgroundColor: theme.primary, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 12 }}
                   onPress={() => setStockProduct(detailProduct)}
-                ><Ionicons name="warning-outline" size={18} color="#fff" /><Text style={{ color: "#fff", fontWeight: "800" }}>Manage Stock / Record Loss</Text></TouchableOpacity> : null}
-                <View style={[styles.detailBarcodeCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e8edf3" }]}>
+                ><Ionicons name="warning-outline" size={18} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "800" }}>Manage Stock / Record Loss</Text></TouchableOpacity> : null}
+                <View style={[styles.detailBarcodeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <View style={styles.barcodeFooterHeading}>
-                    <Ionicons name="barcode-outline" size={20} color={dark ? "#8fb4e8" : "#17386b"} />
+                    <Ionicons name="barcode-outline" size={20} color={theme.accent} />
                     <Text style={[styles.barcodeFooterTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Variation Barcode</Text>
                   </View>
                   <Text style={[styles.barcodePrintHint, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Double tap a barcode to print</Text>
@@ -758,7 +759,7 @@ export default function ProductsScreen() {
 
               <ScrollView style={styles.detailInformation} contentContainerStyle={styles.detailScroll}>
                 <Text style={[styles.detailColumnTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Information</Text>
-                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+                <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
                 <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
                   <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>SKU</Text>
                   <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.sku}</Text>
@@ -805,7 +806,7 @@ export default function ProductsScreen() {
                 </View>
 
                 <Text style={[styles.detailColumnTitle, styles.inventoryTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Inventory</Text>
-                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+                <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
                   {[
                     ["Available", detailProduct.availableQty ?? 0],
                     ["Allocated", detailProduct.allocatedQty ?? 0],

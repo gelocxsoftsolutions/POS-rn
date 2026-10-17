@@ -106,6 +106,7 @@ const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
 const AUDIT_FILTERS = ["ALL", "SALE_CREATED", "LOGIN_SUCCESS", "LOGIN_FAILED", "TRANSFER"] as const;
 const APPLICATION_SIZES = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
 function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onChange: (value: number) => void; dark: boolean }) {
+  const theme = usePosTheme();
   return (
     <View style={styles.sizeOptions}>
       {APPLICATION_SIZES.map((size) => {
@@ -115,14 +116,13 @@ function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onCh
             key={size}
             style={[
               styles.sizeOption,
-              { backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: dark ? "#334155" : "#dbe3ec" },
-              selected && styles.sizeOptionSelected,
+              { backgroundColor: selected ? theme.primary : theme.surfaceAlt, borderColor: selected ? theme.primary : theme.border },
             ]}
             onPress={() => onChange(size / 100)}
             accessibilityRole="button"
             accessibilityState={{ selected }}
           >
-            <Text style={[styles.sizeOptionText, { color: dark ? "#cbd5e1" : "#475569" }, selected && styles.sizeOptionTextSelected]}>
+            <Text style={[styles.sizeOptionText, { color: selected ? theme.onPrimary : theme.text }]}>
               {size}%
             </Text>
           </TouchableOpacity>
@@ -149,22 +149,23 @@ function SoundVolumeControl({
   onChange: (value: number) => void;
   onPreview: () => void;
 }) {
+  const theme = usePosTheme();
   const percent = Math.round(value * 100);
   const adjust = (delta: number) => onChange(Math.round((value + delta) * 10) / 10);
-  const buttonColor = dark ? "#cbd5e1" : "#17386b";
+  const buttonColor = theme.accent;
 
   return (
-    <View style={[styles.soundItem, { borderBottomColor: dark ? "#1e293b" : "#edf1f5" }]}>
+    <View style={[styles.soundItem, { borderBottomColor: theme.border }]}>
       <View style={styles.soundItemHeader}>
-        <View style={[styles.soundItemIcon, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}>
-          <Ionicons name={icon} size={18} color={dark ? "#93c5fd" : "#17386b"} />
+        <View style={[styles.soundItemIcon, { backgroundColor: theme.surfaceAlt }]}>
+          <Ionicons name={icon} size={18} color={theme.accent} />
         </View>
-        <Text style={[styles.soundItemTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{title}</Text>
-        <Text style={[styles.soundItemPercent, { color: muted ? (dark ? "#64748b" : "#94a3b8") : buttonColor }]}>{percent}%</Text>
+        <Text style={[styles.soundItemTitle, { color: theme.text }]}>{title}</Text>
+        <Text style={[styles.soundItemPercent, { color: muted ? theme.muted : buttonColor }]}>{percent}%</Text>
         <TouchableOpacity
           style={[
             styles.soundItemPreview,
-            { backgroundColor: dark ? "#1e293b" : "#f7f9fc", borderColor: dark ? "#334155" : "#dbe3ec" },
+            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
             (muted || value <= 0) && styles.volumeButtonDisabled,
           ]}
           onPress={onPreview}
@@ -176,18 +177,18 @@ function SoundVolumeControl({
       </View>
       <View style={styles.volumeControl}>
         <TouchableOpacity
-          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value <= 0 && styles.volumeButtonDisabled]}
+          style={[styles.soundStepButton, { borderColor: theme.border }, value <= 0 && styles.volumeButtonDisabled]}
           onPress={() => adjust(-0.1)}
           disabled={value <= 0}
           accessibilityLabel={`Lower ${title} volume`}
         >
           <Ionicons name="remove" size={17} color={buttonColor} />
         </TouchableOpacity>
-        <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
-          <View style={[styles.volumeFill, { width: `${percent}%`, opacity: muted ? 0.45 : 1 }]} />
+        <View style={[styles.volumeTrack, { backgroundColor: theme.surfaceAlt }]}>
+          <View style={[styles.volumeFill, { width: `${percent}%`, opacity: muted ? 0.45 : 1, backgroundColor: theme.accent }]} />
         </View>
         <TouchableOpacity
-          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value >= 1 && styles.volumeButtonDisabled]}
+          style={[styles.soundStepButton, { borderColor: theme.border }, value >= 1 && styles.volumeButtonDisabled]}
           onPress={() => adjust(0.1)}
           disabled={value >= 1}
           accessibilityLabel={`Raise ${title} volume`}
@@ -1101,23 +1102,23 @@ export default function SettingsScreen() {
             </Text>
             <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create device users and choose which accounts share sales, receipts, and reports.</Text>
           </View>
-          <TouchableOpacity style={styles.addUserButton} onPress={openCreateUser}>
-            <Ionicons name="person-add-outline" size={17} color="#ffffff" />
-            <Text style={styles.addUserButtonText}>Add user</Text>
+          <TouchableOpacity style={[styles.addUserButton, { backgroundColor: posTheme.primary }]} onPress={openCreateUser}>
+            <Ionicons name="person-add-outline" size={17} color={posTheme.onPrimary} />
+            <Text style={[styles.addUserButtonText, { color: posTheme.onPrimary }]}>Add user</Text>
           </TouchableOpacity>
         </View>
 
         {cashiers.length === 0 ? (
-          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
-            <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
+          <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt }]}>
+            <Text style={[styles.emptyText, { color: posTheme.muted }]}>
               No users synced yet. Connect to OMS and sync to load users.
             </Text>
           </View>
         ) : (
           cashiers.map((user) => (
             <View key={user.id} style={[styles.userRow, { borderBottomColor: borderColor }]}>
-              <View style={[styles.userAvatar, { backgroundColor: dark ? "#1e3a5f" : "#dfeaff" }]}>
-                <Text style={[styles.userAvatarText, { color: dark ? "#93c5fd" : "#17386b" }]}>
+              <View style={[styles.userAvatar, { backgroundColor: posTheme.surfaceAlt }]}>
+                <Text style={[styles.userAvatarText, { color: posTheme.accent }]}>
                   {user.displayName?.substring(0, 2)?.toUpperCase() ?? "U"}
                 </Text>
               </View>
@@ -1125,8 +1126,8 @@ export default function SettingsScreen() {
                 <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
                 <Text style={[styles.userUsername, { color: fieldLabelColor }]}>{user.username ? `@${user.username}` : "PIN login"}</Text>
               </View>
-              <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
-                <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
+              <View style={[styles.badge, { borderColor: posTheme.border, backgroundColor: posTheme.surfaceAlt }]}>
+                <Text style={[styles.badgeText, { color: posTheme.muted }]}>{user.roleName || "Cashier"}</Text>
               </View>
               {Boolean(user.accountLocked) && (
                 <View style={styles.lockedBadge}>
@@ -1143,20 +1144,18 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.linkUserButton,
-                    { borderColor: dark ? "#334155" : "#cbd5e1" },
-                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonActive,
+                    { borderColor: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.primary : posTheme.border, backgroundColor: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.primary : posTheme.surfaceAlt },
                   ]}
                   onPress={() => toggleCashierLink(session.cashierId, user.id)}
                 >
                   <Ionicons
                     name={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "link" : "unlink-outline"}
                     size={15}
-                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "#ffffff" : fieldLabelColor}
+                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.onPrimary : fieldLabelColor}
                   />
                   <Text style={[
                     styles.linkUserButtonText,
-                    { color: fieldLabelColor },
-                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonTextActive,
+                    { color: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.onPrimary : fieldLabelColor },
                   ]}>
                     {salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "Shared" : "Separate"}
                   </Text>
@@ -1203,9 +1202,9 @@ export default function SettingsScreen() {
               maxLength={2}
               accessibilityLabel="Maximum failed PIN attempts"
             />
-            <TouchableOpacity style={styles.securityApplyButton} onPress={applyPinSecurity}>
-              <Ionicons name="checkmark" size={17} color="#ffffff" />
-              <Text style={styles.securityApplyText}>Apply</Text>
+            <TouchableOpacity style={[styles.securityApplyButton, { backgroundColor: posTheme.primary }]} onPress={applyPinSecurity}>
+              <Ionicons name="checkmark" size={17} color={posTheme.onPrimary} />
+              <Text style={[styles.securityApplyText, { color: posTheme.onPrimary }]}>Apply</Text>
             </TouchableOpacity>
           </View>
 
@@ -1242,8 +1241,8 @@ export default function SettingsScreen() {
           <Switch
             value={autoLockMinutes > 0}
             onValueChange={(enabled) => enabled ? applyAutoLock() : setAutoLockMinutes(0)}
-            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
-            thumbColor={autoLockMinutes > 0 ? "#17386b" : "#f8fafc"}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={autoLockMinutes > 0 ? posTheme.primary : posTheme.surface}
           />
         </View>
         <View style={styles.autoLockEditor}>
@@ -1259,17 +1258,17 @@ export default function SettingsScreen() {
             {(["minutes", "hours"] as const).map((unit) => (
               <TouchableOpacity
                 key={unit}
-                style={[styles.autoLockUnit, autoLockUnit === unit && styles.autoLockUnitSelected]}
+                style={[styles.autoLockUnit, autoLockUnit === unit && { backgroundColor: posTheme.primary }]}
                 onPress={() => setAutoLockUnit(unit)}
                 accessibilityState={{ selected: autoLockUnit === unit }}
               >
-                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? "#ffffff" : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
+                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? posTheme.onPrimary : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          <TouchableOpacity style={styles.autoLockApply} onPress={applyAutoLock}>
-            <Ionicons name="checkmark" size={17} color="#ffffff" />
-            <Text style={styles.autoLockApplyText}>Apply</Text>
+          <TouchableOpacity style={[styles.autoLockApply, { backgroundColor: posTheme.primary }]} onPress={applyAutoLock}>
+            <Ionicons name="checkmark" size={17} color={posTheme.onPrimary} />
+            <Text style={[styles.autoLockApplyText, { color: posTheme.onPrimary }]}>Apply</Text>
           </TouchableOpacity>
         </View>
         <Text style={[styles.autoLockStatus, { color: sectionDescColor }]}>
@@ -1288,10 +1287,10 @@ export default function SettingsScreen() {
           {AUDIT_FILTERS.map((f) => (
             <TouchableOpacity
               key={f}
-              style={[styles.filterChip, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }, auditFilter === f && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: auditFilter === f ? posTheme.primary : posTheme.surfaceAlt, borderColor: auditFilter === f ? posTheme.primary : posTheme.border }]}
               onPress={() => setAuditFilter(f)}
             >
-              <Text style={[styles.filterChipText, { color: dark ? "#94a3b8" : "#6b7b8d" }, auditFilter === f && styles.filterChipTextActive]}>
+              <Text style={[styles.filterChipText, { color: auditFilter === f ? posTheme.onPrimary : posTheme.muted }]}>
                 {f === "ALL" ? "ALL" : f.replace("_", " ")}
               </Text>
             </TouchableOpacity>
@@ -1429,8 +1428,8 @@ export default function SettingsScreen() {
 
         {selectedPrinter && (
           <View style={[styles.selectedPrinterSummary, { backgroundColor: inputBg, borderColor: inputBorder }]}>
-            <View style={[styles.printerIcon, { backgroundColor: dark ? "#17345b" : "#e8f0ff" }]}>
-              <Ionicons name="print-outline" size={22} color={dark ? "#93c5fd" : "#17386b"} />
+            <View style={[styles.printerIcon, { backgroundColor: posTheme.surfaceAlt }]}>
+              <Ionicons name="print-outline" size={22} color={posTheme.accent} />
             </View>
             <View style={styles.printerDeviceCopy}>
               <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{selectedPrinter.name}</Text>
@@ -1447,9 +1446,9 @@ export default function SettingsScreen() {
             disabled={printerAction !== null}
           >
             {printerAction === "refresh" ? (
-              <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />
+              <ActivityIndicator size="small" color={posTheme.accent} />
             ) : (
-              <Ionicons name="refresh" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+              <Ionicons name="refresh" size={17} color={posTheme.accent} />
             )}
             <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Refresh paired devices</Text>
           </TouchableOpacity>
@@ -1457,7 +1456,7 @@ export default function SettingsScreen() {
             style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
             onPress={() => void Linking.sendIntent("android.settings.BLUETOOTH_SETTINGS")}
           >
-            <Ionicons name="bluetooth" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            <Ionicons name="bluetooth" size={17} color={posTheme.accent} />
             <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Bluetooth settings</Text>
           </TouchableOpacity>
         </View>
@@ -1559,18 +1558,17 @@ export default function SettingsScreen() {
               key={opt.key}
               style={[
                 styles.navCard,
-                { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
-                navigationMode === opt.key && styles.navCardActive,
+                { backgroundColor: navigationMode === opt.key ? posTheme.primary : posTheme.surfaceAlt, borderColor: navigationMode === opt.key ? posTheme.primary : posTheme.border },
               ]}
               onPress={() => setNavigationMode(opt.key)}
             >
-              <View style={[styles.navIconWrap, navigationMode === opt.key && styles.navIconWrapActive]}>
-                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? "#fff" : dark ? "#94a3b8" : "#17386b"} />
+              <View style={[styles.navIconWrap, { backgroundColor: navigationMode === opt.key ? posTheme.accent : posTheme.surface }]}>
+                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? posTheme.onPrimary : posTheme.accent} />
               </View>
-              <Text style={[styles.navLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, navigationMode === opt.key && styles.navLabelActive]}>
+              <Text style={[styles.navLabel, { color: navigationMode === opt.key ? posTheme.onPrimary : posTheme.text }]}>
                 {opt.label}
               </Text>
-              <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, navigationMode === opt.key && styles.navDescActive]}>
+              <Text style={[styles.navDesc, { color: navigationMode === opt.key ? posTheme.onPrimary : posTheme.muted }]}>
                 {opt.desc}
               </Text>
             </TouchableOpacity>
@@ -1588,8 +1586,8 @@ export default function SettingsScreen() {
           <Switch
             value={salesHandedness === "left"}
             onValueChange={(enabled) => setSalesHandedness(enabled ? "left" : "right")}
-            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
-            thumbColor={salesHandedness === "left" ? "#17386b" : "#f8fafc"}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={salesHandedness === "left" ? posTheme.primary : posTheme.surface}
             accessibilityLabel="Left-handed sales layout"
           />
         </View>
@@ -1603,20 +1601,19 @@ export default function SettingsScreen() {
               key={opt.key}
               style={[
                 styles.navCard,
-                { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
-                salesHandedness === opt.key && styles.navCardActive,
+                { backgroundColor: salesHandedness === opt.key ? posTheme.primary : posTheme.surfaceAlt, borderColor: salesHandedness === opt.key ? posTheme.primary : posTheme.border },
               ]}
               onPress={() => setSalesHandedness(opt.key)}
               accessibilityRole="button"
               accessibilityState={{ selected: salesHandedness === opt.key }}
             >
-              <View style={[styles.navIconWrap, salesHandedness === opt.key && styles.navIconWrapActive]}>
-                <Ionicons name={opt.icon} size={22} color={salesHandedness === opt.key ? "#fff" : dark ? "#94a3b8" : "#17386b"} />
+              <View style={[styles.navIconWrap, { backgroundColor: salesHandedness === opt.key ? posTheme.accent : posTheme.surface }]}>
+                <Ionicons name={opt.icon} size={22} color={salesHandedness === opt.key ? posTheme.onPrimary : posTheme.accent} />
               </View>
-              <Text style={[styles.navLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, salesHandedness === opt.key && styles.navLabelActive]}>
+              <Text style={[styles.navLabel, { color: salesHandedness === opt.key ? posTheme.onPrimary : posTheme.text }]}>
                 {opt.label}
               </Text>
-              <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, salesHandedness === opt.key && styles.navDescActive]}>
+              <Text style={[styles.navDesc, { color: salesHandedness === opt.key ? posTheme.onPrimary : posTheme.muted }]}>
                 {opt.desc}
               </Text>
             </TouchableOpacity>
@@ -1633,7 +1630,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "light" && styles.themeCardActive,
               themeMode === "light" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
@@ -1653,7 +1650,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "dark" && styles.themeCardActive,
               themeMode === "dark" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
@@ -1673,7 +1670,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "system" && styles.themeCardActive,
               themeMode === "system" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
@@ -1698,11 +1695,11 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Control checkout, transfer, and connection feedback.</Text>
 
         <View style={[styles.soundToggleRow, { borderBottomColor: borderColor }]}>
-          <View style={[styles.soundIcon, { backgroundColor: dark ? "#1e3a5f" : "#e8f0ff" }]}>
+          <View style={[styles.soundIcon, { backgroundColor: posTheme.surfaceAlt }]}>
             <Ionicons
               name={soundMuted ? "volume-mute-outline" : "volume-high-outline"}
               size={22}
-              color={dark ? "#93c5fd" : "#17386b"}
+              color={posTheme.accent}
             />
           </View>
           <View style={styles.soundToggleCopy}>
@@ -1714,8 +1711,8 @@ export default function SettingsScreen() {
           <Switch
             value={!soundMuted}
             onValueChange={(enabled) => setSoundMuted(!enabled)}
-            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: dark ? "#315f9c" : "#8db4ed" }}
-            thumbColor={!soundMuted ? "#17386b" : dark ? "#94a3b8" : "#f8fafc"}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={!soundMuted ? posTheme.primary : posTheme.surface}
             accessibilityLabel="Sound effects"
           />
         </View>
@@ -1731,10 +1728,10 @@ export default function SettingsScreen() {
             disabled={soundVolume <= 0}
             accessibilityLabel="Lower sound volume"
           >
-            <Ionicons name="remove" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Ionicons name="remove" size={20} color={posTheme.accent} />
           </TouchableOpacity>
-          <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
-            <View style={[styles.volumeFill, { width: `${soundVolumePercent}%`, opacity: soundMuted ? 0.45 : 1 }]} />
+          <View style={[styles.volumeTrack, { backgroundColor: posTheme.surfaceAlt }]}>
+            <View style={[styles.volumeFill, { width: `${soundVolumePercent}%`, opacity: soundMuted ? 0.45 : 1, backgroundColor: posTheme.accent }]} />
           </View>
           <TouchableOpacity
             style={[styles.volumeButton, { backgroundColor: inputBg, borderColor: inputBorder }, soundVolume >= 1 && styles.volumeButtonDisabled]}
@@ -1742,7 +1739,7 @@ export default function SettingsScreen() {
             disabled={soundVolume >= 1}
             accessibilityLabel="Raise sound volume"
           >
-            <Ionicons name="add" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Ionicons name="add" size={20} color={posTheme.accent} />
           </TouchableOpacity>
         </View>
 
@@ -1837,7 +1834,7 @@ export default function SettingsScreen() {
 
       <Modal visible={showCreateUser} transparent animationType="fade" onRequestClose={closeUserModal}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.createUserModal, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: cardBorder }]}>
+          <View style={[styles.createUserModal, { backgroundColor: posTheme.surface, borderColor: cardBorder }]}>
             <View style={styles.createUserHeader}>
               <View>
                 <Text style={[styles.modalTitle, { color: sectionTitleColor }]}>{editingUser ? "Edit User" : "Create User"}</Text>
@@ -1882,7 +1879,7 @@ export default function SettingsScreen() {
                   {c}
                 </Text>
                 {currencyCode === c && (
-                  <Ionicons name="checkmark" size={18} color={dark ? "#60a5fa" : "#17386b"} />
+                  <Ionicons name="checkmark" size={18} color={posTheme.accent} />
                 )}
               </TouchableOpacity>
             ))}

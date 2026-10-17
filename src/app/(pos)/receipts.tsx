@@ -23,7 +23,7 @@ import { SaleService } from "@/lib/services/sale.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
 import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { SaleDTO } from "@/lib/types/sales";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
@@ -63,6 +63,7 @@ export default function ReceiptsScreen() {
   const [printing, setPrinting] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
@@ -350,19 +351,19 @@ export default function ReceiptsScreen() {
       }}
       activeOpacity={0.7}
     >
-      <Card style={[styles.receiptCard, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
+      <Card style={[styles.receiptCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.receiptRow}>
-          <View style={[styles.receiptIcon, { backgroundColor: dark ? "#1b2638" : "#eef3f8" }]}>
-            <Ionicons name="receipt-outline" size={19} color={dark ? "#8fb4e8" : "#17386b"} />
+          <View style={[styles.receiptIcon, { backgroundColor: theme.surfaceAlt }]}>
+            <Ionicons name="receipt-outline" size={19} color={theme.accent} />
           </View>
           <View style={styles.receiptInfo}>
             <Text
-              style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+              style={[styles.receiptNumber, { color: theme.text }]}
               numberOfLines={1}
             >
               {item.receiptNumber}
             </Text>
-            <Text style={[styles.receiptDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{formatDate(item.createdAt)}</Text>
+            <Text style={[styles.receiptDate, { color: theme.muted }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
             {item.syncStatus === "FAILED" && item.syncError ? (
               <Text style={styles.syncError} numberOfLines={2}>{item.syncError}</Text>
@@ -395,7 +396,7 @@ export default function ReceiptsScreen() {
                 disabled={retryingId === item.id}
               >
                 {retryingId === item.id ? (
-                  <ActivityIndicator size="small" color="#17386b" />
+                  <ActivityIndicator size="small" color={theme.accent} />
                 ) : (
                   <Text style={styles.retryBtnText}>Retry</Text>
                 )}
@@ -409,8 +410,8 @@ export default function ReceiptsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#17386b" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
@@ -418,27 +419,27 @@ export default function ReceiptsScreen() {
 
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.pageHeading}>
         <View>
-          <Text style={[styles.pageTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>Receipts</Text>
-          <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Completed sales and payment records</Text>
+          <Text style={[styles.pageTitle, { color: theme.text }]}>Receipts</Text>
+          <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Completed sales and payment records</Text>
         </View>
-        <Text style={[styles.receiptCount, { color: dark ? "#aab4c2" : "#475467" }]}>{filtered.length} records</Text>
+        <Text style={[styles.receiptCount, { color: theme.muted }]}>{filtered.length} records</Text>
       </View>
       <View style={styles.searchTools}>
-        <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={18} color="#8e99a4" />
+        <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Ionicons name="search" size={18} color={theme.muted} />
           <TextInput
-            style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder="Search receipts..."
-            placeholderTextColor={dark ? "#6b7b8d" : "#b0b8c1"}
+            placeholderTextColor={theme.muted}
             value={search}
             onChangeText={(value) => { setSearch(value); setPage(1); }}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={18} color="#8e99a4" />
+              <Ionicons name="close-circle" size={18} color={theme.muted} />
             </TouchableOpacity>
           )}
         </View>
@@ -447,8 +448,8 @@ export default function ReceiptsScreen() {
           dark={dark}
           disabled={scannerVisible || printPreviewVisible || printing}
         />
-        <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan receipt barcode or QR code">
-          <Ionicons name="scan" size={20} color="#ffffff" />
+        <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={openScanner} accessibilityLabel="Scan receipt barcode or QR code">
+          <Ionicons name="scan" size={20} color={theme.onPrimary} />
         </TouchableOpacity>
       </View>
       <FlatList
@@ -459,8 +460,8 @@ export default function ReceiptsScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="receipt-outline" size={48} color="#d1d9e6" />
-            <Text style={styles.emptyText}>No receipts found</Text>
+            <Ionicons name="receipt-outline" size={48} color={theme.muted} />
+            <Text style={[styles.emptyText, { color: theme.muted }]}>No receipts found</Text>
           </View>
         }
       />
