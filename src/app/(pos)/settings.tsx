@@ -18,7 +18,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, type AudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/lib/storage/app-storage";
 import { File } from "expo-file-system";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -73,7 +73,7 @@ type SettingsSectionDefinition = {
 };
 
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
-  { id: "dealership", title: "Dealership Platform", description: "Business identity, branding, operating mode, and receipt design.", icon: "business-outline", keywords: "business branding dealership company logo operating mode independent dependent receipt designer template" , adminOnly: true },
+  { id: "dealership", title: "Dealership Platform", description: "Business identity, branding, OMS connection, and receipt design.", icon: "business-outline", keywords: "business branding dealership company logo OMS dependent receipt designer template" , adminOnly: true },
   { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
   { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
   { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },

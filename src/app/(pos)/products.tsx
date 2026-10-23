@@ -14,14 +14,13 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { VariationStockModal } from "@/components/ui/variation-stock-modal";
 import { groupByVariation } from "@/lib/products/group-variations";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
@@ -29,8 +28,6 @@ import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
-import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
-import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import type {
   ProductDTO,
   ProductDetailDTO,
@@ -44,8 +41,6 @@ const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 type ViewMode = "grid" | "list";
 
 export default function ProductsScreen() {
-  const router = useRouter();
-  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
   const [search, setSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState("All");
@@ -68,7 +63,6 @@ export default function ProductsScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
-  const [stockProduct, setStockProduct] = useState<ProductDTO | null>(null);
   const [printingBarcode, setPrintingBarcode] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const productListRef = useRef<FlatList<ProductDTO[]> | null>(null);
@@ -79,7 +73,6 @@ export default function ProductsScreen() {
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const dark = useIsDarkTheme();
   const theme = usePosTheme();
-  const permissions = useRolePermissions();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
   const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
@@ -452,14 +445,6 @@ export default function ProductsScreen() {
         <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
         <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
       </View>
-      {operatingMode === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={[styles.addProductButton, { backgroundColor: theme.primary }]} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
-            <Ionicons name="add-circle-outline" size={18} color={theme.onPrimary} />
-            <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
     </View>
   );
 
@@ -551,7 +536,7 @@ export default function ProductsScreen() {
           onScan={handleBarcodeScan}
           dark={dark}
           compact
-          disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || Boolean(stockProduct) || detailLoading}
+          disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || detailLoading}
         />
         <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
           <Ionicons name="scan" size={18} color={theme.onPrimary} />
@@ -704,10 +689,6 @@ export default function ProductsScreen() {
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
                       </View>
                     </View>
-                    {operatingMode === "INDEPENDENT" && variant.identitySource === "INDEPENDENT" && permissions.has("POS_INVENTORY") ? <TouchableOpacity
-                      style={{ minHeight: 34, paddingHorizontal: 10, borderRadius: 7, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" }}
-                      onPress={(event) => { event.stopPropagation(); setVariationGroup(null); setStockProduct(variant); }}
-                    ><Text style={{ color: theme.onPrimary, fontSize: 11, fontWeight: "800" }}>Stock / Loss</Text></TouchableOpacity> : null}
                     <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
                   </TouchableOpacity>
                 );
@@ -741,19 +722,7 @@ export default function ProductsScreen() {
                 <Ionicons name="close" size={22} color={theme.accent} />
               </TouchableOpacity>
               <Text style={[styles.detailHeaderTitle, { color: theme.text }]}>Product Details</Text>
-              {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
-                <TouchableOpacity
-                  style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 6 }}
-                  onPress={() => {
-                    const productId = detailProduct.id;
-                    setDetailProduct(null);
-                    router.push(`/(pos)/independent-catalog?edit=${encodeURIComponent(productId)}` as any);
-                  }}
-                >
-                  <Ionicons name="create-outline" size={16} color={theme.onPrimary} />
-                  <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Edit</Text>
-                </TouchableOpacity>
-              ) : <View style={{ width: 36 }} />}
+              <View style={{ width: 36 }} />
             </View>
 
             <View style={[styles.detailBody, width < 700 && styles.detailBodyPortrait]}>
@@ -775,10 +744,6 @@ export default function ProductsScreen() {
                 </View>
 
                 <Text style={[styles.detailProductName, { color: theme.text }]}>{detailProduct.name}</Text>
-                {operatingMode === "INDEPENDENT" && detailProduct.identitySource === "INDEPENDENT" && permissions.has("POS_INVENTORY") ? <TouchableOpacity
-                  style={{ minHeight: 42, borderRadius: 8, backgroundColor: theme.primary, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 12 }}
-                  onPress={() => setStockProduct(detailProduct)}
-                ><Ionicons name="warning-outline" size={18} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "800" }}>Manage Stock / Record Loss</Text></TouchableOpacity> : null}
                 <View style={[styles.detailBarcodeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <View style={styles.barcodeFooterHeading}>
                     <Ionicons name="barcode-outline" size={20} color={theme.accent} />
@@ -876,20 +841,6 @@ export default function ProductsScreen() {
           </View>
         ) : null}
       </Modal>
-      <VariationStockModal
-        visible={Boolean(stockProduct)}
-        product={stockProduct}
-        dark={dark}
-        onClose={() => setStockProduct(null)}
-        onSaved={() => {
-          void Promise.all([loadProducts(), loadInventorySummary()]);
-          if (stockProduct && detailProduct?.id === stockProduct.id) {
-            void ProductService.getById(stockProduct.id).then((updated) => {
-              if (updated) setDetailProduct(updated as ProductDetailDTO);
-            });
-          }
-        }}
-      />
     </View>
   );
 }

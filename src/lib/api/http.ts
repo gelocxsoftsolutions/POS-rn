@@ -22,7 +22,7 @@ export function getApiConfig() {
 
 export async function initApiConfig() {
   try {
-    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
     const raw = await AsyncStorage.getItem("nct-pos-oms");
     if (raw) {
       const parsed = JSON.parse(raw);

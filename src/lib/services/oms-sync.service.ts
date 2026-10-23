@@ -701,7 +701,7 @@ export const OmsSyncService = {
       }
 
       try {
-        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
         const updatedConfig = getApiConfig();
         if (updatedConfig.apiKey) {
           await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({

@@ -1,11 +1,12 @@
 import * as SQLite from "expo-sqlite";
+import { DATABASE_NAME } from "@/lib/storage/identity";
 import { CREATE_TABLES, SCHEMA_VERSION } from "./schema";
 
 let db: SQLite.SQLiteDatabase | null = null;
 
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync("nct_pos.db");
+  db = await SQLite.openDatabaseAsync(DATABASE_NAME);
   await db.execAsync("PRAGMA journal_mode = WAL;");
   await db.execAsync("PRAGMA foreign_keys = ON;");
   await runMigrations(db);

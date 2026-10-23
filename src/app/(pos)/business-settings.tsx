@@ -4,7 +4,6 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Directory, File, Paths } from "expo-file-system";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
-import type { OperatingMode } from "@/lib/business/types";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
@@ -24,35 +23,11 @@ export default function BusinessSettingsScreen() {
   const [contactEmail, setContactEmail] = useState(configuration.contactEmail);
   const [businessLogoUri, setBusinessLogoUri] = useState<string | null>(configuration.businessLogoUri);
   const [receiptLogoUri, setReceiptLogoUri] = useState<string | null>(configuration.receiptLogoUri);
-  const [nextMode, setNextMode] = useState<OperatingMode>(configuration.operatingMode);
-  const [stockResolution, setStockResolution] = useState("");
-  const [mappings, setMappings] = useState<Array<{ productId: string; name: string; sku: string; availableQty: number; omsVariationId: string | null }>>([]);
-  const [mappingValues, setMappingValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!session?.isSuperAdmin) router.replace("/(pos)/settings" as any);
   }, [router, session?.isSuperAdmin]);
-  useEffect(() => {
-    if (configuration.operatingMode !== "INDEPENDENT") return;
-    BusinessConfigurationService.listIndependentStockMappings().then((rows) => {
-      setMappings(rows);
-      setMappingValues(Object.fromEntries(rows.map((row) => [row.productId, row.omsVariationId ?? ""])));
-    }).catch(() => {});
-  }, [configuration.operatingMode]);
-
-  const saveMapping = async (productId: string) => {
-    try {
-      await BusinessConfigurationService.mapIndependentVariation({
-        productId, omsVariationId: mappingValues[productId] ?? "",
-        mappedById: session?.cashierId, mappedByName: session?.cashierName,
-      });
-      const rows = await BusinessConfigurationService.listIndependentStockMappings();
-      setMappings(rows);
-      Alert.alert("Mapping saved", "The local variation mapping is recorded for mode migration.");
-    } catch (error: any) { Alert.alert("Variation mapping", error?.message ?? "Unable to save mapping."); }
-  };
-
   const pickLogo = async (kind: "business" | "receipt") => {
     try {
       const selection = await File.pickFileAsync({ mimeTypes: "image/*" });
@@ -85,14 +60,6 @@ export default function BusinessSettingsScreen() {
         supportPhone: supportPhone.trim(), contactEmail: contactEmail.trim(),
         businessLogoUri, receiptLogoUri,
       });
-      if (nextMode !== configuration.operatingMode) {
-        await BusinessConfigurationService.changeOperatingMode({
-          nextMode,
-          changedById: session?.cashierId,
-          changedByName: session?.cashierName,
-          stockResolution,
-        });
-      }
       Alert.alert("Saved", "Business configuration is available offline on this device.");
     } catch (error: any) {
       Alert.alert("Business settings", error?.message ?? "Unable to save configuration.");
@@ -133,13 +100,8 @@ export default function BusinessSettingsScreen() {
     </View>
     <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
       <Text style={[styles.sectionTitle, { color: text }]}>Operating mode</Text>
-      <Text style={[styles.help, { color: muted }]}>Mode changes are audited and never delete products, stock, transfers, or transactions.</Text>
-      {(["NCT_DEPENDENT", "INDEPENDENT"] as OperatingMode[]).map((mode) => <TouchableOpacity key={mode} style={[styles.mode, { borderColor: mode === nextMode ? theme.accent : border, backgroundColor: mode === nextMode ? theme.surfaceAlt : surface }]} onPress={() => setNextMode(mode)}><Ionicons name={mode === nextMode ? "radio-button-on" : "radio-button-off"} size={20} color={mode === nextMode ? theme.accent : muted} /><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{mode === "INDEPENDENT" ? "Fully Independent POS" : "NCT OMS-Dependent POS"}</Text><Text style={[styles.help, { color: muted }]}>{mode === "INDEPENDENT" ? "Local catalog and stock; OMS transfers disabled; EOD and backups remain enabled." : "NCT catalog and QR transfers; checkout remains local-first."}</Text></View></TouchableOpacity>)}
-      {configuration.operatingMode === "INDEPENDENT" && nextMode === "NCT_DEPENDENT" ? <>
-        <TextInput multiline value={stockResolution} onChangeText={setStockResolution} placeholder="Required: describe how existing stock will be reconciled" placeholderTextColor={muted} style={[styles.input, styles.notes, { color: text, borderColor: border, backgroundColor: theme.surfaceAlt }]} />
-        <Text style={[styles.label, { color: text, marginTop: 14 }]}>Map stocked local variations to NCT OMS variation IDs</Text>
-        {mappings.filter((row) => row.availableQty !== 0).map((row) => <View key={row.productId} style={styles.mappingRow}><View style={{ flex: 1 }}><Text style={[styles.modeTitle, { color: text }]}>{row.name}</Text><Text style={[styles.help, { color: muted }]}>Local {row.sku} · Stock {row.availableQty}</Text></View><TextInput value={mappingValues[row.productId] ?? ""} onChangeText={(value) => setMappingValues((current) => ({ ...current, [row.productId]: value }))} keyboardType="number-pad" placeholder="OMS variation ID" placeholderTextColor={muted} style={[styles.mappingInput, { color: text, borderColor: border, backgroundColor: theme.surfaceAlt }]} /><TouchableOpacity style={[styles.mappingSave, { backgroundColor: theme.primary }]} onPress={() => void saveMapping(row.productId)}><Ionicons name="checkmark" size={18} color={theme.onPrimary} /></TouchableOpacity></View>)}
-      </> : null}
+      <Text style={[styles.readOnly, { color: text }]}>NCT OMS-Dependent POS</Text>
+      <Text style={[styles.help, { color: muted }]}>Catalog and stock come from NCT OMS through synchronization and QR transfers. Checkout remains local-first.</Text>
     </View>
     <TouchableOpacity style={[styles.designerButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} onPress={() => router.push("/(pos)/receipt-designer" as any)}><Ionicons name="receipt-outline" size={18} color={theme.accent} /><Text style={[styles.primaryText, { color: theme.text }]}>Open receipt designer</Text></TouchableOpacity>
     <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.primary }, saving && { opacity: 0.6 }]} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color={theme.onPrimary} /> : <Text style={[styles.primaryText, { color: theme.onPrimary }]}>Save business configuration</Text>}</TouchableOpacity>

@@ -29,10 +29,9 @@ import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
-import type { OperatingMode } from "@/lib/business/types";
 import * as Constants from "expo-constants";
 
-type Step = "mode" | "choose" | "qr" | "manual" | "set-pins" | "success";
+type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
 
 interface CashierPin {
   id: string;
@@ -112,7 +111,7 @@ function extractQrPayload(data: string): { activationToken?: string; url?: strin
 }
 
 export default function RegisterDevice() {
-  const [step, setStep] = useState<Step>("mode");
+  const [step, setStep] = useState<Step>("choose");
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -124,8 +123,6 @@ export default function RegisterDevice() {
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
   const business = useBusinessConfigStore((s) => s.configuration);
-  const [selectedMode, setSelectedMode] = useState<OperatingMode>(business.operatingMode);
-  const [stockResolution, setStockResolution] = useState("");
   const setDevice = useDeviceStore((s) => s.setDevice);
   const registering = useRef(false);
   const theme = usePosTheme();
@@ -204,8 +201,7 @@ export default function RegisterDevice() {
         appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
         osVersion: "Android",
         serverUrl,
-        requestedOperatingMode: selectedMode,
-        stockResolution,
+        requestedOperatingMode: "NCT_DEPENDENT",
       });
 
       if (result.success && result.device) {
@@ -262,7 +258,7 @@ export default function RegisterDevice() {
       registering.current = false;
       setLoading(false);
     }
-  }, [selectedMode, setDevice, stockResolution]);
+  }, [setDevice]);
 
   const handleManualRegister = useCallback(async () => {
     if (!token.trim()) {
@@ -342,61 +338,6 @@ export default function RegisterDevice() {
       setUploadingQr(false);
     }
   }, [uploadingQr, scanned, doRegister]);
-
-  if (step === "mode") {
-    return (
-      <View style={[styles.container, { backgroundColor: palette.background }]}>
-        {statusBar}
-        {header(() => router.back(), "Choose operating mode")}
-        <ScrollView contentContainerStyle={styles.formContent} bounces={false}>
-          <View style={styles.formHeader}>
-            <View style={[styles.formIconCircle, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
-              <Ionicons name="options-outline" size={28} color={palette.accent} />
-            </View>
-            <Text style={[styles.formTitle, { color: palette.text }]}>How will this dealership operate?</Text>
-            <Text style={[styles.formSubtitle, { color: palette.muted }]}>Both choices keep checkout offline-first. Independent setup is local; OMS backup access can be connected separately afterward.</Text>
-          </View>
-          <View style={[styles.formCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-            {(["INDEPENDENT", "NCT_DEPENDENT"] as OperatingMode[]).map((mode) => (
-              <TouchableOpacity
-                key={mode}
-                style={[styles.modeOption, { borderColor: selectedMode === mode ? palette.accent : palette.border, backgroundColor: palette.input }]}
-                onPress={() => setSelectedMode(mode)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name={selectedMode === mode ? "radio-button-on" : "radio-button-off"} size={22} color={palette.accent} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.optionTitle, { color: palette.text }]}>{mode === "INDEPENDENT" ? "Fully Independent POS" : "NCT OMS-Dependent POS"}</Text>
-                  <Text style={[styles.optionDesc, { color: palette.muted }]}>{mode === "INDEPENDENT" ? "Create local products and stock. NCT transfer receiving is disabled." : "Receive NCT catalog and inventory through the existing QR transfer workflow."}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-            {business.operatingMode === "INDEPENDENT" && selectedMode === "NCT_DEPENDENT" ? (
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: palette.text }]}>Stock reconciliation note</Text>
-                <TextInput
-                  style={[styles.input, styles.modeNotes, { backgroundColor: palette.input, borderColor: palette.border, color: palette.text }]}
-                  placeholder="Describe how existing independent stock will be reconciled"
-                  placeholderTextColor={palette.subtle}
-                  value={stockResolution}
-                  onChangeText={setStockResolution}
-                  multiline
-                />
-              </View>
-            ) : null}
-            <View style={[styles.helpCard, { backgroundColor: palette.info, borderColor: palette.border, marginTop: 4 }]}>
-              <Ionicons name="shield-checkmark-outline" size={16} color={palette.muted} />
-              <Text style={[styles.helpText, { color: palette.muted }]}>{selectedMode === "INDEPENDENT" ? "No OMS device registration is required. You will create this dealership, terminal, owner, and receipt defaults locally." : "OMS activation is required and may enforce the dealership mode configured by your administrator."}</Text>
-            </View>
-            <TouchableOpacity style={styles.registerBtn} onPress={() => selectedMode === "INDEPENDENT" ? router.push("/(auth)/independent-setup") : setStep("choose")} activeOpacity={0.8}>
-              <Text style={styles.registerBtnText}>Continue</Text>
-              <Ionicons name="arrow-forward" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
 
   if (step === "success") {
     return (
@@ -572,7 +513,7 @@ export default function RegisterDevice() {
     return (
       <View style={[styles.container, { backgroundColor: palette.background }]}>
         {statusBar}
-        {header(() => setStep("mode"))}
+        {header(() => router.back())}
 
         <ScrollView contentContainerStyle={[styles.chooseScroll, isLandscape && styles.chooseScrollLandscape]} bounces={false} showsVerticalScrollIndicator={false}>
           <Text style={[styles.title, { color: palette.text }]}>Register this device</Text>

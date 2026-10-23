@@ -47,7 +47,7 @@ export const DeviceService = {
           computerName: input.computerName,
           appVersion: input.appVersion,
           osVersion: input.osVersion,
-          requestedOperatingMode: input.requestedOperatingMode,
+          requestedOperatingMode: "NCT_DEPENDENT",
         });
 
         console.log("[DeviceService] register response:", res.ok, res.status);
@@ -58,8 +58,7 @@ export const DeviceService = {
             businessId: d.businessId,
             businessName: d.businessName,
             posSystemName: d.posSystemName,
-            operatingMode: d.operatingMode ?? input.requestedOperatingMode,
-            stockResolution: input.stockResolution,
+            operatingMode: "NCT_DEPENDENT",
           });
 
           // Clean slate: wipe all business data from previous device (products, inventory, sales, transfers, queues)
@@ -108,7 +107,7 @@ export const DeviceService = {
           });
 
           try {
-            const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+            const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
             await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
               state: { serverUrl: input.serverUrl, apiKey: d.posApiKey, accessToken: d.accessToken },
               version: 0,
@@ -208,7 +207,7 @@ export const DeviceService = {
       try { await execute("DELETE FROM Unit WHERE id NOT IN (SELECT DISTINCT unitId FROM Product WHERE unitId IS NOT NULL)"); } catch {}
       useDeviceStore.getState().clearDevice();
       try {
-        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
         await AsyncStorage.removeItem("nct-pos-oms");
       } catch {}
     } catch {
@@ -244,7 +243,7 @@ export const DeviceService = {
         });
 
         try {
-          const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+          const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
           const raw = await AsyncStorage.getItem("nct-pos-oms");
           const parsed = raw ? JSON.parse(raw) : {};
           const state = parsed?.state ?? parsed;

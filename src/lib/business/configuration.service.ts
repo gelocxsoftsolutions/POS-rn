@@ -1,5 +1,4 @@
-import { v4 as uuid } from "uuid";
-import { execute, query, queryFirst } from "@/lib/db/connection";
+import { queryFirst } from "@/lib/db/connection";
 import { SettingsRepository } from "@/lib/repositories/settings.repository";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { DEFAULT_BUSINESS_CONFIGURATION, DEFAULT_RECEIPT_TEMPLATE } from "./defaults";
@@ -37,7 +36,9 @@ function fromRow(row: Awaited<ReturnType<typeof SettingsRepository.get>>): Busin
   const template = safeTemplate(row.receiptTemplateJson, row.receiptFooter);
   return {
     businessId: row.businessId || DEFAULT_BUSINESS_CONFIGURATION.businessId,
-    operatingMode: row.operatingMode === "INDEPENDENT" ? "INDEPENDENT" : "NCT_DEPENDENT",
+    // POS-rn is OMS-dependent only. A legacy stored mode is never allowed to
+    // enable a different operating model on this application.
+    operatingMode: "NCT_DEPENDENT",
     businessName: row.storeName || DEFAULT_BUSINESS_CONFIGURATION.businessName,
     posSystemName: row.posSystemName || DEFAULT_BUSINESS_CONFIGURATION.posSystemName,
     headerName: row.headerName || row.storeName || DEFAULT_BUSINESS_CONFIGURATION.headerName,
@@ -52,59 +53,13 @@ function fromRow(row: Awaited<ReturnType<typeof SettingsRepository.get>>): Busin
   };
 }
 
-async function persistOperatingModeChange(input: {
-  current: BusinessConfiguration;
-  nextMode: OperatingMode;
-  changedById?: string;
-  changedByName?: string;
-  stockResolution?: string;
-}) {
-  if (input.current.operatingMode === input.nextMode) return;
-  const pending = await queryFirst<{ c: number }>(
-    "SELECT COUNT(*) c FROM SyncQueue WHERE status IN ('PENDING', 'PROCESSING')"
-  );
-  if ((pending?.c ?? 0) > 0) {
-    throw new Error("Finish or resolve pending synchronization before changing operating mode.");
-  }
-  if (input.nextMode === "NCT_DEPENDENT" && !input.stockResolution?.trim()) {
-    throw new Error("Document how existing independent stock will be mapped before enabling OMS-dependent mode.");
-  }
-  if (input.nextMode === "NCT_DEPENDENT") {
-    const unmapped = await queryFirst<{ c: number }>(
-      `SELECT COUNT(*) c FROM Product p
-       INNER JOIN PosInventory i ON i.productId = p.id AND i.availableQty <> 0
-       LEFT JOIN ProductOmsMapping m ON m.localProductId = p.id
-       WHERE p.businessId = ? AND p.identitySource = 'INDEPENDENT'
-         AND p.status = 'ACTIVE' AND m.localProductId IS NULL`,
-      [input.current.businessId]
-    );
-    if ((unmapped?.c ?? 0) > 0) {
-      throw new Error(`${unmapped?.c} independent variation(s) with stock must be mapped to NCT variations first.`);
-    }
-  }
-
-  const now = new Date().toISOString();
-  await execute("BEGIN IMMEDIATE");
-  try {
-    await execute(
-      `INSERT INTO OperatingModeAudit
-       (id, businessId, previousMode, nextMode, changedById, changedByName, stockResolution, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uuid(), input.current.businessId, input.current.operatingMode, input.nextMode,
-        input.changedById ?? null, input.changedByName ?? null,
-        input.stockResolution?.trim() || null, now]
-    );
-    await SettingsRepository.upsert({ operatingMode: input.nextMode, modeChangedAt: now });
-    await execute("COMMIT");
-  } catch (error) {
-    await execute("ROLLBACK");
-    throw error;
-  }
-}
-
 export const BusinessConfigurationService = {
   async load(): Promise<BusinessConfiguration> {
-    const configuration = fromRow(await SettingsRepository.get());
+    const row = await SettingsRepository.get();
+    if (row.operatingMode !== "NCT_DEPENDENT") {
+      await SettingsRepository.upsert({ operatingMode: "NCT_DEPENDENT" });
+    }
+    const configuration = fromRow(row);
     useBusinessConfigStore.getState().setConfiguration(configuration);
     return configuration;
   },
@@ -141,16 +96,9 @@ export const BusinessConfigurationService = {
       headerName: input.businessName?.trim() || current.headerName,
       posSystemName: input.posSystemName?.trim() || current.posSystemName,
     });
-    const provisioned = await this.load();
-    if (input.operatingMode && input.operatingMode !== provisioned.operatingMode) {
-      await persistOperatingModeChange({
-        current: provisioned,
-        nextMode: input.operatingMode,
-        changedById: "DEVICE_ACTIVATION",
-        changedByName: "Authorized device registration",
-        stockResolution: input.stockResolution,
-      });
-    }
+    // OMS provisions this POS as dependent. Ignore a mode supplied by older
+    // servers rather than allowing a device registration to change it.
+    await SettingsRepository.upsert({ operatingMode: "NCT_DEPENDENT" });
     return this.load();
   },
 
@@ -186,56 +134,13 @@ export const BusinessConfigurationService = {
     return this.load();
   },
 
-  async listIndependentStockMappings() {
-    const business = this.current();
-    return query<{
-      productId: string; name: string; sku: string; availableQty: number;
-      omsVariationId: string | null;
-    }>(
-      `SELECT p.id productId, p.name, p.sku, COALESCE(i.availableQty, 0) availableQty,
-              m.omsVariationId
-       FROM Product p
-       LEFT JOIN PosInventory i ON i.productId = p.id
-       LEFT JOIN ProductOmsMapping m ON m.localProductId = p.id
-       WHERE p.businessId = ? AND p.identitySource = 'INDEPENDENT' AND p.status = 'ACTIVE'
-       ORDER BY p.name`, [business.businessId]
-    );
-  },
-
-  async mapIndependentVariation(input: {
-    productId: string; omsVariationId: string;
-    mappedById?: string; mappedByName?: string;
-  }) {
-    requireAdministrator();
-    const business = this.current();
-    if (!/^\d+$/.test(input.omsVariationId.trim())) throw new Error("Enter a numeric NCT OMS variation ID.");
-    const product = await queryFirst<{ id: string }>(
-      `SELECT id FROM Product WHERE id = ? AND businessId = ? AND identitySource = 'INDEPENDENT'`,
-      [input.productId, business.businessId]
-    );
-    if (!product) throw new Error("Independent variation not found for this business.");
-    await execute(
-      `INSERT INTO ProductOmsMapping
-       (localProductId, businessId, omsVariationId, mappedById, mappedByName, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(localProductId) DO UPDATE SET omsVariationId = excluded.omsVariationId,
-         mappedById = excluded.mappedById, mappedByName = excluded.mappedByName,
-         createdAt = excluded.createdAt`,
-      [input.productId, business.businessId, input.omsVariationId.trim(),
-        input.mappedById ?? null, input.mappedByName ?? null, new Date().toISOString()]
-    );
-  },
-
   async changeOperatingMode(input: {
     nextMode: OperatingMode;
     changedById?: string;
     changedByName?: string;
     stockResolution?: string;
   }): Promise<BusinessConfiguration> {
-    requireAdministrator();
-    const current = this.current();
-    if (current.operatingMode === input.nextMode) return current;
-    await persistOperatingModeChange({ current, ...input });
-    return this.load();
+    void input;
+    throw new Error("This POS is permanently configured for NCT OMS-dependent operation.");
   },
 };

@@ -1,6 +1,6 @@
 import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
 import { signTimestamp } from "@/lib/crypto/ed25519";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/lib/storage/app-storage";
 
 interface AuthTokens {
   accessToken: string;
