@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  ToastAndroid,
   Platform,
   Share,
   Modal,
@@ -21,21 +22,22 @@ import { Badge } from "@/components/ui/badge";
 import { SaleService } from "@/lib/services/sale.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { ReceiptService } from "@/lib/services/receipt.service";
-import { SettingsService } from "@/lib/services/settings.service";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
+import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import type { SaleDTO } from "@/lib/types/sales";
-import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { ReceiptQrScannerModal } from "@/components/ui/receipt-qr-scanner-modal";
 import { ReceiptPreviewModal } from "@/components/ui/receipt-preview-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
 import { formatEscPosReceipt } from "@/lib/printers/escpos-receipt";
 import { serializeReceiptQrMatrix } from "@/lib/printers/qr-matrix";
 import { createCode128Svg } from "@/lib/barcodes/code128";
+import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 const paymentMethodLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
 
@@ -57,15 +59,20 @@ export default function ReceiptsScreen() {
   const [receipts, setReceipts] = useState<SaleDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [printPreviewVisible, setPrintPreviewVisible] = useState(false);
-  const [receiptSettings, setReceiptSettings] = useState<StoreSettingsRow | null>(null);
+  const [receiptSettings, setReceiptSettings] = useState<ResolvedSettings | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const searchScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchBurstRef = useRef({ startedAt: 0, lastAt: 0 });
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const pageSize = useUiStore((state) => state.pageSizes?.receipts ?? 10);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const loadReceipts = useCallback(async () => {
     try {
@@ -139,7 +146,25 @@ export default function ReceiptsScreen() {
     if (!selected || printing) return;
     setPrinting(true);
     try {
-      const logoUri = await getPrintableAssetDataUri(
+      const historicalReceipt = await ReceiptService.getBySaleId(selected.id);
+      let historicalSettings = receiptSettings;
+      try {
+        const snapshot = historicalReceipt?.templateSnapshot
+          ? JSON.parse(historicalReceipt.templateSnapshot)
+          : null;
+        if (snapshot && receiptSettings) {
+          historicalSettings = {
+            ...receiptSettings,
+            storeName: snapshot.businessName ?? historicalReceipt?.storeName,
+            address: snapshot.address ?? historicalReceipt?.address,
+            supportPhone: snapshot.supportPhone ?? historicalReceipt?.phone,
+            logoUri: snapshot.receiptLogoUri || snapshot.businessLogoUri || receiptSettings?.logoUri,
+            receiptFooter: snapshot.template?.footerMessage ?? historicalReceipt?.footer,
+            ...snapshot.template,
+          };
+        }
+      } catch {}
+      const logoUri = await getPrintableFileDataUri(historicalSettings?.logoUri) || await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
       );
@@ -169,7 +194,7 @@ export default function ReceiptsScreen() {
             change: selected.changeAmount,
             paymentMethod: selected.paymentMethod,
           },
-          receiptSettings
+          historicalSettings
         );
         await BluetoothPrinter.printReceipt(
           selectedPrinter.address,
@@ -237,9 +262,9 @@ export default function ReceiptsScreen() {
           <body>
             ${logoUri ? `<img class="logo" src="${logoUri}" />` : ""}
             <div class="center">
-              <h1>${escapeHtml(receiptSettings?.storeName || "NCT Seafoods")}</h1>
-              ${receiptSettings?.address ? `<p class="meta">${escapeHtml(receiptSettings.address)}</p>` : ""}
-              ${receiptSettings?.supportPhone ? `<p class="meta">${escapeHtml(receiptSettings.supportPhone)}</p>` : ""}
+              <h1>${escapeHtml(historicalSettings?.storeName || "NCT Seafoods")}</h1>
+              ${historicalSettings?.address ? `<p class="meta">${escapeHtml(historicalSettings.address)}</p>` : ""}
+              ${historicalSettings?.supportPhone ? `<p class="meta">${escapeHtml(historicalSettings.supportPhone)}</p>` : ""}
               <p class="meta receipt-number">${escapeHtml(selected.receiptNumber)}</p>
               <p class="meta">${escapeHtml(new Date(selected.createdAt).toLocaleString())}</p>
             </div>
@@ -256,7 +281,7 @@ export default function ReceiptsScreen() {
             <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(selected.paymentMethod))})</span><span>&#8369;${selected.paidAmount.toFixed(2)}</span></div>
             <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
             <div class="rule"></div>
-            <p class="footer">${escapeHtml(receiptSettings?.receiptFooter || "Thank you for your purchase!")}</p>
+            <p class="footer">${escapeHtml(historicalSettings?.receiptFooter || "Thank you for your purchase!")}</p>
             ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
             ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
           </body>
@@ -287,21 +312,56 @@ export default function ReceiptsScreen() {
 
   const handleScanReceipt = useCallback(
     async (barcode: string) => {
-      const trimmed = barcode.trim();
+      const normalized = normalizeScannedCode(barcode);
+      if (!normalized) return;
+      const canonical = canonicalScannedCode(normalized);
       let found =
-        receipts.find((r) => r.receiptNumber === trimmed) ??
-        receipts.find((r) => r.receiptNumber.toLowerCase().includes(trimmed.toLowerCase())) ??
-        receipts.find((r) => r.id === trimmed);
-      if (!found) found = await SaleService.getByReceiptNumber(trimmed) ?? undefined;
+        receipts.find((r) => canonicalScannedCode(r.receiptNumber) === canonical) ??
+        receipts.find((r) => canonicalScannedCode(r.id) === canonical);
+      if (!found) found = await SaleService.getByReceiptNumber(normalized) ?? undefined;
       if (found) {
         setSelected(found);
         setPrintPreviewVisible(true);
       } else {
-        Alert.alert("Not Found", `No receipt matched "${trimmed}".`);
+        const message = `No receipt matched barcode ${normalized}.`;
+        if (Platform.OS === "android") ToastAndroid.show(message, ToastAndroid.LONG);
+        else Alert.alert("Not Found", message);
       }
     },
     [receipts]
   );
+
+  const openExactReceiptFromSearch = useCallback((candidate: string) => {
+    const canonical = canonicalScannedCode(candidate);
+    if (!canonical) return false;
+    const exact = receipts.some((receipt) =>
+      canonicalScannedCode(receipt.receiptNumber) === canonical || canonicalScannedCode(receipt.id) === canonical
+    );
+    if (!exact) return false;
+    setSearch("");
+    setPage(1);
+    void handleScanReceipt(candidate);
+    return true;
+  }, [handleScanReceipt, receipts]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    const now = Date.now();
+    if (value.length <= 1 || now - searchBurstRef.current.lastAt > 140) searchBurstRef.current.startedAt = now;
+    searchBurstRef.current.lastAt = now;
+    setSearch(value);
+    setPage(1);
+    if (searchScanTimerRef.current) clearTimeout(searchScanTimerRef.current);
+    const candidate = normalizeScannedCode(value);
+    if (candidate.length >= 6) {
+      searchScanTimerRef.current = setTimeout(() => {
+        if (Date.now() - searchBurstRef.current.startedAt <= 1600) openExactReceiptFromSearch(candidate);
+      }, 100);
+    }
+  }, [openExactReceiptFromSearch]);
+
+  useEffect(() => () => {
+    if (searchScanTimerRef.current) clearTimeout(searchScanTimerRef.current);
+  }, []);
 
   const openScanner = useCallback(() => setScannerVisible(true), []);
   const closeScanner = useCallback(() => setScannerVisible(false), []);
@@ -328,33 +388,33 @@ export default function ReceiptsScreen() {
       }}
       activeOpacity={0.7}
     >
-      <Card style={[styles.receiptCard, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
+      <Card style={[styles.receiptCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.receiptRow}>
-          <View style={[styles.receiptIcon, { backgroundColor: dark ? "#1b2638" : "#eef3f8" }]}>
-            <Ionicons name="receipt-outline" size={19} color={dark ? "#8fb4e8" : "#17386b"} />
+          <View style={[styles.receiptIcon, { backgroundColor: theme.surfaceAlt }]}>
+            <Ionicons name="receipt-outline" size={19} color={theme.accent} />
           </View>
           <View style={styles.receiptInfo}>
             <Text
-              style={[styles.receiptNumber, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+              style={[styles.receiptNumber, { color: theme.text }]}
               numberOfLines={1}
             >
               {item.receiptNumber}
             </Text>
-            <Text style={[styles.receiptDate, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{formatDate(item.createdAt)}</Text>
+            <Text style={[styles.receiptDate, { color: theme.muted }]}>{formatDate(item.createdAt)}</Text>
             <Text style={styles.receiptItems}>{item.itemCount} items</Text>
-            {item.syncStatus === "FAILED" && item.syncError ? (
+            {showOmsSyncStatus && item.syncStatus === "FAILED" && item.syncError ? (
               <Text style={styles.syncError} numberOfLines={2}>{item.syncError}</Text>
             ) : null}
           </View>
           <View style={styles.receiptRight}>
-            <Text style={styles.receiptTotal}>₱{item.total.toFixed(2)}</Text>
+            <Text style={[styles.receiptTotal, { color: theme.primary }]}>₱{item.total.toFixed(2)}</Text>
             <Badge
               label={paymentMethodLabel(item.paymentMethod)}
               color={methodColor(item.paymentMethod)}
               size="sm"
               style={styles.receiptPaymentBadge}
             />
-            {(() => {
+            {showOmsSyncStatus && (() => {
               const info = syncInfo(item);
               if (!info) return null;
               return (
@@ -366,16 +426,16 @@ export default function ReceiptsScreen() {
                 />
               );
             })()}
-            {(item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
+            {showOmsSyncStatus && (item.syncStatus === "FAILED" || item.syncStatus === "UNSYNCED") && (
               <TouchableOpacity
-                style={styles.retryBtn}
+                style={[styles.retryBtn, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                 onPress={() => retrySale(item.id)}
                 disabled={retryingId === item.id}
               >
                 {retryingId === item.id ? (
-                  <ActivityIndicator size="small" color="#17386b" />
+                  <ActivityIndicator size="small" color={theme.accent} />
                 ) : (
-                  <Text style={styles.retryBtnText}>Retry</Text>
+                  <Text style={[styles.retryBtnText, { color: theme.accent }]}>Retry</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -387,8 +447,8 @@ export default function ReceiptsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#17386b" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
@@ -396,27 +456,29 @@ export default function ReceiptsScreen() {
 
 
   return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.pageHeading}>
         <View>
-          <Text style={[styles.pageTitle, { color: dark ? "#f8fafc" : "#17202b" }]}>Receipts</Text>
-          <Text style={[styles.pageSubtitle, { color: dark ? "#8f9baa" : "#667085" }]}>Completed sales and payment records</Text>
+          <Text style={[styles.pageTitle, { color: theme.text }]}>Receipts</Text>
+          <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Completed sales and payment records</Text>
         </View>
-        <Text style={[styles.receiptCount, { color: dark ? "#aab4c2" : "#475467" }]}>{filtered.length} records</Text>
+        <Text style={[styles.receiptCount, { color: theme.muted }]}>{filtered.length} records</Text>
       </View>
       <View style={styles.searchTools}>
-        <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={18} color="#8e99a4" />
+        <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Ionicons name="search" size={18} color={theme.muted} />
           <TextInput
-            style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder="Search receipts..."
-            placeholderTextColor={dark ? "#6b7b8d" : "#b0b8c1"}
+            placeholderTextColor={theme.muted}
             value={search}
-            onChangeText={(value) => { setSearch(value); setPage(1); }}
+            onChangeText={handleSearchChange}
+            onSubmitEditing={({ nativeEvent }) => { if (!openExactReceiptFromSearch(nativeEvent.text)) setPage(1); }}
+            returnKeyType="search"
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={18} color="#8e99a4" />
+              <Ionicons name="close-circle" size={18} color={theme.muted} />
             </TouchableOpacity>
           )}
         </View>
@@ -425,8 +487,8 @@ export default function ReceiptsScreen() {
           dark={dark}
           disabled={scannerVisible || printPreviewVisible || printing}
         />
-        <TouchableOpacity style={styles.scanBtn} onPress={openScanner} accessibilityLabel="Scan receipt barcode or QR code">
-          <Ionicons name="scan" size={20} color="#ffffff" />
+        <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={openScanner} accessibilityLabel="Scan receipt barcode or QR code">
+          <Ionicons name="scan" size={20} color={theme.onPrimary} />
         </TouchableOpacity>
       </View>
       <FlatList
@@ -437,8 +499,8 @@ export default function ReceiptsScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="receipt-outline" size={48} color="#d1d9e6" />
-            <Text style={styles.emptyText}>No receipts found</Text>
+            <Ionicons name="receipt-outline" size={48} color={theme.muted} />
+            <Text style={[styles.emptyText, { color: theme.muted }]}>No receipts found</Text>
           </View>
         }
       />

@@ -5,6 +5,7 @@ interface CartState {
   items: PosCartItem[];
   addItem: (product: PosCartItem) => void;
   updateQuantity: (productId: string, quantity: number) => void;
+  refreshMaxQuantities: (getMax: (productId: string) => number | undefined) => void;
   removeItem: (productId: string) => void;
   clear: () => void;
   total: () => number;
@@ -34,6 +35,16 @@ export const useCartStore = create<CartState>()((set, get) => ({
           : state.items.map((i) =>
               i.productId === productId ? { ...i, quantity: Math.min(quantity, i.maxQuantity) } : i
             ),
+    })),
+  // Catalog stock is reloaded over time (sync, transfer receive). Items
+  // already in the cart snapshot maxQuantity at add time, so refresh the caps
+  // from fresh stock instead of clamping to a stale value forever.
+  refreshMaxQuantities: (getMax) =>
+    set((state) => ({
+      items: state.items.map((i) => {
+        const fresh = getMax(i.productId);
+        return fresh === undefined ? i : { ...i, maxQuantity: fresh };
+      }),
     })),
   removeItem: (productId) =>
     set((state) => ({

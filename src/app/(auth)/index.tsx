@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,18 +11,28 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
-  useColorScheme,
   useWindowDimensions,
+  Modal,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuthStore } from "@/lib/stores/auth-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 const PIN_LENGTH = 6;
+const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
+
+interface LoginUser {
+  id: string;
+  displayName: string;
+  username: string | null;
+  accountLocked: number;
+}
 
 type LoginMode = "pin" | "password";
 
@@ -33,10 +43,17 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loginUsers, setLoginUsers] = useState<LoginUser[]>([]);
+  const [selectedUser, setSelectedUser] = useState<LoginUser | null>(null);
+  const [showUserPicker, setShowUserPicker] = useState(false);
   const router = useRouter();
-  const signIn = useAuthStore((s) => s.signIn);
   const device = useDeviceStore((s) => s.device);
-  const dark = useColorScheme() === "dark";
+  const business = useBusinessConfigStore((s) => s.configuration);
+  const brandLogo = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
+  const theme = usePosTheme();
+  const dark = theme.dark;
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const isTablet = Math.min(winW, winH) >= 600;
@@ -46,13 +63,13 @@ export default function SignInScreen() {
     Math.min(isLandscape ? 240 : 200, Math.min(winW, winH) * (isLandscape ? 0.3 : 0.34))
   );
 
-  const screenBackground = dark ? "#0f1b33" : "#f4f6f8";
-  const primaryTextColor = dark ? "#ffffff" : "#17386b";
-  const bodyTextColor = dark ? "#ffffff" : "#17202b";
-  const secondaryTextColor = dark ? "#d7e0ec" : "#667085";
-  const keyBackground = dark ? "rgba(255,255,255,0.10)" : "#ffffff";
-  const keyBorder = dark ? "rgba(255,255,255,0.20)" : "#d7dee8";
-  const placeholderColor = dark ? "rgba(255,255,255,0.55)" : "#98a2b3";
+  const screenBackground = theme.background;
+  const primaryTextColor = theme.primary;
+  const bodyTextColor = theme.text;
+  const secondaryTextColor = theme.muted;
+  const keyBackground = theme.surface;
+  const keyBorder = theme.border;
+  const placeholderColor = theme.muted;
 
   // responsive keypad sizing — recomputes on rotate/resize
   const GAP = isLandscape ? 8 : isTablet ? 14 : 12;
@@ -81,8 +98,33 @@ export default function SignInScreen() {
       ? 220
       : 180;
 
+  const loadLoginUsers = useCallback(async () => {
+    try {
+      const users = await CashierService.listLoginUsers();
+      setLoginUsers(users);
+      setSelectedUser((current) => {
+        if (current?.id === SUPER_ADMIN_ID) return current;
+        return users.find((user) => user.id === current?.id) ?? users[0] ?? null;
+      });
+    } catch {
+      setLoginUsers([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLoginUsers();
+  }, [loadLoginUsers]);
+
   const handleDigit = useCallback(
     (digit: string) => {
+      if (!selectedUser || selectedUser.id === SUPER_ADMIN_ID) {
+        setError("Select a user before entering a PIN.");
+        return;
+      }
+      if (selectedUser.accountLocked) {
+        setError("This account is locked. Ask a super admin to unlock it.");
+        return;
+      }
       if (pin.length >= PIN_LENGTH) return;
       const newPin = pin + digit;
       setPin(newPin);
@@ -91,12 +133,13 @@ export default function SignInScreen() {
         setLoading(true);
         (async () => {
           try {
-            const result = await CashierService.loginPin(newPin);
+            const result = await CashierService.loginPinForCashier(selectedUser.id, newPin);
             if (result.success && result.session) {
               router.replace("/(pos)");
             } else {
               setError(result.error ?? "Invalid PIN");
               setPin("");
+              if (result.locked) void loadLoginUsers();
             }
           } catch {
             setError("Login failed. Please try again.");
@@ -107,7 +150,7 @@ export default function SignInScreen() {
         })();
       }
     },
-    [pin, signIn, router]
+    [pin, selectedUser, router, loadLoginUsers]
   );
 
   const handleBackspace = useCallback(() => {
@@ -123,7 +166,9 @@ export default function SignInScreen() {
     setLoading(true);
     setError("");
     try {
-      const result = await CashierService.loginPassword(username.trim(), password);
+      const result = selectedUser?.id === SUPER_ADMIN_ID
+        ? await CashierService.loginSuperAdmin(username, password)
+        : await CashierService.loginPassword(username.trim(), password);
       if (result.success && result.session) {
         router.replace("/(pos)");
       } else {
@@ -134,11 +179,36 @@ export default function SignInScreen() {
     } finally {
       setLoading(false);
     }
-  }, [username, password, router]);
+  }, [username, password, router, selectedUser]);
 
-  const handleReRegister = useCallback(async () => {
-    await DeviceService.clearRegistration();
-    router.replace("/(auth)/register");
+  const chooseUser = useCallback((user: LoginUser) => {
+    setSelectedUser(user);
+    setShowUserPicker(false);
+    setPin("");
+    setUsername("");
+    setPassword("");
+    setError("");
+    setMode(user.id === SUPER_ADMIN_ID ? "password" : "pin");
+  }, []);
+
+  const handleReRegister = useCallback(() => {
+    Alert.alert(
+      "Re-register this device?",
+      "Continuing removes this device's OMS credentials, but preserves local products, inventory, sales, users, receipts, and pending uploads. You will choose the operating mode before activating the device again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              await DeviceService.clearRegistration();
+              router.replace("/(auth)/register");
+            })();
+          },
+        },
+      ]
+    );
   }, [router]);
 
   const renderDot = (index: number) => {
@@ -179,6 +249,35 @@ export default function SignInScreen() {
     </TouchableOpacity>
   );
 
+  const renderUserSelector = () => (
+    <TouchableOpacity
+      style={[
+        styles.userSelector,
+        {
+          backgroundColor: theme.surfaceAlt,
+          borderColor: keyBorder,
+        },
+      ]}
+      onPress={() => setShowUserPicker(true)}
+      activeOpacity={0.75}
+      accessibilityLabel="Select user"
+    >
+      <View style={styles.userSelectorIcon}>
+        <Ionicons
+          name={selectedUser?.accountLocked ? "lock-closed" : selectedUser?.id === SUPER_ADMIN_ID ? "shield-checkmark" : "person"}
+          size={18}
+          color={primaryTextColor}
+        />
+      </View>
+      <View style={styles.userSelectorCopy}>
+        <Text style={[styles.userSelectorName, { color: bodyTextColor }]} numberOfLines={1}>
+          {selectedUser?.displayName ?? "Select a user"}
+        </Text>
+      </View>
+      <Ionicons name="chevron-down" size={18} color={secondaryTextColor} />
+    </TouchableOpacity>
+  );
+
   if (device.registrationState === "unregistered") {
     return (
       <View style={[
@@ -192,20 +291,20 @@ export default function SignInScreen() {
         />
         <View style={[styles.unregBrand, isLandscape && styles.unregBrandLandscape]}>
           <Image
-            source={require("../../../assets/nct-seafoods-logo.png")}
+            source={brandLogo}
             style={{ width: unregisteredLogoSize, height: unregisteredLogoSize }}
             resizeMode="contain"
-            accessibilityLabel="NCT Seafoods"
+            accessibilityLabel={business.businessName}
           />
-          <Text style={[styles.unregBrandText, { color: primaryTextColor }]}>NCT Seafoods</Text>
-          <Text style={[styles.unregBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
+          <Text style={[styles.unregBrandText, { color: primaryTextColor }]}>{business.headerName}</Text>
+          <Text style={[styles.unregBrandSubtitle, { color: secondaryTextColor }]}>{business.posSystemName}</Text>
         </View>
         <View style={[
           styles.unregisteredContainer,
           isLandscape && styles.unregisteredContainerLandscape,
           { backgroundColor: keyBackground, borderColor: keyBorder },
         ]}>
-          <View style={[styles.unregisteredIconWrap, { backgroundColor: dark ? "#17243a" : "#f0f4ff", borderColor: keyBorder }]}>
+          <View style={[styles.unregisteredIconWrap, { backgroundColor: theme.surfaceAlt, borderColor: keyBorder }]}>
             <Ionicons name="phone-portrait-outline" size={48} color={primaryTextColor} />
             <View style={styles.unregDisconnectBadge}>
               <Ionicons name="close" size={12} color="#ffffff" />
@@ -216,12 +315,12 @@ export default function SignInScreen() {
             This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
           <TouchableOpacity
-            style={[styles.registerButton, { backgroundColor: dark ? "#17386b" : "#ffffff", borderColor: primaryTextColor }]}
+            style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
             onPress={() => router.push("/(auth)/register")}
             activeOpacity={0.85}
           >
-            <Ionicons name="qr-code" size={16} color={dark ? "#ffffff" : "#17386b"} style={{ marginRight: 8 }} />
-            <Text style={[styles.registerButtonText, { color: dark ? "#ffffff" : "#17386b" }]}>Register Device</Text>
+            <Ionicons name="qr-code" size={16} color={theme.onPrimary} style={{ marginRight: 8 }} />
+            <Text style={[styles.registerButtonText, { color: theme.onPrimary }]}>Register Device</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -258,17 +357,18 @@ export default function SignInScreen() {
             ]}
           >
             <Image
-              source={require("../../../assets/nct-seafoods-logo.png")}
+              source={brandLogo}
               style={{ width: logoSize, height: logoSize }}
               resizeMode="contain"
-              accessibilityLabel="NCT Seafoods"
+              accessibilityLabel={business.businessName}
             />
-            <Text style={[styles.landscapeBrandTitle, !isLandscape && styles.portraitBrandTitle, { color: primaryTextColor }]}>NCT Seafoods</Text>
-            <Text style={[styles.landscapeBrandSubtitle, !isLandscape && styles.portraitBrandSubtitle, { color: secondaryTextColor }]}>Point of Sale System</Text>
+            <Text style={[styles.landscapeBrandTitle, !isLandscape && styles.portraitBrandTitle, { color: primaryTextColor }]}>{business.headerName}</Text>
+            <Text style={[styles.landscapeBrandSubtitle, !isLandscape && styles.portraitBrandSubtitle, { color: secondaryTextColor }]}>{business.posSystemName}</Text>
           </View>
 
         {mode === "pin" ? (
           <View style={[styles.pinBlock, isLandscape && { width: Math.min(380, winW * 0.42) }]}>
+            {renderUserSelector()}
             <Text
               style={[
                 styles.modeTitle,
@@ -329,13 +429,6 @@ export default function SignInScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[styles.modeToggle, isLandscape && styles.modeToggleLandscape]}
-              onPress={() => { setMode("password"); setError(""); }}
-            >
-              <Text style={[styles.modeToggleText, { color: secondaryTextColor }]}>Sign in with password instead</Text>
-            </TouchableOpacity>
-
             {isLandscape && (
               <TouchableOpacity
                 style={styles.landscapeReRegisterLink}
@@ -353,7 +446,10 @@ export default function SignInScreen() {
               isLandscape && { width: Math.min(360, winW * 0.52) },
             ]}
           >
-            <Text style={[styles.modeTitle, { color: bodyTextColor }]}>Sign In</Text>
+            {renderUserSelector()}
+            <Text style={[styles.modeTitle, { color: bodyTextColor }]}>
+              {selectedUser?.id === SUPER_ADMIN_ID ? "Super Admin Sign In" : "Sign In"}
+            </Text>
 
             {error ? (
               <Text style={styles.errorText}>{error}</Text>
@@ -367,6 +463,7 @@ export default function SignInScreen() {
                 placeholderTextColor={placeholderColor}
                 value={username}
                 onChangeText={setUsername}
+                secureTextEntry={selectedUser?.id === SUPER_ADMIN_ID}
                 autoCapitalize="none"
                 autoFocus
               />
@@ -399,12 +496,14 @@ export default function SignInScreen() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.modeToggle}
-              onPress={() => { setMode("pin"); setError(""); }}
-            >
-              <Text style={[styles.modeToggleText, { color: secondaryTextColor }]}>Sign in with PIN instead</Text>
-            </TouchableOpacity>
+            {selectedUser?.id !== SUPER_ADMIN_ID && (
+              <TouchableOpacity
+                style={styles.modeToggle}
+                onPress={() => { setMode("pin"); setError(""); }}
+              >
+                <Text style={[styles.modeToggleText, { color: secondaryTextColor }]}>Sign in with PIN instead</Text>
+              </TouchableOpacity>
+            )}
 
             {isLandscape && (
               <TouchableOpacity
@@ -427,6 +526,41 @@ export default function SignInScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <Modal visible={showUserPicker} transparent animationType="fade" onRequestClose={() => setShowUserPicker(false)}>
+        <TouchableOpacity style={styles.userPickerOverlay} activeOpacity={1} onPress={() => setShowUserPicker(false)}>
+          <View style={[styles.userPickerCard, { backgroundColor: theme.surface, borderColor: keyBorder }]}>
+            <Text style={[styles.userPickerTitle, { color: bodyTextColor }]}>Select a user</Text>
+            <ScrollView style={styles.userPickerList} bounces={false}>
+              {loginUsers.map((user) => (
+                <TouchableOpacity
+                  key={user.id}
+                  style={[styles.userPickerRow, { borderBottomColor: keyBorder }]}
+                  onPress={() => chooseUser(user)}
+                >
+                  <Ionicons name={user.accountLocked ? "lock-closed" : "person-circle-outline"} size={22} color={user.accountLocked ? "#dc3545" : primaryTextColor} />
+                  <View style={styles.userPickerRowCopy}>
+                    <Text style={[styles.userPickerName, { color: bodyTextColor }]}>{user.displayName}</Text>
+                    <Text style={[styles.userPickerMeta, { color: secondaryTextColor }]}>{user.accountLocked ? "Account locked" : user.username ? `@${user.username}` : "PIN login"}</Text>
+                  </View>
+                  {selectedUser?.id === user.id && <Ionicons name="checkmark-circle" size={20} color="#2563a6" />}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.userPickerRow, { borderBottomColor: "transparent" }]}
+                onPress={() => chooseUser({ id: SUPER_ADMIN_ID, displayName: "Super Admin", username: null, accountLocked: 0 })}
+              >
+                <Ionicons name="shield-checkmark-outline" size={22} color={primaryTextColor} />
+                <View style={styles.userPickerRowCopy}>
+                  <Text style={[styles.userPickerName, { color: bodyTextColor }]}>Super Admin</Text>
+                  <Text style={[styles.userPickerMeta, { color: secondaryTextColor }]}>Administrative access</Text>
+                </View>
+                {selectedUser?.id === SUPER_ADMIN_ID && <Ionicons name="checkmark-circle" size={20} color="#2563a6" />}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -777,8 +911,79 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#ffffff",
   },
+  userSelector: {
+    width: "72%",
+    maxWidth: 250,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    marginBottom: 14,
+  },
+  userSelectorIcon: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  userSelectorCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginHorizontal: 6,
+  },
+  userSelectorName: {
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  userPickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  userPickerCard: {
+    width: "100%",
+    maxWidth: 440,
+    maxHeight: "72%",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 18,
+  },
+  userPickerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  userPickerList: {
+    flexGrow: 0,
+  },
+  userPickerRow: {
+    minHeight: 60,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  userPickerRowCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginHorizontal: 12,
+  },
+  userPickerName: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  userPickerMeta: {
+    fontSize: 11,
+    marginTop: 3,
+  },
   reRegisterLink: {
-    marginTop: 24,
+    marginTop: 0,
     paddingVertical: 8,
   },
   landscapeReRegisterLink: {

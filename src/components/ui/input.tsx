@@ -7,6 +7,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 interface InputProps {
   label?: string;
@@ -37,22 +38,23 @@ export function Input({
   style,
   maxLength,
 }: InputProps) {
+  const theme = usePosTheme();
   return (
     <View style={[styles.wrapper, style]}>
-      {label && <Text style={styles.label}>{label}</Text>}
-      <View style={[styles.container, error ? styles.errorBorder : null]}>
+      {label && <Text style={[styles.label, { color: theme.muted }]}>{label}</Text>}
+      <View style={[styles.container, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }, error ? styles.errorBorder : null]}>
         {icon && (
           <Ionicons
             name={icon}
             size={20}
-            color={error ? "#dc3545" : "#8e99a4"}
+            color={error ? "#dc3545" : theme.muted}
             style={styles.icon}
           />
         )}
         <TextInput
-          style={[styles.input, !editable && styles.disabled]}
+          style={[styles.input, { color: theme.text }, !editable && styles.disabled]}
           placeholder={placeholder}
-          placeholderTextColor="#b0b8c1"
+          placeholderTextColor={theme.muted}
           value={value}
           onChangeText={onChangeText}
           secureTextEntry={secureTextEntry}
@@ -74,16 +76,13 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#4a5568",
     marginBottom: 6,
   },
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f7f9fc",
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: "#e2e8f0",
     paddingHorizontal: 12,
   },
   errorBorder: {
@@ -95,7 +94,6 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 14,
-    color: "#1a202c",
     paddingVertical: 12,
   },
   disabled: {

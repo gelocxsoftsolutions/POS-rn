@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type Props = {
   visible: boolean;
@@ -20,6 +22,7 @@ type Props = {
 };
 
 export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
+  const theme = usePosTheme();
   const { width, height } = useWindowDimensions();
   const cameraWidth = Math.max(
     240,
@@ -28,9 +31,13 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
   const cameraHeight = cameraWidth / 1.9;
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
+  const scanLockRef = useRef(false);
 
   useEffect(() => {
-    if (visible) setScanning(false);
+    if (visible) {
+      scanLockRef.current = false;
+      setScanning(false);
+    }
   }, [visible]);
 
   const handlePermission = useCallback(async () => {
@@ -48,27 +55,31 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
   }, [requestPermission]);
 
   const handleScan = useCallback(async (barcode: string) => {
-    if (scanning) return;
+    if (scanLockRef.current) return;
+    const normalized = normalizeScannedCode(barcode);
+    if (!normalized) return;
+    scanLockRef.current = true;
     setScanning(true);
     try {
-      await onScan(barcode);
+      await onScan(normalized);
     } finally {
+      scanLockRef.current = false;
       setScanning(false);
     }
-  }, [onScan, scanning]);
+  }, [onScan]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f8fbff" }]}>
-        <View style={[styles.header, { backgroundColor: dark ? "#141922" : "#ffffff", borderBottomColor: dark ? "#28303d" : "#e8edf3" }]}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
           <TouchableOpacity
             onPress={onClose}
-            style={[styles.backButton, { backgroundColor: dark ? "#202938" : "#f0f4ff", borderColor: dark ? "#38465a" : "#e0e7ff" }]}
+            style={[styles.backButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
             accessibilityLabel="Close barcode scanner"
           >
-            <Ionicons name="arrow-back" size={20} color={dark ? "#f8fafc" : "#17386b"} />
+            <Ionicons name="arrow-back" size={20} color={theme.accent} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>Scan Barcode</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Scan Barcode</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -80,7 +91,7 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
                 {
                   width: cameraWidth,
                   height: cameraHeight,
-                  borderColor: dark ? "#28303d" : "#e8edf3",
+                  borderColor: theme.border,
                 },
               ]}
             >
@@ -98,19 +109,19 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
               <View style={styles.scanLine} />
             </View>
           ) : (
-            <View style={[styles.permissionCard, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#e8edf3" }]}>
-              <Ionicons name="camera-outline" size={48} color={dark ? "#8fb4e8" : "#17386b"} />
-              <Text style={[styles.title, { color: dark ? "#f8fafc" : "#1a202c" }]}>Camera permission needed</Text>
-              <Text style={[styles.subtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Allow camera access to scan product barcodes.</Text>
-              <TouchableOpacity style={styles.permissionButton} onPress={handlePermission}>
-                <Ionicons name="camera" size={17} color="#ffffff" />
-                <Text style={styles.permissionButtonText}>Grant Permission</Text>
+            <View style={[styles.permissionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Ionicons name="camera-outline" size={48} color={theme.accent} />
+              <Text style={[styles.title, { color: theme.text }]}>Camera permission needed</Text>
+              <Text style={[styles.subtitle, { color: theme.muted }]}>Allow camera access to scan product barcodes.</Text>
+              <TouchableOpacity style={[styles.permissionButton, { backgroundColor: theme.primary }]} onPress={handlePermission}>
+                <Ionicons name="camera" size={17} color={theme.onPrimary} />
+                <Text style={[styles.permissionButtonText, { color: theme.onPrimary }]}>Grant Permission</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          <Text style={[styles.title, { color: dark ? "#f8fafc" : "#1a202c" }]}>Scan product barcode</Text>
-          <Text style={[styles.subtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Center the barcode inside the guide.</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Scan product barcode</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>Center the barcode inside the guide.</Text>
         </View>
       </View>
     </Modal>

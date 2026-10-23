@@ -7,7 +7,8 @@ export const SyncQueueService = {
     entityType: string,
     entityId: string,
     operation: string,
-    payload?: Record<string, any>
+    payload?: Record<string, any>,
+    dedupeKey?: string
   ): Promise<SyncQueueRow | null> {
     try {
       return await SyncQueueRepository.enqueue({
@@ -15,6 +16,7 @@ export const SyncQueueService = {
         entityId,
         operation,
         payload: payload ? JSON.stringify(payload) : undefined,
+        dedupeKey,
       });
     } catch {
       return null;
@@ -29,6 +31,25 @@ export const SyncQueueService = {
       const pending = await SyncQueueRepository.getPending(50);
 
       for (const item of pending) {
+        if (item.entityType === "Sale") {
+          try {
+            const { queryFirst } = await import("@/lib/db/connection");
+            const sale = await queryFirst<{ id: string }>(
+              "SELECT id FROM Sale WHERE id = ? AND status = 'COMPLETED'",
+              [item.entityId]
+            );
+            if (!sale) {
+              await SyncQueueRepository.markEntityFailed(
+                "Sale",
+                item.entityId,
+                "Discarded orphaned sale queue entry."
+              );
+              failed++;
+              continue;
+            }
+          } catch {}
+        }
+
         await SyncQueueRepository.markProcessing(item.id);
 
         try {
@@ -47,6 +68,18 @@ export const SyncQueueService = {
             case "Transfer":
               endpoint = "/api/pos/transfers";
               method = "PUT";
+              break;
+            case "Return":
+              endpoint = "/api/pos/returns";
+              method = "POST";
+              break;
+            case "EndOfDay":
+              endpoint = "/api/pos/dealership/end-of-day";
+              method = "POST";
+              break;
+            case "DatabaseBackup":
+              endpoint = "/api/pos/dealership/backups";
+              method = "POST";
               break;
             default:
               endpoint = `/api/pos/${item.entityType.toLowerCase()}`;
@@ -122,6 +155,20 @@ export const SyncQueueService = {
 
           if (res.ok) {
             await SyncQueueRepository.markSynced(item.id);
+            if (item.entityType === "DatabaseBackup") {
+              try {
+                const { execute } = await import("@/lib/db/connection");
+                const remoteReference = String(
+                  (res.data as any)?.backupId ?? (res.data as any)?.id ?? ""
+                ) || null;
+                await execute(
+                  `UPDATE BackupManifest
+                   SET status = 'UPLOADED', remoteReference = ?, uploadedAt = ?
+                   WHERE id = ?`,
+                  [remoteReference, new Date().toISOString(), item.entityId]
+                );
+              } catch {}
+            }
             if (item.entityType === "Sale") {
               try {
                 const { execute } = await import("@/lib/db/connection");
@@ -133,55 +180,9 @@ export const SyncQueueService = {
             const error = String(
               (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`
             );
-            const isPermanentSaleConflict =
-              item.entityType === "Sale" &&
-              res.status === 400 &&
-              /insufficient pos stock/i.test(error);
-            if (isPermanentSaleConflict) {
-              await SyncQueueRepository.markEntityFailed(item.entityType, item.entityId, error);
-              // Revert local inventory for this failed sale to keep POS consistent with OMS group stock
-              try {
-                const { execute, query } = await import("@/lib/db/connection");
-                const { InventoryRepository } = await import("@/lib/repositories/inventory.repository");
-                const items = await query<{ productId: string | null; quantity: number }>(
-                  `SELECT productId, quantity FROM SaleItem WHERE saleId = ?`,
-                  [item.entityId]
-                );
-                for (const it of items) {
-                  if (!it.productId) continue;
-                  try {
-                    await InventoryRepository.updateQuantities(it.productId, {
-                      availableQty: it.quantity,
-                      soldQty: -it.quantity,
-                    });
-                  } catch {}
-                  try {
-                    await execute(
-                      `DELETE FROM InventoryLedger WHERE referenceNumber = ? AND productId = ? AND movementType = 'SALE'`,
-                      [item.entityId, it.productId]
-                    );
-                  } catch {}
-                }
-                try {
-                  await execute(`DELETE FROM Payment WHERE saleId = ?`, [item.entityId]);
-                } catch {}
-                try {
-                  await execute(`DELETE FROM SaleItem WHERE saleId = ?`, [item.entityId]);
-                } catch {}
-                try {
-                  await execute(`DELETE FROM Sale WHERE id = ?`, [item.entityId]);
-                } catch {}
-                // Refresh inventory from OMS so next sale sees correct group stock
-                try {
-                  const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
-                  const { useDeviceStore } = await import("@/lib/stores/device-store");
-                  const deviceId = useDeviceStore.getState().device?.deviceId;
-                  if (deviceId) OmsSyncService.syncInventory(deviceId).catch(() => {});
-                } catch {}
-              } catch {}
-            } else {
-              await SyncQueueRepository.markFailed(item.id, error);
-            }
+            // Remote conflicts never delete a completed local sale or reverse
+            // its ledger. Keep the retry/error state for reconciliation.
+            await SyncQueueRepository.markFailed(item.id, error);
             failed++;
           }
         } catch (e: any) {

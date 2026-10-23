@@ -10,6 +10,7 @@ import { ProductImageRepository } from "@/lib/repositories/product-image.reposit
 import { ProductPriceRepository } from "@/lib/repositories/product-price.repository";
 import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 
 interface VariationDto {
   id: string;
@@ -201,12 +202,14 @@ async function cacheProductImage(imageId: string, sku: string, imageUrl: string)
 
 async function upsertProductFromVariation(
   variation: VariationDto,
-  priceAssignment?: unknown
+  priceAssignment?: unknown,
+  inventoryGroupKey?: string
 ): Promise<SyncProduct | null> {
   const sku = String(variation.id ?? variation.productId ?? "").trim();
   if (!sku) return null;
 
   const name = variation.productName || variation.variationName || "Item";
+  const productCode = String(inventoryGroupKey ?? variation.productId ?? sku).trim();
 
   const categoryId = variation.category?.name
     ? await findCategoryId(variation.category.name)
@@ -228,15 +231,20 @@ async function upsertProductFromVariation(
   const rawWeight = (variation as any).weight ?? (variation as any).netWeight ?? (variation as any).grossWeight;
   const weight = rawWeight != null && String(rawWeight).trim() !== "" ? Number(String(rawWeight).replace(/[^0-9.-]/g, "")) : null;
   const parsedWeight = weight != null && Number.isFinite(weight) && weight >= 0 ? weight : null;
+  const businessId = BusinessConfigurationService.current().businessId;
 
   const existing = await queryFirst<{ id: string }>(
-    "SELECT id FROM Product WHERE sku = ?", [sku]
+    `SELECT id FROM Product
+     WHERE businessId = ? AND identitySource = 'NCT'
+       AND (omsVariationId = ? OR sku = ?)
+     LIMIT 1`, [businessId, sku, sku]
   );
 
   let productId: string;
   if (existing?.id) {
     productId = existing.id;
     await ProductRepository.update(productId, {
+      productCode,
       name,
       categoryId,
       unitId,
@@ -244,21 +252,27 @@ async function upsertProductFromVariation(
       imageId,
       weight: parsedWeight,
     });
+    await execute(
+      "UPDATE Product SET businessId = ?, identitySource = 'NCT', omsVariationId = ? WHERE id = ?",
+      [businessId, sku, productId]
+    );
   } else {
     productId = uuid();
     await execute(
-      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, datetime('now'), datetime('now'))`,
+      `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, businessId, identitySource, omsVariationId, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, ?, 'NCT', ?, datetime('now'), datetime('now'))`,
       [
         productId,
         sku,
-        variation.productId !== undefined ? String(variation.productId) : sku,
+        productCode,
         name,
         variation.variationName || null,
         categoryId ?? null,
         unitId ?? null,
         parsedWeight,
         imageId ?? null,
+        businessId,
+        sku,
       ]
     );
   }
@@ -348,6 +362,7 @@ async function deleteLegacyMockProducts(): Promise<void> {
 
 export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
       const res = await api.get<{ data: Array<{
         groupKey: string;
@@ -356,14 +371,19 @@ export const OmsSyncService = {
         variation: VariationDto;
       }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
 
-      const rows = res.data?.data;
+      const inventoryPayload = res.data as any;
+      const rows = Array.isArray(inventoryPayload)
+        ? inventoryPayload
+        : inventoryPayload?.data ?? inventoryPayload?.items ?? inventoryPayload?.inventory;
       if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
 
       let synced = 0;
+      const syncedVariationSkus = new Set<string>();
       for (const item of rows) {
         if (!item.variation) continue;
-        const product = await upsertProductFromVariation(item.variation);
+        const product = await upsertProductFromVariation(item.variation, item, item.groupKey);
         if (!product?.id) continue;
+        syncedVariationSkus.add(String(item.variation.id));
 
         // Guard: if this product belongs to an IN_TRANSIT transfer, don't apply OMS device stock yet
         // — stock is only added when user confirms via QR checklist (prevents 999/early stock bug).
@@ -375,35 +395,8 @@ export const OmsSyncService = {
           if (pending) continue;
         } catch {}
 
-        // Sales and received transfers are applied locally and recorded with an
-        // exact resulting balance. Once a product has local movements, that
-        // ledger balance is authoritative for this POS device; an older OMS
-        // snapshot must not restore stock that was already sold.
-        const localMovements = await queryFirst<{ movementCount: number; localBalance: number }>(
-          `SELECT
-             COUNT(*) as movementCount,
-             COALESCE((
-               SELECT firstMovement.balanceBefore
-               FROM InventoryLedger firstMovement
-               WHERE firstMovement.productId = ?
-               ORDER BY firstMovement.createdAt ASC, firstMovement.rowid ASC
-               LIMIT 1
-             ), 0) + COALESCE(SUM(quantity), 0) as localBalance
-           FROM InventoryLedger
-           WHERE productId = ?`,
-          [product.id, product.id]
-        );
-        if (Number(localMovements?.movementCount ?? 0) > 0) {
-          await InventoryRepository.setQuantity(
-            product.id,
-            Math.max(0, Number(localMovements?.localBalance ?? 0))
-          );
-          synced++;
-          continue;
-        }
-
-        // Compatibility for sales created before inventory ledger entries were
-        // enforced: keep any still-unsynced quantities deducted from OMS stock.
+        // OMS is the canonical stock baseline. Preserve only completed sales
+        // that have not reached OMS yet so offline checkout remains accurate.
         const pendingSales = await queryFirst<{ qty: number }>(
           `SELECT COALESCE(SUM(si.quantity), 0) as qty
            FROM SaleItem si
@@ -422,6 +415,36 @@ export const OmsSyncService = {
         synced++;
       }
 
+      // The inventory endpoint can omit zero-balance variations. Reset those
+      // OMS-linked products so stale transfer/ledger quantities cannot be sold
+      // locally and then rejected by the sales endpoint.
+      const localOmsProducts = await query<{ id: string; sku: string; pendingQty: number }>(
+        `SELECT p.id, p.sku,
+                COALESCE((
+                  SELECT SUM(si.quantity)
+                  FROM SaleItem si
+                  INNER JOIN Sale s ON s.id = si.saleId
+                  WHERE si.productId = p.id
+                    AND s.status = 'COMPLETED'
+                    AND s.synced = 0
+                ), 0) as pendingQty
+         FROM Product p
+         INNER JOIN PosInventory pi ON pi.productId = p.id
+         WHERE p.sku IS NOT NULL
+           AND p.sku <> ''
+           AND p.sku NOT GLOB '*[^0-9]*'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM InventoryTransfer t
+             INNER JOIN InventoryTransferItem iti ON iti.transferId = t.id
+             WHERE t.status = 'IN_TRANSIT' AND iti.productId = p.id
+           )`
+      );
+      for (const product of localOmsProducts) {
+        if (syncedVariationSkus.has(String(product.sku))) continue;
+        await InventoryRepository.setQuantity(product.id, 0);
+      }
+
       // Eagerly purge legacy mocks even if inventory sync is empty (device may have no branch)
       try { await deleteLegacyMockProducts(); } catch {}
 
@@ -433,6 +456,7 @@ export const OmsSyncService = {
   },
 
   async syncBranchProducts(branchId: number): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
       const res = await api.get<{ data: Array<{
         id: string;
@@ -509,7 +533,36 @@ export const OmsSyncService = {
   },
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {
+    if (!BusinessConfigurationService.capabilities().receiveNctTransfers) return { synced: 0 };
     try {
+      // Repair transfers received by older OMS builds that marked the transfer
+      // complete without crediting the destination device's inventory bucket.
+      // Only probe when a locally RECEIVED transfer exists: otherwise this is
+      // just 400 noise every sync cycle on servers without reconcile support.
+      let needsReconcile = true;
+      try {
+        const row = await queryFirst<{ c: number }>(
+          `SELECT COUNT(*) as c FROM InventoryTransfer WHERE status = 'RECEIVED'`
+        );
+        needsReconcile = (row?.c ?? 0) > 0;
+      } catch {
+        needsReconcile = true;
+      }
+      if (needsReconcile) {
+        console.log("[OmsSync] transfer reconcile check", { deviceId });
+        const reconciliation = await api.post<{
+          success?: boolean;
+          creditedQty?: number;
+          reconciled?: number;
+        }>("/api/pos/transfers/receive", { deviceId, reconcile: true });
+        if (
+          reconciliation.ok &&
+          Number(reconciliation.data?.creditedQty ?? 0) > 0
+        ) {
+          await this.syncInventory(deviceId);
+        }
+      }
+
       // Primary: fetch approved/in-transit inventory_transfers for this device (proper TRF numbers + full items)
       const res = await api.get<{ data: Array<{
         id: number;
@@ -533,8 +586,8 @@ export const OmsSyncService = {
       if (res.ok && Array.isArray(transfers)) {
         let synced = 0;
         for (const t of transfers) {
-          const existing = await queryFirst<{ id: string }>(
-            "SELECT id FROM InventoryTransfer WHERE transferNumber = ?", [t.transferNumber]
+          const existing = await queryFirst<{ id: string; status: string }>(
+            "SELECT id, status FROM InventoryTransfer WHERE transferNumber = ?", [t.transferNumber]
           );
 
           const items: Array<{ productId: string; allocatedQty: number; unit?: string }> = [];
@@ -552,7 +605,20 @@ export const OmsSyncService = {
             if (!product) continue;
             items.push({ productId: product.id, allocatedQty: Number(it.allocatedQty ?? 0), unit: it.unit ?? undefined });
           }
-          if (existing) continue;
+          if (existing) {
+            // Repair transfers received by older builds that updated local
+            // stock before the OMS confirmation request completed.
+            if (existing.status === "RECEIVED" && !["RECEIVED", "COMPLETED"].includes(String(t.status).toUpperCase())) {
+              const confirmation = await api.post<{ success?: boolean }>(
+                "/api/pos/transfers/receive",
+                { transferId: t.id, deviceId }
+              );
+              if (confirmation.ok && (confirmation.data as any)?.success !== false) {
+                await this.syncInventory(deviceId);
+              }
+            }
+            continue;
+          }
           if (items.length === 0) continue;
 
           await TransferRepository.create({
@@ -635,7 +701,7 @@ export const OmsSyncService = {
       }
 
       try {
-        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
         const updatedConfig = getApiConfig();
         if (updatedConfig.apiKey) {
           await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
@@ -646,6 +712,9 @@ export const OmsSyncService = {
       } catch { /* non-blocking */ }
 
       let inv = 0, prod = 0, tr = 0;
+      // Independent OMS connections are only for queued EOD and backup
+      // delivery. They must never import NCT catalog, stock, or transfers.
+      if (BusinessConfigurationService.capabilities().importNctCatalog) {
       let device = await DeviceRepository.find();
       // Remediation: local Device.id was previously random UUID, must match OMS deviceId (store deviceId)
       try {
@@ -668,6 +737,7 @@ export const OmsSyncService = {
         try { await deleteLegacyMockProducts(); } catch {}
       }
 
+      }
       return { success: true, synced: { inventory: inv, products: prod, transfers: tr } };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Connection failed" };

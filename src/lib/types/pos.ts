@@ -8,6 +8,7 @@ export interface CashierProfile {
   pin: string;
   role: string;
   avatarUrl?: string;
+  isSuperAdmin?: boolean;
 }
 
 export interface StoreSettings {
@@ -19,6 +20,17 @@ export interface StoreSettings {
   address: string;
   receiptFooter: string;
   taxRate: number;
+  logoUri?: string | null;
+  headerMessage?: string;
+  headerAlignment?: "left" | "center" | "right";
+  footerAlignment?: "left" | "center" | "right";
+  emphasizeBusinessName?: boolean;
+  showCashier?: boolean;
+  showCustomer?: boolean;
+  showPaymentDetails?: boolean;
+  showReceiptBarcode?: boolean;
+  showReceiptQr?: boolean;
+  paperWidthMm?: 58 | 80;
 }
 
 export interface PosSessionSummary {
@@ -128,6 +140,8 @@ export interface RegisterDeviceInput {
   appVersion: string;
   osVersion: string;
   serverUrl?: string;
+  requestedOperatingMode?: "INDEPENDENT" | "NCT_DEPENDENT";
+  stockResolution?: string;
 }
 
 export interface RegisterDeviceResult {

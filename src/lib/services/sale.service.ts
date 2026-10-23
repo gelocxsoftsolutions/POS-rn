@@ -1,84 +1,35 @@
 import { SaleRepository, CreateSaleInput } from "@/lib/repositories/sale.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
-import { SyncQueueService } from "@/lib/services/sync-queue.service";
-import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import { api } from "@/lib/api/http";
-import type { CreateSaleInput as SaleInput, SaleFilter, PaginatedResult } from "@/lib/types/sales";
+import type { CreateSaleInput as SaleInput, SaleFilter } from "@/lib/types/sales";
+import type { PaginatedResult } from "@/lib/types/inventory";
 import type { SaleDTO } from "@/lib/types/sales";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { requirePermission } from "@/lib/services/authorization.service";
 
-interface UnmappableItem {
-  productId?: string;
-  productName?: string;
-  sku?: string | null;
-}
-
-async function resolveSalePayload(
-  input: SaleInput,
-  saleItems: Array<{ productId?: string; productName?: string; quantity: number; unitPrice: number; lineTotal: number }>,
-  total: number,
-  receiptNumber: string
-) {
-  const mappedItems: Array<{ variationId: number; qty: number }> = [];
-  const unmappable: UnmappableItem[] = [];
-  for (const item of saleItems) {
-    if (!item.productId) {
-      unmappable.push({ productName: item.productName, sku: null });
-      continue;
-    }
-    // Product.sku holds OMS variation.id as string (set in upsertProductFromVariation)
-    const row = await queryFirst<{ sku: string | null; name: string | null }>(
-      "SELECT sku, name FROM Product WHERE id = ?",
-      [item.productId]
-    );
-    const sku = row?.sku?.trim();
-    const vid = sku ? Number(sku) : NaN;
-    if (!Number.isFinite(vid) || vid <= 0) {
-      unmappable.push({
-        productId: item.productId,
-        productName: item.productName ?? row?.name ?? undefined,
-        sku: sku ?? null,
-      });
-      continue;
-    }
-    mappedItems.push({ variationId: Math.trunc(vid), qty: item.quantity });
-  }
-  return {
-    // Keep legacy fields for OMS compat, but canonical is variationId/qty
-    receiptNumber,
-    cashierId: input.cashierId,
-    cashierName: input.cashierName,
-    cashierUserId: input.cashierId,
-    paymentMethod: input.paymentMethod,
-    total,
-    items: mappedItems,
-    payments: [{ method: input.paymentMethod, amount: total }],
-    deviceId: input.deviceId ?? null,
-    branchId: input.branchId ?? null,
-    unmappable,
-  };
-}
-
-function createReceiptNumber() {
+function createReceiptNumber(prefix: string = "R") {
   const time = Date.now().toString(36).toUpperCase().slice(-7);
   const random = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, "0");
-  return `R${time}${random}`;
+  return `${prefix}${time}${random}`;
 }
 
 export const SaleService = {
   async create(input: SaleInput) {
     try {
+      await requirePermission("POS_SALES", "complete sales");
+      const business = BusinessConfigurationService.current();
       const saleId = uuid();
       const now = new Date().toISOString();
-      const receiptNumber = createReceiptNumber();
+      const receiptNumber = input.receiptNumber ?? createReceiptNumber();
       const businessDate = now.split("T")[0];
 
       let subtotal = 0;
       let totalTax = 0;
+      const discount = Math.max(0, input.discount ?? 0);
       const itemCount = input.items.reduce((sum, i) => sum + i.quantity, 0);
 
       const saleItems = input.items.map((item) => {
@@ -133,9 +84,13 @@ export const SaleService = {
         groupRequested.set(groupKey, (groupRequested.get(groupKey) ?? 0) + it.quantity);
       }
       for (const [groupKey, requested] of groupRequested) {
-        // Group stock is per-group, not sum of variations (each variation in same productCode shares same qty)
+        // Group stock is the total across member rows: each variation keeps
+        // its own PosInventory row (transfer receive and OMS sync both stock
+        // per variation), and the sales UI displays the summed group stock.
+        // Comparing the summed request against a single row (MAX) falsely
+        // rejects valid sales, e.g. two variations with 1 unit each.
         const groupStock = await queryFirst<{ totalAvail: number }>(
-          `SELECT COALESCE(MAX(pi.availableQty),0) as totalAvail FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
+          `SELECT COALESCE(SUM(pi.availableQty),0) as totalAvail FROM PosInventory pi JOIN Product p ON pi.productId = p.id WHERE (p.productCode = ? OR p.id = ?)`,
           [groupKey, groupKey]
         );
         const available = groupStock?.totalAvail ?? 0;
@@ -159,53 +114,13 @@ export const SaleService = {
         }
       }
 
-      // Fresh OMS check to catch stale local stock (e.g., POS shows 15 but OMS group has 9, or var 13 vs 29)
-      try {
-        const deviceId = input.deviceId;
-        if (deviceId) {
-          const res = await api.get<{ data: Array<{ groupKey: string; qty: number; variation: { id: string } }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
-          if (res.ok && Array.isArray((res.data as any)?.data)) {
-            const omsGroupMap = new Map<string, number>();
-            const omsVarMap = new Map<string, number>();
-            for (const it of (res.data as any).data as Array<{ groupKey: string; qty: number; variation: { id: string } }>) {
-              if (it.groupKey) omsGroupMap.set(it.groupKey, Number(it.qty ?? 0));
-              if (it.variation?.id) omsVarMap.set(String(it.variation.id), Number(it.qty ?? 0));
-            }
-            // Group check
-            for (const [groupKey, requested] of groupRequested) {
-              const omsAvail = omsGroupMap.get(groupKey);
-              if (omsAvail !== undefined && omsAvail < requested) {
-                return {
-                  success: false as const,
-                  error: `Not enough stock for this product group (OMS). Available: ${omsAvail}, requested: ${requested}. Please sync inventory and reduce quantity.`,
-                };
-              }
-            }
-            // Per-variation OMS check
-            for (const it of saleItems) {
-              if (!it.productId) continue;
-              const prow = await queryFirst<{ sku: string | null }>(`SELECT sku FROM Product WHERE id = ?`, [it.productId]);
-              const sku = prow?.sku ? String(prow.sku) : null;
-              if (!sku) continue;
-              const omsVarAvail = omsVarMap.get(sku);
-              if (omsVarAvail !== undefined && omsVarAvail < it.quantity) {
-                return {
-                  success: false as const,
-                  error: `Not enough stock for ${it.productName} (var:${sku}). Available: ${omsVarAvail}, requested: ${it.quantity}. Please sync inventory and reduce quantity.`,
-                };
-              }
-            }
-          }
-        }
-      } catch {}
-
-      const total = subtotal + totalTax;
+      const total = Math.max(0, subtotal - discount + totalTax);
       const paidAmount = input.paidAmount ?? total;
       const changeAmount = Math.max(0, paidAmount - total);
 
       await execute(
-        `INSERT INTO Sale (id, receiptNumber, cashierId, cashierName, customerName, itemCount, subtotal, discount, tax, total, paidAmount, changeAmount, paymentMethod, status, businessDate, shiftId, deviceId, branchId, synced, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, 0, ?)`,
+        `INSERT INTO Sale (id, receiptNumber, cashierId, cashierName, customerName, itemCount, subtotal, discount, tax, total, paidAmount, changeAmount, paymentMethod, status, businessDate, shiftId, deviceId, branchId, businessId, originMode, synced, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, 0, ?)`,
         [
           saleId,
           receiptNumber,
@@ -214,6 +129,7 @@ export const SaleService = {
           input.customerName ?? null,
           itemCount,
           subtotal,
+          discount,
           totalTax,
           total,
           paidAmount,
@@ -223,6 +139,8 @@ export const SaleService = {
           input.shiftId ?? null,
           input.deviceId ?? null,
           input.branchId ?? null,
+          business.businessId,
+          business.operatingMode,
           now,
         ]
       );
@@ -283,137 +201,35 @@ export const SaleService = {
 
       const sale = await SaleRepository.findById(saleId);
 
-      // Push to OMS synchronously to catch insufficient stock immediately
-      const pushResult = await this._pushToOms(saleId, receiptNumber, input, saleItems, total);
+      await execute(
+        `INSERT INTO Receipt
+         (id, saleId, storeName, storeCode, address, phone, footer, templateVersion, templateSnapshot, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [uuid(), saleId, business.businessName, business.businessId,
+          business.address, business.supportPhone,
+          business.receiptTemplate.footerMessage,
+          business.receiptTemplateVersion,
+          JSON.stringify({
+            businessId: business.businessId,
+            businessName: business.businessName,
+            posSystemName: business.posSystemName,
+            headerName: business.headerName,
+            businessLogoUri: business.businessLogoUri,
+            receiptLogoUri: business.receiptLogoUri,
+            address: business.address,
+            supportPhone: business.supportPhone,
+            contactEmail: business.contactEmail,
+            template: business.receiptTemplate,
+          }), now]
+      );
 
-      if (!pushResult.success) {
-        const errMsg = String((pushResult as any).error ?? "");
-        const isInsufficient = /insufficient pos stock/i.test(errMsg) || pushResult.status === 400;
-        if (isInsufficient) {
-          const availMatch = errMsg.match(/Available:\s*(\d+)/i);
-          const reqMatch = errMsg.match(/Requested:\s*(\d+)/i);
-          const groupMatch = errMsg.match(/(?:group|var):([^\s,\]]+)/i);
-          const available = availMatch ? availMatch[1] : "?";
-          const requested = reqMatch ? reqMatch[1] : String(itemCount);
-          const isVar = /for var:/i.test(errMsg);
-          const group = groupMatch ? (isVar ? `var:${groupMatch[1]}` : `group:${groupMatch[1].substring(0, 8)}…`) : isVar ? "this variation" : "this product group";
+      // The local transaction is complete at this point for both operating
+      // modes. Background sync owns all OMS delivery and retry behavior so a
+      // slow or unavailable network never delays checkout completion.
+      return { success: true as const, sale };
 
-          // Rollback local sale and inventory to keep POS consistent with OMS
-          await this._rollbackSale(saleId, saleItems);
-
-          // Trigger inventory sync to refresh stock
-          try {
-            const deviceId = input.deviceId;
-            if (deviceId) {
-              // Don't await, fire-and-forget sync refresh
-              const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
-              OmsSyncService.syncInventory(deviceId).catch(() => {});
-            }
-          } catch {}
-
-          return {
-            success: false as const,
-            error: `Not enough stock for this product group. Available: ${available}, requested: ${requested}. Please adjust quantity and try again. (Group: ${group})`,
-          };
-        }
-
-        // Non-retryable failure (e.g. items not linked to OMS products): the sale is kept
-        // locally as Failed. Surface a warning so the cashier is informed, but don't block checkout.
-        if ((pushResult as any).warning) {
-          return { success: true as const, sale, warning: (pushResult as any).warning };
-        }
-      }
-
-      return { success: true, sale };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Sale creation failed" };
-    }
-  },
-
-  async _pushToOms(
-    saleId: string,
-    receiptNumber: string,
-    input: SaleInput,
-    saleItems: Array<{ productId?: string; productName?: string; quantity: number; unitPrice: number; lineTotal: number }>,
-    total: number
-  ): Promise<import("@/lib/services/oms-sync.service").SalePushResult & { warning?: string }> {
-    const payload = await resolveSalePayload(input, saleItems, total, receiptNumber);
-    const unmappable = payload.unmappable as UnmappableItem[];
-    if (unmappable.length > 0 || payload.items.length === 0) {
-      // Never send a partial sale and never mark it Synced. Keep it locally as Failed
-      // with a visible reason so the cashier knows it was not recorded in the OMS.
-      const labels = unmappable.map((u) => u.sku ?? u.productName ?? u.productId ?? "unknown item");
-      const reason = labels.length > 0
-        ? `Not recorded in OMS: ${labels.join(", ")} ${labels.length === 1 ? "is" : "are"} not linked to an OMS product.`
-        : "Not recorded in OMS: sale has no items linked to OMS products.";
-      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
-      const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
-      await SyncQueueRepository.markEntityFailed("Sale", saleId, reason);
-      console.warn("[Sale] Not pushing unmappable sale", saleId, labels);
-      return { success: false, status: 422, error: reason, retryable: false, warning: reason };
-    }
-    try {
-      const pushResult = await OmsSyncService.pushSale(payload as any);
-      if (pushResult.success) {
-        await SaleRepository.markSynced(saleId);
-      } else {
-        const queued = await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
-        if (queued && !pushResult.retryable) {
-          const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
-          await SyncQueueRepository.markEntityFailed(
-            "Sale",
-            saleId,
-            pushResult.error ?? `HTTP ${pushResult.status}`
-          );
-        }
-      }
-      return pushResult;
-    } catch (e: any) {
-      await SyncQueueService.enqueue("Sale", saleId, "CREATE", payload as any);
-      return { success: false, status: 0, error: e?.message ?? "Network error", retryable: true };
-    }
-  },
-
-  async _rollbackSale(
-    saleId: string,
-    saleItems: Array<{ productId?: string; quantity: number }>
-  ): Promise<void> {
-    try {
-      // Revert inventory for each item
-      for (const item of saleItems) {
-        if (!item.productId) continue;
-        try {
-          await InventoryRepository.updateQuantities(item.productId, {
-            availableQty: item.quantity,
-            soldQty: -item.quantity,
-          });
-        } catch {}
-        try {
-          await execute(`DELETE FROM InventoryLedger WHERE referenceNumber = ? AND productId = ? AND movementType = 'SALE'`, [saleId, item.productId]);
-        } catch {}
-      }
-      // Remove sale related rows
-      try {
-        await execute(`DELETE FROM Payment WHERE saleId = ?`, [saleId]);
-      } catch {}
-      try {
-        await execute(`DELETE FROM SaleItem WHERE saleId = ?`, [saleId]);
-      } catch {}
-      try {
-        await execute(`DELETE FROM Sale WHERE id = ?`, [saleId]);
-      } catch {}
-      // Clean sync queue entry if any
-      try {
-        await execute(`DELETE FROM SyncQueue WHERE entityType = 'Sale' AND entityId = ?`, [saleId]);
-      } catch {}
-      // Also mark any remaining queue as failed to prevent retry
-      try {
-        const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
-        await SyncQueueRepository.markEntityFailed("Sale", saleId, "Insufficient POS stock - rolled back");
-      } catch {}
-      console.log("[Sale] Rolled back sale", saleId, "due to insufficient stock");
-    } catch (e) {
-      console.warn("[Sale] Rollback failed for", saleId, e);
     }
   },
 

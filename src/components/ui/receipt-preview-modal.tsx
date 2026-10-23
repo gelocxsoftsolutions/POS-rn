@@ -41,6 +41,17 @@ export type ReceiptPreviewSettings = {
   supportPhone?: string;
   receiptFooter?: string;
   taxLabel?: string;
+  logoUri?: string | null;
+  headerMessage?: string;
+  headerAlignment?: "left" | "center" | "right";
+  footerAlignment?: "left" | "center" | "right";
+  emphasizeBusinessName?: boolean;
+  showCashier?: boolean;
+  showCustomer?: boolean;
+  showPaymentDetails?: boolean;
+  showReceiptBarcode?: boolean;
+  showReceiptQr?: boolean;
+  paperWidthMm?: 58 | 80;
 };
 
 type Props = {
@@ -50,6 +61,8 @@ type Props = {
   settings: ReceiptPreviewSettings | null;
   onPrint?: () => void;
   printing?: boolean;
+  onOpenCashRegister?: () => void;
+  openingCashRegister?: boolean;
 };
 
 const paymentMethodLabel = (method: string) =>
@@ -62,6 +75,8 @@ export function ReceiptPreviewModal({
   settings,
   onPrint,
   printing = false,
+  onOpenCashRegister,
+  openingCashRegister = false,
 }: Props) {
   if (!receipt) return null;
 
@@ -72,19 +87,20 @@ export function ReceiptPreviewModal({
           <ScrollView style={styles.receiptScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.receiptContent}>
               <Image
-                source={require("../../../assets/thermal-printer-logo.jpg")}
+                source={settings?.logoUri ? { uri: settings.logoUri } : require("../../../assets/thermal-printer-logo.jpg")}
                 style={styles.receiptLogo}
                 resizeMode="contain"
               />
-              <Text style={styles.receiptStore}>{settings?.storeName || "Store"}</Text>
+              <Text style={[styles.receiptStore, settings?.emphasizeBusinessName === false && { fontWeight: "500" }]}>{settings?.storeName || "Store"}</Text>
+              {settings?.headerMessage ? <Text style={[styles.receiptAddress, { textAlign: settings.headerAlignment ?? "center" }]}>{settings.headerMessage}</Text> : null}
               {settings?.address ? <Text style={styles.receiptAddress}>{settings.address}</Text> : null}
               {settings?.supportPhone ? <Text style={styles.receiptPhone}>{settings.supportPhone}</Text> : null}
               <Text style={styles.receiptNumber}>{receipt.receiptNumber}</Text>
               <Text style={styles.receiptDate}>{new Date(receipt.date).toLocaleString()}</Text>
-              {receipt.customerName ? (
+              {settings?.showCustomer !== false && receipt.customerName ? (
                 <Text style={styles.receiptCustomer}>Customer: {receipt.customerName}</Text>
               ) : null}
-              <Text style={styles.receiptCashier}>Cashier: {receipt.cashierName}</Text>
+              {settings?.showCashier !== false ? <Text style={styles.receiptCashier}>Cashier: {receipt.cashierName}</Text> : null}
               <View style={styles.receiptDivider} />
               {receipt.items.map((item, idx) => (
                 <View key={idx} style={styles.receiptItem}>
@@ -115,6 +131,7 @@ export function ReceiptPreviewModal({
                 <Text style={styles.receiptTotal}>Total</Text>
                 <Text style={styles.receiptTotal}>₱{receipt.total.toFixed(2)}</Text>
               </View>
+              {settings?.showPaymentDetails !== false ? <>
               <View style={styles.receiptItem}>
                 <Text style={styles.receiptItemName}>Paid ({paymentMethodLabel(receipt.paymentMethod)})</Text>
                 <Text style={styles.receiptItemPrice}>₱{receipt.paidAmount.toFixed(2)}</Text>
@@ -123,21 +140,34 @@ export function ReceiptPreviewModal({
                 <Text style={styles.receiptItemName}>Change</Text>
                 <Text style={styles.receiptItemPrice}>₱{receipt.change.toFixed(2)}</Text>
               </View>
+              </> : null}
               <View style={styles.receiptDivider} />
-              <Text style={styles.receiptFooter}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
-              <View style={styles.receiptBarcode}>
+              <Text style={[styles.receiptFooter, { textAlign: settings?.footerAlignment ?? "center" }]}>{settings?.receiptFooter || "Thank you for your purchase!"}</Text>
+              {settings?.showReceiptBarcode !== false ? <View style={styles.receiptBarcode}>
                 <Code128Barcode value={receipt.receiptNumber} height={58} />
-              </View>
-              <View style={styles.receiptQR}>
+              </View> : null}
+              {settings?.showReceiptQr !== false ? <View style={styles.receiptQR}>
                 <ReceiptQrCode value={String(receipt.receiptNumber ?? receipt.date ?? "receipt")} size={176} />
-              </View>
+              </View> : null}
               <View style={styles.receiptActions}>
+                {onOpenCashRegister && (
+                  <Button
+                    title={openingCashRegister ? "Opening..." : "Open Cash Register"}
+                    onPress={onOpenCashRegister}
+                    icon="cash-outline"
+                    loading={openingCashRegister}
+                    disabled={printing}
+                    variant="secondary"
+                    style={styles.openCashRegisterButton}
+                  />
+                )}
                 {onPrint && (
                   <Button
                     title={printing ? "Printing..." : "Print Receipt"}
                     onPress={onPrint}
                     icon="print-outline"
                     loading={printing}
+                    disabled={openingCashRegister}
                     style={styles.printReceiptButton}
                   />
                 )}
@@ -279,6 +309,10 @@ const styles = StyleSheet.create({
   },
   printReceiptButton: {
     width: "100%",
+  },
+  openCashRegisterButton: {
+    width: "100%",
+    marginBottom: 8,
   },
   receiptDoneButton: {
     width: "100%",

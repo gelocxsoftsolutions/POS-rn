@@ -20,8 +20,9 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 interface DashboardData {
   todaysSales: number;
@@ -45,7 +46,8 @@ const currency = (value: number) =>
 
 export default function Dashboard() {
   const router = useRouter();
-  const dark = useIsDarkTheme();
+  const theme = usePosTheme();
+  const dark = theme.dark;
   const { width } = useWindowDimensions();
   const compact = width < 760;
   const [data, setData] = useState<DashboardData>(initialData);
@@ -58,25 +60,26 @@ export default function Dashboard() {
   const pendingSync = useSyncStore((state) => state.pendingCount);
   const refreshPendingCount = useSyncStore((state) => state.refreshPendingCount);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const isIndependent = operatingMode === "INDEPENDENT";
 
-  const colors = useMemo(
-    () => ({
-      background: dark ? "#0b0f16" : "#f4f6f8",
-      panel: dark ? "#141922" : "#ffffff",
-      border: dark ? "#293241" : "#dfe5ec",
-      text: dark ? "#f4f7fb" : "#172033",
-      muted: dark ? "#93a0b2" : "#667085",
-      subtle: dark ? "#1b2432" : "#edf2f7",
-    }),
-    [dark]
-  );
+  const colors = useMemo(() => ({
+    background: theme.background,
+    panel: theme.surface,
+    border: theme.border,
+    text: theme.text,
+    muted: theme.muted,
+    subtle: theme.surfaceAlt,
+  }), [theme.background, theme.surface, theme.border, theme.text, theme.muted, theme.surfaceAlt]);
 
   const loadData = useCallback(async () => {
     try {
       const [summary, lowStock, transfers, settings] = await Promise.all([
         SaleService.summary(),
         InventoryService.getLowStock(),
-        TransferService.list({ status: "IN_TRANSIT", page: 1, pageSize: 1 }),
+        operatingMode === "NCT_DEPENDENT"
+          ? TransferService.list({ status: "IN_TRANSIT", page: 1, pageSize: 1 })
+          : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 1 }),
         SettingsService.get(),
         refreshPendingCount(),
       ]);
@@ -91,7 +94,7 @@ export default function Dashboard() {
     } catch {
       setStoreName(device.branchName || "NCT Seafoods");
     }
-  }, [device.branchName, refreshPendingCount, salesGroupCashierIds]);
+  }, [device.branchName, operatingMode, refreshPendingCount, salesGroupCashierIds]);
 
   useEffect(() => {
     setLoading(true);
@@ -110,19 +113,23 @@ export default function Dashboard() {
     { label: "New Sale", detail: "Open checkout", icon: "cart-outline" as const, href: "/(pos)/sales", primary: true },
     { label: "Find Receipt", detail: "Review or reprint", icon: "receipt-outline" as const, href: "/(pos)/receipts" },
     { label: "Products", detail: "Prices and stock", icon: "cube-outline" as const, href: "/(pos)/products" },
-    { label: "Receive Stock", detail: "Open transfers", icon: "swap-horizontal-outline" as const, href: "/(pos)/transfers" },
+    isIndependent
+      ? { label: "Manage Stock", detail: "Receive or adjust", icon: "archive-outline" as const, href: "/(pos)/products" }
+      : { label: "Receive Stock", detail: "Open transfers", icon: "swap-horizontal-outline" as const, href: "/(pos)/transfers" },
   ];
 
   const attentionItems = [
     { label: "Low-stock products", value: data.lowStockCount, icon: "alert-circle-outline" as const, color: data.lowStockCount > 0 ? "#d97706" : "#16a34a", href: "/(pos)/products" },
-    { label: "Incoming transfers", value: data.incomingTransfers, icon: "archive-outline" as const, color: data.incomingTransfers > 0 ? "#2563eb" : "#16a34a", href: "/(pos)/transfers" },
-    { label: "Waiting to sync", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(pos)/settings" },
+    ...(isIndependent ? [] : [
+      { label: "Incoming transfers", value: data.incomingTransfers, icon: "archive-outline" as const, color: data.incomingTransfers > 0 ? "#2563eb" : "#16a34a", href: "/(pos)/transfers" },
+      { label: "Waiting to sync", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(pos)/settings" },
+    ]),
   ];
 
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#1f477f" />
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
@@ -131,7 +138,7 @@ export default function Dashboard() {
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1f477f" />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
     >
       <View style={[styles.pageHeader, compact && styles.pageHeaderCompact]}>
         <View style={styles.headerCopy}>
@@ -147,16 +154,16 @@ export default function Dashboard() {
         </View>
       </View>
 
-      <View style={[styles.hero, compact && styles.heroCompact, { backgroundColor: dark ? "#142d50" : "#173f73" }]}>
+      <View style={[styles.hero, compact && styles.heroCompact, { backgroundColor: theme.primary }]}>
         <View style={styles.heroCopy}>
-          <Text style={styles.heroLabel}>TODAY'S TAKINGS</Text>
-          <Text style={styles.heroValue}>{currency(data.todaysSales)}</Text>
-          <Text style={styles.heroMeta}>{data.transactionCount} {data.transactionCount === 1 ? "completed sale" : "completed sales"}</Text>
+          <Text style={[styles.heroLabel, { color: theme.onPrimary, opacity: 0.76 }]}>TODAY'S TAKINGS</Text>
+          <Text style={[styles.heroValue, { color: theme.onPrimary }]}>{currency(data.todaysSales)}</Text>
+          <Text style={[styles.heroMeta, { color: theme.onPrimary, opacity: 0.84 }]}>{data.transactionCount} {data.transactionCount === 1 ? "completed sale" : "completed sales"}</Text>
         </View>
         <TouchableOpacity style={styles.reportButton} onPress={() => navigate("/(pos)/reports")} activeOpacity={0.8}>
-          <Ionicons name="bar-chart-outline" size={18} color="#ffffff" />
-          <Text style={styles.reportButtonText}>View reports</Text>
-          <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+          <Ionicons name="bar-chart-outline" size={18} color={theme.onPrimary} />
+          <Text style={[styles.reportButtonText, { color: theme.onPrimary }]}>View reports</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.onPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -165,15 +172,15 @@ export default function Dashboard() {
         {quickActions.map((action) => (
           <TouchableOpacity
             key={action.label}
-            style={[styles.actionCard, { width: compact ? "48.5%" : "23.8%", backgroundColor: action.primary ? "#1f477f" : colors.panel, borderColor: action.primary ? "#1f477f" : colors.border }]}
+            style={[styles.actionCard, { width: compact ? "48.5%" : "23.8%", backgroundColor: action.primary ? theme.primary : colors.panel, borderColor: action.primary ? theme.primary : colors.border }]}
             onPress={() => navigate(action.href)}
             activeOpacity={0.8}
           >
             <View style={[styles.actionIcon, { backgroundColor: action.primary ? "rgba(255,255,255,0.14)" : colors.subtle }]}>
-              <Ionicons name={action.icon} size={23} color={action.primary ? "#ffffff" : dark ? "#8db7ed" : "#1f477f"} />
+              <Ionicons name={action.icon} size={23} color={action.primary ? theme.onPrimary : theme.accent} />
             </View>
-            <Text style={[styles.actionLabel, { color: action.primary ? "#ffffff" : colors.text }]}>{action.label}</Text>
-            <Text style={[styles.actionDetail, { color: action.primary ? "#c8d9ef" : colors.muted }]}>{action.detail}</Text>
+            <Text style={[styles.actionLabel, { color: action.primary ? theme.onPrimary : colors.text }]}>{action.label}</Text>
+            <Text style={[styles.actionDetail, { color: action.primary ? theme.onPrimary : colors.muted, opacity: action.primary ? 0.82 : 1 }]}>{action.detail}</Text>
           </TouchableOpacity>
         ))}
       </View>

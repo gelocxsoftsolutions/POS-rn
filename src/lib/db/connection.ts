@@ -1,11 +1,12 @@
 import * as SQLite from "expo-sqlite";
+import { DATABASE_NAME } from "@/lib/storage/identity";
 import { CREATE_TABLES, SCHEMA_VERSION } from "./schema";
 
 let db: SQLite.SQLiteDatabase | null = null;
 
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync("nct_pos.db");
+  db = await SQLite.openDatabaseAsync(DATABASE_NAME);
   await db.execAsync("PRAGMA journal_mode = WAL;");
   await db.execAsync("PRAGMA foreign_keys = ON;");
   await runMigrations(db);
@@ -43,6 +44,86 @@ async function runMigrations(database: SQLite.SQLiteDatabase) {
   } catch {
     // column already exists
   }
+
+  // Migration to v7: persist PIN failures and administrative account locks.
+  for (const sql of [
+    "ALTER TABLE Cashier ADD COLUMN failedPinAttempts INTEGER DEFAULT 0",
+    "ALTER TABLE Cashier ADD COLUMN accountLocked INTEGER DEFAULT 0",
+    "ALTER TABLE Cashier ADD COLUMN accountLockedAt TEXT DEFAULT NULL",
+  ]) {
+    try {
+      await database.execAsync(sql);
+    } catch {
+      // column already exists
+    }
+  }
+
+  // Migration to v8: configurable business identity, capabilities, receipt
+  // snapshots, and recoverable upload metadata. Existing installations retain
+  // the NCT-dependent defaults and all current data.
+  for (const sql of [
+    "ALTER TABLE Product ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE Product ADD COLUMN identitySource TEXT DEFAULT 'NCT'",
+    "ALTER TABLE Product ADD COLUMN omsVariationId TEXT DEFAULT NULL",
+    "ALTER TABLE Sale ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE Sale ADD COLUMN originMode TEXT DEFAULT 'NCT_DEPENDENT'",
+    "ALTER TABLE Receipt ADD COLUMN templateVersion INTEGER DEFAULT 1",
+    "ALTER TABLE Receipt ADD COLUMN templateSnapshot TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN businessId TEXT DEFAULT 'nct-default'",
+    "ALTER TABLE StoreSettings ADD COLUMN operatingMode TEXT DEFAULT 'NCT_DEPENDENT'",
+    "ALTER TABLE StoreSettings ADD COLUMN posSystemName TEXT DEFAULT 'NCT Seafoods POS'",
+    "ALTER TABLE StoreSettings ADD COLUMN headerName TEXT DEFAULT 'NCT Seafoods'",
+    "ALTER TABLE StoreSettings ADD COLUMN businessLogoUri TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptLogoUri TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN contactEmail TEXT DEFAULT ''",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptTemplateJson TEXT DEFAULT NULL",
+    "ALTER TABLE StoreSettings ADD COLUMN receiptTemplateVersion INTEGER DEFAULT 1",
+    "ALTER TABLE StoreSettings ADD COLUMN modeChangedAt TEXT DEFAULT NULL",
+    "ALTER TABLE SyncQueue ADD COLUMN dedupeKey TEXT DEFAULT NULL",
+  ]) {
+    try {
+      await database.execAsync(sql);
+    } catch {
+      // column already exists
+    }
+  }
+
+  await database.execAsync(
+    "UPDATE Product SET businessId = 'nct-default' WHERE businessId IS NULL OR businessId = ''"
+  );
+  await database.execAsync(
+    "UPDATE Product SET identitySource = 'NCT' WHERE identitySource IS NULL OR identitySource = ''"
+  );
+  await database.execAsync(
+    "UPDATE Sale SET businessId = 'nct-default' WHERE businessId IS NULL OR businessId = ''"
+  );
+  await database.execAsync(
+    "UPDATE Sale SET originMode = 'NCT_DEPENDENT' WHERE originMode IS NULL OR originMode = ''"
+  );
+  await database.execAsync(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupe ON SyncQueue(dedupeKey) WHERE dedupeKey IS NOT NULL"
+  );
+  await database.execAsync(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_product_oms_identity ON Product(businessId, omsVariationId) WHERE omsVariationId IS NOT NULL"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_product_action_audit_product ON ProductActionAudit(productId, createdAt)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_product_action_audit_business ON ProductActionAudit(businessId, createdAt)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_user_permission_cashier ON UserPermission(cashierId)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_return_request_sale ON ReturnRequest(saleId)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_return_request_status ON ReturnRequest(status)"
+  );
+  await database.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_return_request_receipt ON ReturnRequest(receiptNumber)"
+  );
 
   await database.execAsync("PRAGMA foreign_keys = ON;");
 

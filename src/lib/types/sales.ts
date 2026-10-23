@@ -69,6 +69,8 @@ export interface CreateSaleInput {
     weight?: number | null;
   }>;
   discountCode?: string;
+  discount?: number;
+  receiptNumber?: string;
   paidAmount?: number;
   shiftId?: string;
   deviceId?: string;
@@ -116,6 +118,8 @@ export interface ReceiptDTO {
   address: string | null;
   phone: string | null;
   footer: string | null;
+  templateVersion?: number;
+  templateSnapshot?: string | null;
   printedAt: string | null;
   createdAt: string;
 }

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/lib/storage/app-storage";
 import { api, getApiConfig, setApiConfig } from "@/lib/api/http";
 
 export type OmsConnectionStatus = "idle" | "connecting" | "connected" | "offline";

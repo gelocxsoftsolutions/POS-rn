@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type Props = {
   visible: boolean;
@@ -33,13 +35,18 @@ export function ReceiptQrScannerModal({
   description = "Point the camera at either code to find the receipt instantly.",
   hintText = "The barcode and QR are at the bottom of each receipt",
 }: Props) {
+  const theme = usePosTheme();
   const { width, height } = useWindowDimensions();
   const cameraSize = Math.max(160, Math.min(360, width - 48, height - 220));
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
+  const scanLockRef = useRef(false);
 
   useEffect(() => {
-    if (visible) setScanning(false);
+    if (visible) {
+      scanLockRef.current = false;
+      setScanning(false);
+    }
   }, [visible]);
 
   const handlePermission = useCallback(async () => {
@@ -57,29 +64,33 @@ export function ReceiptQrScannerModal({
   }, [requestPermission]);
 
   const handleScan = useCallback(async (barcode: string) => {
-    if (scanning) return;
+    if (scanLockRef.current) return;
+    const normalized = normalizeScannedCode(barcode);
+    if (!normalized) return;
+    scanLockRef.current = true;
     setScanning(true);
     try {
-      await onScan(barcode);
+      await onScan(normalized);
     } finally {
+      scanLockRef.current = false;
       setScanning(false);
     }
-  }, [onScan, scanning]);
+  }, [onScan]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: dark ? "#0a0f1e" : "#f0f4ff" }]}>
-        <View style={[styles.header, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderBottomColor: dark ? "#1e293b" : "#c7d2fe" }]}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
           <TouchableOpacity
             onPress={onClose}
-            style={[styles.closeButton, { backgroundColor: dark ? "#1e293b" : "#fff", borderColor: dark ? "#334155" : "#e0e7ff" }]}
+            style={[styles.closeButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
             accessibilityLabel="Close receipt scanner"
           >
-            <Ionicons name="close" size={20} color={dark ? "#f8fafc" : "#17386b"} />
+            <Ionicons name="close" size={20} color={theme.accent} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Ionicons name="scan" size={18} color={dark ? "#60a5fa" : "#17386b"} />
-            <Text style={[styles.headerTitle, { color: dark ? "#f8fafc" : "#1a202c" }]}>{title}</Text>
+            <Ionicons name="scan" size={18} color={theme.accent} />
+            <Text style={[styles.headerTitle, { color: theme.text }]}>{title}</Text>
           </View>
           <View style={styles.headerSpacer} />
         </View>
@@ -92,8 +103,8 @@ export function ReceiptQrScannerModal({
                 {
                   width: cameraSize,
                   height: cameraSize,
-                  borderColor: dark ? "#334155" : "#c7d2fe",
-                  shadowColor: dark ? "#000" : "#17386b",
+                  borderColor: theme.border,
+                  shadowColor: theme.navigation,
                 },
               ]}
             >
@@ -105,28 +116,28 @@ export function ReceiptQrScannerModal({
                 onMountError={(event) => console.warn("[Camera] receipt qr mount error", event)}
               />
               {/* Square corners - teal accent for QR */}
-              <View style={[styles.corner, styles.cornerTopLeft, { borderColor: "#14b8a6" }]} />
-              <View style={[styles.corner, styles.cornerTopRight, { borderColor: "#14b8a6" }]} />
-              <View style={[styles.corner, styles.cornerBottomLeft, { borderColor: "#14b8a6" }]} />
-              <View style={[styles.corner, styles.cornerBottomRight, { borderColor: "#14b8a6" }]} />
+              <View style={[styles.corner, styles.cornerTopLeft, { borderColor: theme.accent }]} />
+              <View style={[styles.corner, styles.cornerTopRight, { borderColor: theme.accent }]} />
+              <View style={[styles.corner, styles.cornerBottomLeft, { borderColor: theme.accent }]} />
+              <View style={[styles.corner, styles.cornerBottomRight, { borderColor: theme.accent }]} />
             </View>
           ) : (
-            <View style={[styles.permissionCard, { backgroundColor: dark ? "#0f1729" : "#ffffff", borderColor: dark ? "#1e293b" : "#c7d2fe" }]}>
-              <View style={[styles.permissionIconWrap, { backgroundColor: dark ? "#1e293b" : "#eef2ff" }]}>
-                <Ionicons name="qr-code-outline" size={48} color={dark ? "#5eead4" : "#0d9488"} />
+            <View style={[styles.permissionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.permissionIconWrap, { backgroundColor: theme.surfaceAlt }]}>
+                <Ionicons name="qr-code-outline" size={48} color={theme.accent} />
               </View>
-              <Text style={[styles.title, { color: dark ? "#f8fafc" : "#1a202c" }]}>{subtitle}</Text>
-              <Text style={[styles.subtitle, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{description}</Text>
-              <TouchableOpacity style={styles.permissionButton} onPress={handlePermission}>
-                <Ionicons name="camera" size={17} color="#ffffff" />
-                <Text style={styles.permissionButtonText}>Allow Camera</Text>
+              <Text style={[styles.title, { color: theme.text }]}>{subtitle}</Text>
+              <Text style={[styles.subtitle, { color: theme.muted }]}>{description}</Text>
+              <TouchableOpacity style={[styles.permissionButton, { backgroundColor: theme.primary }]} onPress={handlePermission}>
+                <Ionicons name="camera" size={17} color={theme.onPrimary} />
+                <Text style={[styles.permissionButtonText, { color: theme.onPrimary }]}>Allow Camera</Text>
               </TouchableOpacity>
             </View>
           )}
 
           <View style={styles.hintBox}>
-            <Ionicons name="information-circle-outline" size={16} color={dark ? "#5eead4" : "#0d9488"} />
-            <Text style={[styles.hintText, { color: dark ? "#94a3b8" : "#475569" }]}>{hintText}</Text>
+            <Ionicons name="information-circle-outline" size={16} color={theme.accent} />
+            <Text style={[styles.hintText, { color: theme.muted }]}>{hintText}</Text>
           </View>
         </View>
       </View>

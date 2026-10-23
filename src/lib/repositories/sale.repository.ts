@@ -1,6 +1,8 @@
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, PaginatedResult, SaleSyncStatus } from "@/lib/types/sales";
+import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, SaleSyncStatus } from "@/lib/types/sales";
+import type { PaginatedResult } from "@/lib/types/inventory";
+import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 interface SaleSyncRow {
   entityId: string;
@@ -97,9 +99,15 @@ export const SaleRepository = {
   },
 
   async findByReceiptNumber(receiptNumber: string): Promise<SaleDTO | null> {
+    const normalized = normalizeScannedCode(receiptNumber);
+    if (!normalized) return null;
+
     const sale = await queryFirst<SaleDTO>(
-      "SELECT * FROM Sale WHERE receiptNumber = ?",
-      [receiptNumber]
+      `SELECT * FROM Sale
+       WHERE receiptNumber = ?
+          OR UPPER(REPLACE(TRIM(receiptNumber), ' ', '')) = ?
+       LIMIT 1`,
+      [normalized, canonicalScannedCode(normalized)]
     );
     if (!sale) return null;
 
@@ -269,6 +277,13 @@ export const SaleRepository = {
     await execute(
       "UPDATE Sale SET synced = 1 WHERE id = ?",
       [id]
+    );
+  },
+
+  async updateStatus(id: string, status: string): Promise<void> {
+    await execute(
+      "UPDATE Sale SET status = ? WHERE id = ?",
+      [status, id]
     );
   },
 

@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
 
@@ -19,14 +20,15 @@ export function PaginationControls({
   pageSize,
   onPageChange,
   onPageSizeChange,
-  dark,
+  dark: _dark,
 }: Props) {
+  const theme = usePosTheme();
   const safeTotalPages = Math.max(1, totalPages);
 
   return (
-    <View style={[styles.container, { borderTopColor: dark ? "#28303d" : "#dde3ea" }]}>
+    <View style={[styles.container, { borderTopColor: theme.border }]}>
       <View style={styles.sizeGroup}>
-        <Text style={[styles.label, { color: dark ? "#94a3b8" : "#64748b" }]}>Items per page</Text>
+        <Text style={[styles.label, { color: theme.muted }]}>Items per page</Text>
         <View style={styles.options}>
           {PAGE_SIZE_OPTIONS.map((option) => {
             const selected = option === pageSize;
@@ -36,15 +38,15 @@ export function PaginationControls({
                 style={[
                   styles.sizeButton,
                   {
-                    backgroundColor: selected ? "#17386b" : dark ? "#18202c" : "#ffffff",
-                    borderColor: selected ? "#17386b" : dark ? "#334155" : "#d8e0ea",
+                    backgroundColor: selected ? theme.primary : theme.surface,
+                    borderColor: selected ? theme.primary : theme.border,
                   },
                 ]}
                 onPress={() => onPageSizeChange(option)}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
               >
-                <Text style={[styles.sizeText, { color: selected ? "#ffffff" : dark ? "#d8dee8" : "#526174" }]}>
+                <Text style={[styles.sizeText, { color: selected ? theme.onPrimary : theme.text }]}>
                   {option}
                 </Text>
               </TouchableOpacity>
@@ -57,27 +59,27 @@ export function PaginationControls({
         <TouchableOpacity
           style={[
             styles.pageButton,
-            { backgroundColor: dark ? "#18202c" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" },
+            { backgroundColor: theme.surface, borderColor: theme.border },
             page === 1 && styles.disabled,
           ]}
           onPress={() => onPageChange(Math.max(1, page - 1))}
           disabled={page === 1}
           accessibilityLabel="Previous page"
         >
-          <Ionicons name="chevron-back" size={15} color={dark ? "#f5f7fa" : "#17386b"} />
+          <Ionicons name="chevron-back" size={15} color={theme.accent} />
         </TouchableOpacity>
-        <Text style={[styles.pageText, { color: dark ? "#d8dee8" : "#526174" }]}>Page {page} of {safeTotalPages}</Text>
+        <Text style={[styles.pageText, { color: theme.muted }]}>Page {page} of {safeTotalPages}</Text>
         <TouchableOpacity
           style={[
             styles.pageButton,
-            { backgroundColor: dark ? "#18202c" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" },
+            { backgroundColor: theme.surface, borderColor: theme.border },
             page === safeTotalPages && styles.disabled,
           ]}
           onPress={() => onPageChange(Math.min(safeTotalPages, page + 1))}
           disabled={page === safeTotalPages}
           accessibilityLabel="Next page"
         >
-          <Ionicons name="chevron-forward" size={15} color={dark ? "#f5f7fa" : "#17386b"} />
+          <Ionicons name="chevron-forward" size={15} color={theme.accent} />
         </TouchableOpacity>
       </View>
     </View>

@@ -12,10 +12,11 @@ import {
   PanResponder,
   AppState,
   Modal,
+  Alert,
 } from "react-native";
 import { usePathname, useRouter, Slot } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -30,6 +31,8 @@ import { useSyncStore } from "@/lib/stores/sync-store";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import type { InventoryTransferDTO } from "@/lib/types/inventory";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { capabilitiesFor } from "@/lib/business/capabilities";
 
 const WIDE_BREAKPOINT = 768;
 const AUTO_LOCK_WARNING_SECONDS = 5;
@@ -60,6 +63,14 @@ const navItems = [
     requiredPermission: "POS_RECEIPTS",
   },
   {
+    name: "returns",
+    label: "Returns",
+    icon: "arrow-undo-outline" as const,
+    activeIcon: "arrow-undo" as const,
+    href: "/(pos)/returns",
+    requiredPermission: "POS_RETURNS",
+  },
+  {
     name: "products",
     label: "Products",
     icon: "cube-outline" as const,
@@ -73,7 +84,7 @@ const navItems = [
     icon: "bar-chart-outline" as const,
     activeIcon: "bar-chart" as const,
     href: "/(pos)/reports",
-    requiredPermission: "DASHBOARD",
+    requiredPermission: "POS_REPORTS",
   },
   {
     name: "transfers",
@@ -84,12 +95,12 @@ const navItems = [
     requiredPermission: "POS_TRANSFERS",
   },
   {
-    name: "settings",
-    label: "Settings",
-    icon: "settings-outline" as const,
-    activeIcon: "settings" as const,
-    href: "/(pos)/settings",
-    requiredPermission: "POS_SETTINGS",
+    name: "customers",
+    label: "Customers",
+    icon: "people-outline" as const,
+    activeIcon: "people" as const,
+    href: "/(pos)/customers",
+    requiredPermission: "POS_CUSTOMERS",
   },
 ];
 
@@ -253,6 +264,8 @@ function POSHeader({
   sidebarOpen,
   onToggleSidebar,
   onAccountPress,
+  canAccessSettings,
+  onLogoutPress,
 }: {
   transferCount: number;
   transfers: InventoryTransferDTO[];
@@ -262,8 +275,18 @@ function POSHeader({
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onAccountPress: () => void;
+  canAccessSettings: boolean;
+  onLogoutPress: () => void;
 }) {
+  const theme = usePosTheme();
+  const business = useBusinessConfigStore((state) => state.configuration);
+  const capabilities = capabilitiesFor(business.operatingMode);
+  const brandLogo = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [overflowVisible, setOverflowVisible] = useState(false);
+  const [syncingNow, setSyncingNow] = useState(false);
   const omsStatus = useOmsConnectionStore((state) => state.status);
   const pendingCount = useSyncStore((s) => s.pendingCount);
   const isSyncing = useSyncStore((s) => s.isSyncing);
@@ -304,9 +327,49 @@ function POSHeader({
   ).current;
 
   const router = useRouter();
+  const syncLabel = isSyncing || syncingNow
+    ? "Syncing..."
+    : omsStatus === "connecting"
+      ? "Checking..."
+      : omsStatus === "connected"
+        ? "Online"
+        : "Offline";
+  const syncColor =
+    omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545";
   const handleBadgePress = () => {
     setTransferDialogOpen(true);
     onTransferPress();
+  };
+  const handleOverflowSyncNow = async () => {
+    if (syncingNow || isSyncing) return;
+    setSyncingNow(true);
+    try {
+      await useOmsConnectionStore.getState().checkConnection();
+      try {
+        const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
+        await SyncQueueService.processPending();
+      } catch {
+        // queue flush is best-effort from the header
+      }
+      await useSyncStore.getState().refreshPendingCount();
+    } finally {
+      setSyncingNow(false);
+    }
+  };
+  const handleOverflowAccount = () => {
+    setOverflowVisible(false);
+    onAccountPress();
+  };
+  const handleOverflowSettings = () => {
+    setOverflowVisible(false);
+    router.push("/(pos)/settings" as any);
+  };
+  const handleOverflowLogout = () => {
+    setOverflowVisible(false);
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: () => onLogoutPress() },
+    ]);
   };
 
   return (
@@ -315,6 +378,7 @@ function POSHeader({
         style={[
           styles.header,
           dark ? styles.headerDark : styles.headerLight,
+          { backgroundColor: theme.navigation, borderBottomColor: theme.border },
         ]}
       >
         <View style={styles.headerLeft}>
@@ -331,59 +395,78 @@ function POSHeader({
               <Ionicons
                 name={sidebarOpen ? "close" : "menu"}
                 size={22}
-                color={dark ? "#e2e8f0" : "#17386b"}
+                color={theme.navigationText}
               />
             </TouchableOpacity>
           )}
-          <TransferBadge
-            count={transferCount}
-            onPress={handleBadgePress}
-            dark={dark}
-          />
+          {capabilities.receiveNctTransfers ? (
+            <TransferBadge
+              count={transferCount}
+              onPress={handleBadgePress}
+              dark={dark}
+            />
+          ) : null}
         </View>
         <View style={styles.headerBrand} pointerEvents="none">
           <Image
-            source={require("../../../assets/nct-seafoods-logo.png")}
+            source={brandLogo}
             style={styles.headerLogo}
             resizeMode="contain"
-            accessibilityLabel="NCT Seafoods"
+            accessibilityLabel={business.businessName}
           />
           <Text
             style={[
               styles.headerTitle,
               dark ? styles.headerTitleDark : styles.headerTitleLight,
+              { color: theme.navigationText },
             ]}
             numberOfLines={1}
           >
-            NCT Seafoods POS System
+            {business.posSystemName}
           </Text>
         </View>
         <View style={styles.headerRight} {...(!isWide ? panResponder.panHandlers : {})}>
-          {isWide ? (
-            <SessionIndicator
-              dark={dark}
-              onPress={onAccountPress}
-              statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
-              statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
-              pendingCount={pendingCount}
-            />
-          ) : (
-            <View style={styles.headerSliderClip}>
-              <Animated.View style={[styles.headerSliderItem, { transform: [{ translateX: slideAnim }] }]}>
-                {showUserTag ? (
-                  <SessionIndicator
-                    dark={dark}
-                    onPress={onAccountPress}
-                    statusLabel={isSyncing ? "Syncing..." : omsStatus === "connecting" ? "Checking..." : omsStatus === "connected" ? "Online" : "Offline"}
-                    statusColor={omsStatus === "connected" ? "#28a745" : omsStatus === "connecting" ? "#f59e0b" : "#dc3545"}
-                    pendingCount={pendingCount}
-                  />
-                ) : (
-                  <HeaderDateTime dark={dark} />
-                )}
-              </Animated.View>
-            </View>
-          )}
+          <View style={styles.headerActionsRow}>
+            {isWide ? (
+              <SessionIndicator
+                dark={dark}
+                onPress={onAccountPress}
+                statusLabel={syncLabel}
+                statusColor={syncColor}
+                pendingCount={pendingCount}
+              />
+            ) : (
+              <View style={styles.headerSliderClip}>
+                <Animated.View style={[styles.headerSliderItem, { transform: [{ translateX: slideAnim }] }]}>
+                  {showUserTag ? (
+                    <SessionIndicator
+                      dark={dark}
+                      onPress={onAccountPress}
+                      statusLabel={syncLabel}
+                      statusColor={syncColor}
+                      pendingCount={pendingCount}
+                    />
+                  ) : (
+                    <HeaderDateTime dark={dark} />
+                  )}
+                </Animated.View>
+              </View>
+            )}
+            <TouchableOpacity
+              onPress={() => setOverflowVisible(true)}
+              style={styles.overflowBtn}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="More actions"
+            >
+              <Ionicons
+                name="ellipsis-vertical"
+                size={20}
+                color={theme.navigationText}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       <TransferDialog
@@ -396,6 +479,79 @@ function POSHeader({
           router.push(`/(pos)/transfers?highlight=${id}` as any);
         }}
       />
+      <Modal
+        visible={overflowVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setOverflowVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.overflowBackdrop}
+          activeOpacity={1}
+          onPress={() => setOverflowVisible(false)}
+          accessibilityLabel="Close menu"
+        />
+        <View
+          style={[
+            styles.overflowMenu,
+            dark ? styles.overflowMenuDark : styles.overflowMenuLight,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <View style={styles.overflowStatusRow}>
+            <View style={[styles.overflowStatusDot, { backgroundColor: syncColor }]} />
+            <Text style={[styles.overflowStatusText, { color: theme.text }]}>
+              {syncLabel}
+            </Text>
+            {pendingCount > 0 && (
+              <View style={styles.overflowPendingBadge}>
+                <Text style={styles.overflowPendingText}>{pendingCount > 99 ? "99+" : pendingCount}</Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={() => void handleOverflowSyncNow()}
+            disabled={syncingNow || isSyncing}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="sync-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>
+              {syncingNow || isSyncing ? "Syncing..." : "Sync now"}
+            </Text>
+            {(syncingNow || isSyncing) && <ActivityIndicator size="small" color={theme.accent} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={handleOverflowAccount}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-circle-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>My account</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.muted} />
+          </TouchableOpacity>
+          {canAccessSettings ? <TouchableOpacity
+            style={styles.overflowItem}
+            onPress={handleOverflowSettings}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={18} color={theme.accent} />
+            <Text style={[styles.overflowItemLabel, { color: theme.text }]}>Settings</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.muted} />
+          </TouchableOpacity> : null}
+          <TouchableOpacity
+            style={[styles.overflowItem, styles.overflowItemLast]}
+            onPress={handleOverflowLogout}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+          >
+            <Ionicons name="log-out-outline" size={18} color="#dc3545" />
+            <Text style={[styles.overflowItemLabel, styles.overflowItemLabelDanger]}>Log out</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -411,27 +567,29 @@ function BottomNavigation({
   onNavigate: (href: string) => void;
   dark: boolean;
 }) {
+  const theme = usePosTheme();
   return (
-    <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight]}>
+    <View style={[styles.bottomNav, dark ? styles.bottomNavDark : styles.bottomNavLight, { backgroundColor: theme.navigation, borderTopColor: theme.border }]}>
       {visibleNavItems.map((item) => {
         const active = isNavItemActive(pathname, item.href);
         return (
           <TouchableOpacity
             key={item.name}
-            style={[styles.bottomNavItem, active && (dark ? styles.bottomNavItemActiveDark : styles.bottomNavItemActiveLight)]}
+            style={[styles.bottomNavItem, active && (dark ? styles.bottomNavItemActiveDark : styles.bottomNavItemActiveLight), active && { backgroundColor: theme.surfaceAlt }]}
             onPress={() => onNavigate(item.href)}
             activeOpacity={0.7}
           >
             <Ionicons
               name={active ? item.activeIcon : item.icon}
               size={20}
-              color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#ffffff"}
+              color={active ? theme.accent : theme.navigationText}
             />
             <Text
               style={[
                 styles.bottomNavLabel,
                 dark ? styles.bottomNavLabelDark : styles.bottomNavLabelLight,
                 active && (dark ? styles.bottomNavLabelActiveDark : styles.bottomNavLabelActiveLight),
+                { color: active ? theme.accent : theme.navigationText },
               ]}
             >
               {item.label}
@@ -459,8 +617,11 @@ export default function POSLayout() {
   const deviceHydrated = useDeviceStore((s) => s.hydrated);
   const clearDevice = useDeviceStore((s) => s.clearDevice);
   const autoLockMinutes = useAccessSettingsStore((s) => s.autoLockMinutes);
+  const operatingMode = useBusinessConfigStore((s) => s.configuration.operatingMode);
+  const capabilities = capabilitiesFor(operatingMode);
 
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -495,7 +656,8 @@ export default function POSLayout() {
     setSidebarOpen(false);
   };
 
-  const dark = useIsDarkTheme();
+  const theme = usePosTheme();
+  const dark = theme.dark;
   const checkOmsConnection = useOmsConnectionStore((state) => state.checkConnection);
 
   const handleLogout = async () => {
@@ -616,16 +778,27 @@ export default function POSLayout() {
 
   // 2. Permission-gated navigation
   useEffect(() => {
-    if (!session?.roleId) return;
-    PermissionService.getRolePermissions(session.roleId)
+    setPermissionsLoaded(false);
+    if (session?.isSuperAdmin) {
+      setGrantedPermissions([]);
+      setPermissionsLoaded(true);
+      return;
+    }
+    if (!session?.roleId) {
+      setGrantedPermissions([]);
+      setPermissionsLoaded(true);
+      return;
+    }
+    PermissionService.getEffectivePermissions(session.roleId, session.cashierId)
       .then(setGrantedPermissions)
-      .catch(() => {});
-  }, [session?.roleId]);
+      .catch(() => setGrantedPermissions([]))
+      .finally(() => setPermissionsLoaded(true));
+  }, [session?.cashierId, session?.isSuperAdmin, session?.roleId]);
 
   const visibleNavItems = navItems.filter(
     (item) =>
-      grantedPermissions.length === 0 ||
-      hasAnyRequiredPermission(item, grantedPermissions)
+      (item.name !== "transfers" || capabilities.receiveNctTransfers) &&
+      (session?.isSuperAdmin || (permissionsLoaded && hasAnyRequiredPermission(item, grantedPermissions)))
   );
 
   // 3. Auth redirect guard
@@ -663,6 +836,11 @@ export default function POSLayout() {
 
   // 5. Transfer badge polling — every 30 seconds
   useEffect(() => {
+    if (!capabilities.receiveNctTransfers) {
+      setTransfers([]);
+      setTransferCount(0);
+      return;
+    }
     let cancelled = false;
 
     const checkPendingTransfers = async () => {
@@ -687,7 +865,7 @@ export default function POSLayout() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [capabilities.receiveNctTransfers]);
 
   // Reset badge when on transfers screen
   useEffect(() => {
@@ -698,19 +876,27 @@ export default function POSLayout() {
 
   // Permission gate — redirect if current route is forbidden
   useEffect(() => {
-    if (grantedPermissions.length === 0) return;
+    if (isNavItemActive(pathname, "/(pos)/transfers") && !capabilities.receiveNctTransfers) {
+      router.replace("/(pos)");
+      return;
+    }
+    if (isNavItemActive(pathname, "/(pos)/settings") && !session?.isSuperAdmin && !["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code))) {
+      router.replace("/(pos)");
+      return;
+    }
+    if (session?.isSuperAdmin || !permissionsLoaded) return;
     const currentItem = navItems.find((item) => {
       return isNavItemActive(pathname, item.href);
     });
     if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
       router.replace("/(pos)");
     }
-  }, [pathname, grantedPermissions, router]);
+  }, [pathname, grantedPermissions, permissionsLoaded, router, capabilities.receiveNctTransfers, session?.isSuperAdmin]);
 
   // Loading state
   if (!authHydrated || !uiHydrated || !cashierHydrated || !deviceHydrated) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
         <POSHeader
           transferCount={0}
           transfers={[]}
@@ -720,9 +906,11 @@ export default function POSLayout() {
           sidebarOpen={true}
           onToggleSidebar={() => {}}
           onAccountPress={() => router.push("/(pos)/user" as any)}
+          canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
+          onLogoutPress={() => {}}
         />
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#17386b" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       </View>
     );
@@ -730,7 +918,7 @@ export default function POSLayout() {
 
   return (
     <View
-      style={[styles.viewport, dark ? styles.bgDark : styles.bgLight]}
+      style={[styles.viewport, dark ? styles.bgDark : styles.bgLight, { backgroundColor: theme.background }]}
       onTouchStart={() => {
         if (lockCountdown === null) resetIdleTimer();
       }}
@@ -743,6 +931,7 @@ export default function POSLayout() {
         style={[
           styles.container,
           dark ? styles.bgDark : styles.bgLight,
+          { backgroundColor: theme.background },
           viewportSize.width > 0 && viewportSize.height > 0 ? {
             flex: 0,
             width: viewportSize.width / uiScale,
@@ -761,6 +950,8 @@ export default function POSLayout() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         onAccountPress={() => router.push("/(pos)/user" as any)}
+        canAccessSettings={Boolean(session?.isSuperAdmin || ["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code)))}
+        onLogoutPress={() => void handleLogout()}
       />
 
       <View style={styles.body}>
@@ -784,6 +975,7 @@ export default function POSLayout() {
               style={[
                 styles.sidebar,
                 dark ? styles.sidebarDark : styles.sidebarLight,
+                { backgroundColor: theme.navigation, borderRightColor: theme.border },
                 {
                   transform: [{
                     translateX: sidebarAnim.interpolate({
@@ -812,13 +1004,14 @@ export default function POSLayout() {
                       <Ionicons
                         name={active ? item.activeIcon : item.icon}
                         size={20}
-                        color={active ? (dark ? "#60a5fa" : "#17386b") : dark ? "#94a3b8" : "#8e99a4"}
+                        color={active ? theme.accent : theme.navigationText}
                       />
                       <Text
                         style={[
                           styles.sidebarNavLabel,
                           dark ? styles.sidebarNavLabelDark : styles.sidebarNavLabelLight,
                           active && (dark ? styles.sidebarNavLabelActiveDark : styles.sidebarNavLabelActiveLight),
+                          { color: active ? theme.accent : theme.navigationText },
                         ]}
                       >
                         {item.label}
@@ -835,7 +1028,7 @@ export default function POSLayout() {
                 })}
               </View>
 
-              <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight]}>
+              <View style={[styles.sidebarFooter, dark ? styles.sidebarFooterDark : styles.sidebarFooterLight, { borderTopColor: theme.border }]}>
                 <TouchableOpacity style={styles.sidebarLogoutBtn} onPress={handleLogout} activeOpacity={0.75}>
                   <Ionicons name="log-out-outline" size={19} color="#dc3545" />
                   <Text style={styles.sidebarLogoutText}>Log out</Text>
@@ -1070,11 +1263,112 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   headerRight: {
-    width: 240,
-    height: 34,
+    width: 286,
+    height: 36,
     marginLeft: "auto",
     justifyContent: "center",
     alignItems: "flex-end",
+  },
+  headerActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  overflowBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+    flexShrink: 0,
+  },
+  overflowBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(2, 6, 23, 0.35)",
+  },
+  overflowMenu: {
+    position: "absolute",
+    top: 104,
+    right: 12,
+    minWidth: 248,
+    maxWidth: 300,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  overflowMenuLight: {
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+  },
+  overflowMenuDark: {
+    backgroundColor: "#11151d",
+    borderColor: "#28303d",
+  },
+  overflowStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.25)",
+    marginBottom: 4,
+  },
+  overflowStatusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  overflowStatusText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1a202c",
+  },
+  overflowPendingBadge: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    minWidth: 22,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  overflowPendingText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  overflowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  overflowItemLast: {
+    marginBottom: 2,
+  },
+  overflowItemLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1a202c",
+  },
+  overflowItemLabelDanger: {
+    color: "#dc3545",
   },
   headerSliderClip: {
     width: 240,

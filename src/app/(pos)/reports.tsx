@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,21 +12,24 @@ import {
   View,
 } from "react-native";
 import * as Print from "expo-print";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import dayjs from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import Svg, { Circle, Line, Polyline, Text as SvgText } from "react-native-svg";
-import { useIsDarkTheme } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { ReportService } from "@/lib/services/report.service";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
-import { SettingsService } from "@/lib/services/settings.service";
+import { SettingsService, type ResolvedSettings } from "@/lib/services/settings.service";
 import type { ReportSaleRow, SalesReport, SalesTrendPoint } from "@/lib/types/reports";
-import type { StoreSettingsRow } from "@/lib/repositories/settings.repository";
 import { EndOfDayReportModal } from "@/components/ui/end-of-day-report-modal";
-import { getPrintableAssetDataUri } from "@/lib/printing/print-assets";
+import { getPrintableAssetDataUri, getPrintableFileDataUri } from "@/lib/printing/print-assets";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
+import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
+import { formatEscPosEndOfDayReport } from "@/lib/printers/escpos-end-of-day";
+import { usePrinterStore } from "@/lib/stores/printer-store";
+import { EndOfDayService } from "@/lib/backup/end-of-day.service";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 
 type Preset = "today" | "7days" | "30days" | "custom";
 type DateTarget = "start" | "end" | null;
@@ -46,8 +50,23 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 const paymentLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
+const withAlpha = (color: string, alpha: number) => {
+  const hex = color.trim();
+  const short = /^#([0-9a-f]{3})$/i.exec(hex);
+  const long = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (short) {
+    const [r, g, b] = short[1].split("").map((c) => parseInt(c + c, 16));
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (long) {
+    const value = parseInt(long[1], 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  }
+  return color;
+};
 
 function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean }) {
+  const theme = usePosTheme();
   const width = 760;
   const height = 210;
   const padX = 48;
@@ -60,8 +79,8 @@ function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean
     y: padY + chartHeight - (Number(point.revenue) / max) * chartHeight,
     point,
   }));
-  const stroke = dark ? "#60a5fa" : "#1d4ed8";
-  const muted = dark ? "#64748b" : "#94a3b8";
+  const stroke = theme.accent;
+  const muted = theme.muted;
 
   return (
     <View style={styles.chartWrap}>
@@ -87,31 +106,168 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+function DateRangeCalendar({
+  visible,
+  startDate,
+  endDate,
+  initialTarget,
+  onClose,
+  onApply,
+}: {
+  visible: boolean;
+  startDate: Date;
+  endDate: Date;
+  initialTarget: DateTarget;
+  onClose: () => void;
+  onApply: (start: Date, end: Date) => void;
+}) {
+  const theme = usePosTheme();
+  const [month, setMonth] = useState(dayjs(startDate).startOf("month"));
+  const [draftStart, setDraftStart] = useState(dayjs(startDate).startOf("day"));
+  const [draftEnd, setDraftEnd] = useState(dayjs(endDate).startOf("day"));
+  const [selecting, setSelecting] = useState<"start" | "end">("start");
+
+  useEffect(() => {
+    if (!visible) return;
+    const target = initialTarget === "end" ? dayjs(endDate) : dayjs(startDate);
+    setMonth(target.startOf("month"));
+    setDraftStart(dayjs(startDate).startOf("day"));
+    setDraftEnd(dayjs(endDate).startOf("day"));
+    setSelecting(initialTarget === "end" ? "end" : "start");
+  }, [endDate, initialTarget, startDate, visible]);
+
+  const today = dayjs().startOf("day");
+  const leading = month.day();
+  const daysInMonth = month.daysInMonth();
+  const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+  const cells = Array.from({ length: totalCells }, (_, index) => {
+    const dayNumber = index - leading + 1;
+    return dayNumber > 0 && dayNumber <= daysInMonth ? month.date(dayNumber) : null;
+  });
+  const rangeSpan = draftEnd.diff(draftStart, "day") + 1;
+  const isSameDay = draftStart.valueOf() === draftEnd.valueOf();
+  const rangeAlpha = withAlpha(theme.primary, theme.dark ? 0.32 : 0.15);
+
+  const choose = (day: Dayjs) => {
+    const selected = day.startOf("day");
+    if (selecting === "start") {
+      setDraftStart(selected);
+      if (selected.valueOf() > draftEnd.valueOf()) setDraftEnd(selected);
+      setSelecting("end");
+      return;
+    }
+    if (selected.valueOf() < draftStart.valueOf()) {
+      setDraftStart(selected);
+      setDraftEnd(selected);
+      setSelecting("end");
+    } else {
+      setDraftEnd(selected);
+    }
+  };
+
+  const applyQuick = (start: Dayjs, end: Dayjs) => {
+    setDraftStart(start);
+    setDraftEnd(end);
+    setMonth(start.startOf("month"));
+    setSelecting("end");
+  };
+
+  return <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <View style={styles.calendarBackdrop}>
+      <View style={[styles.calendarModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <View style={styles.calendarTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.calendarTitle, { color: theme.text }]}>Select report range</Text>
+            <Text style={[styles.calendarSubtitle, { color: theme.muted }]}>Choose a start date, then an end date</Text>
+          </View>
+          <TouchableOpacity style={[styles.calendarClose, { backgroundColor: theme.surfaceAlt }]} onPress={onClose} accessibilityLabel="Close calendar"><Ionicons name="close" size={20} color={theme.text} /></TouchableOpacity>
+        </View>
+        <View style={styles.rangeSummaryRow}>
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "start" ? theme.primary : theme.border, backgroundColor: selecting === "start" ? withAlpha(theme.primary, theme.dark ? 0.24 : 0.08) : theme.surfaceAlt }]} onPress={() => setSelecting("start")}>
+            <Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>FROM</Text>
+            <Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftStart.format("MMM D, YYYY")}</Text>
+          </TouchableOpacity>
+          <View style={styles.rangeSummaryDivider}>
+            <Ionicons name="arrow-forward" size={16} color={theme.muted} />
+            <Text style={[styles.rangeSummarySpan, { color: theme.accent }]}>{isSameDay ? "1 day" : `${rangeSpan} days`}</Text>
+          </View>
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "end" ? theme.primary : theme.border, backgroundColor: selecting === "end" ? withAlpha(theme.primary, theme.dark ? 0.24 : 0.08) : theme.surfaceAlt }]} onPress={() => setSelecting("end")}>
+            <Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>TO</Text>
+            <Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftEnd.format("MMM D, YYYY")}</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.calendarMonthRow}>
+          <TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.subtract(1, "month"))} accessibilityLabel="Previous month"><Ionicons name="chevron-back" size={20} color={theme.accent} /></TouchableOpacity>
+          <Text style={[styles.calendarMonth, { color: theme.text }]}>{month.format("MMMM YYYY")}</Text>
+          <TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.add(1, "month"))} accessibilityLabel="Next month"><Ionicons name="chevron-forward" size={20} color={theme.accent} /></TouchableOpacity>
+        </View>
+        <View style={styles.calendarWeek}>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, index) => <Text key={label} style={[styles.calendarWeekday, { color: index === 0 || index === 6 ? theme.accent : theme.muted }]}>{label}</Text>)}</View>
+        <View style={styles.calendarGrid}>{cells.map((day, index) => {
+          if (!day) return <View key={`blank-${index}`} style={styles.calendarDayWrap} />;
+          const value = day.valueOf();
+          const isStart = value === draftStart.valueOf();
+          const isEnd = value === draftEnd.valueOf();
+          const inRange = value > draftStart.valueOf() && value < draftEnd.valueOf();
+          const isToday = value === today.valueOf();
+          const selected = isStart || isEnd;
+          const showRange = !isSameDay && (inRange || isStart || isEnd);
+          const rangeEdges = {
+            borderTopLeftRadius: (isStart || (isSameDay && selected)) ? 999 : 0,
+            borderBottomLeftRadius: (isStart || (isSameDay && selected)) ? 999 : 0,
+            borderTopRightRadius: (isEnd || (isSameDay && selected)) ? 999 : 0,
+            borderBottomRightRadius: (isEnd || (isSameDay && selected)) ? 999 : 0,
+          } as const;
+          return <TouchableOpacity key={day.format("YYYY-MM-DD")} style={styles.calendarDayWrap} activeOpacity={0.7} onPress={() => choose(day)} accessibilityLabel={day.format("MMMM D, YYYY")}>
+            <View style={[styles.calendarDayTrack, showRange && { backgroundColor: rangeAlpha, ...rangeEdges }]}>
+              <View style={[styles.calendarDayDot, selected && { backgroundColor: theme.primary }, !selected && isToday && { borderWidth: 1.5, borderColor: theme.accent }]}>
+                <Text style={[styles.calendarDayText, { color: selected ? theme.onPrimary : isToday ? theme.accent : theme.text }]}>{day.date()}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>;
+        })}</View>
+        <View style={styles.calendarLegend}>
+          <View style={styles.calendarLegendItem}><View style={[styles.calendarLegendDot, { backgroundColor: theme.primary }]} /><Text style={[styles.calendarLegendText, { color: theme.muted }]}>Selected</Text></View>
+          <View style={styles.calendarLegendItem}><View style={[styles.calendarLegendDot, { borderWidth: 1.5, borderColor: theme.accent }]} /><Text style={[styles.calendarLegendText, { color: theme.muted }]}>Today</Text></View>
+        </View>
+        <View style={styles.calendarQuickRow}>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today, today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Today</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.subtract(6, "day"), today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 7 days</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.subtract(29, "day"), today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 30 days</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.startOf("month"), today.endOf("month").startOf("day"))}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>This month</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarApply, { backgroundColor: theme.primary }]} onPress={() => onApply(draftStart.toDate(), draftEnd.toDate())}><Ionicons name="checkmark" size={16} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "900", fontSize: 12 }}>Apply range</Text></TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  </Modal>;
+}
+
 export default function ReportsScreen() {
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const { width } = useWindowDimensions();
   const wide = width >= 900;
   const [preset, setPreset] = useState<Preset>("today");
   const [startDate, setStartDate] = useState(dayjs().startOf("day").toDate());
   const [endDate, setEndDate] = useState(dayjs().endOf("day").toDate());
   const [dateTarget, setDateTarget] = useState<DateTarget>(null);
+  const [calendarVisible, setCalendarVisible] = useState(false);
   const [report, setReport] = useState<SalesReport>(emptyReport);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [eodVisible, setEodVisible] = useState(false);
   const [printingEod, setPrintingEod] = useState(false);
-  const [settings, setSettings] = useState<StoreSettingsRow | null>(null);
+  const [settings, setSettings] = useState<ResolvedSettings | null>(null);
+  const [queueingEod, setQueueingEod] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
+  const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
+  const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const colors = useMemo(() => ({
-    background: dark ? "#0b0f16" : "#f4f6f8",
-    panel: dark ? "#141922" : "#ffffff",
-    panelAlt: dark ? "#101722" : "#f8fafc",
-    border: dark ? "#293241" : "#dfe5ec",
-    text: dark ? "#f4f7fb" : "#172033",
-    muted: dark ? "#93a0b2" : "#667085",
-  }), [dark]);
+    background: theme.background, panel: theme.surface, panelAlt: theme.surfaceAlt,
+    border: theme.border, text: theme.text, muted: theme.muted,
+  }), [theme.background, theme.surface, theme.surfaceAlt, theme.border, theme.text, theme.muted]);
 
   const applyPreset = useCallback((next: Preset) => {
     const now = dayjs();
@@ -144,18 +300,17 @@ export default function ReportsScreen() {
     SettingsService.get().then(setSettings).catch(() => setSettings(null));
   }, []);
 
-  const chooseDate = (event: DateTimePickerEvent, selected?: Date) => {
-    const target = dateTarget;
-    setDateTarget(null);
-    if (event.type !== "set" || !selected || !target) return;
+  const openCalendar = (target: Exclude<DateTarget, null>) => {
+    setDateTarget(target);
+    setCalendarVisible(true);
+  };
+
+  const applyCustomRange = (selectedStart: Date, selectedEnd: Date) => {
     setPreset("custom");
-    if (target === "start") {
-      setStartDate(dayjs(selected).startOf("day").toDate());
-      if (selected > endDate) setEndDate(dayjs(selected).endOf("day").toDate());
-    } else {
-      setEndDate(dayjs(selected).endOf("day").toDate());
-      if (selected < startDate) setStartDate(dayjs(selected).startOf("day").toDate());
-    }
+    setStartDate(dayjs(selectedStart).startOf("day").toDate());
+    setEndDate(dayjs(selectedEnd).endOf("day").toDate());
+    setCalendarVisible(false);
+    setDateTarget(null);
   };
 
   const syncStatusInfo = (sale: ReportSaleRow) => {
@@ -199,14 +354,13 @@ export default function ReportsScreen() {
     if (!report.sales.length || exporting) return;
     setExporting(true);
     try {
-      const headers = ["Receipt Number", "Timestamp", "Cashier", "Customer", "Payment Method", "Item Count", "Subtotal", "Discount", "Tax", "Total", "Sync Status"];
+      const headers = ["Receipt Number", "Timestamp", "Cashier", "Customer", "Payment Method", "Item Count", "Subtotal", "Discount", "Tax", "Total"];
       const rows = report.sales.map((sale) => [
         sale.receiptNumber, sale.createdAt, sale.cashierName, sale.customerName ?? "", sale.paymentMethod,
         sale.itemCount, sale.subtotal, sale.discount, sale.tax, sale.total,
-        sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED"),
-        sale.syncError ?? "",
+        ...(showOmsSyncStatus ? [sale.syncStatus ?? (sale.synced ? "SYNCED" : "UNSYNCED"), sale.syncError ?? ""] : []),
       ]);
-      headers.push("Sync Error");
+      if (showOmsSyncStatus) headers.push("Sync Status", "Sync Error");
       const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
       const file = new File(Paths.cache, `sales-report-${dayjs(startDate).format("YYYYMMDD")}-${dayjs(endDate).format("YYYYMMDD")}.csv`);
       file.create({ overwrite: true, intermediates: true });
@@ -227,7 +381,7 @@ export default function ReportsScreen() {
     if (!report.sales.length || printingEod) return;
     setPrintingEod(true);
     try {
-      const logoUri = await getPrintableAssetDataUri(
+      const logoUri = await getPrintableFileDataUri(settings?.logoUri) || await getPrintableAssetDataUri(
         require("../../../assets/thermal-printer-logo.jpg"),
         "image/jpeg"
       );
@@ -237,6 +391,38 @@ export default function ReportsScreen() {
       const period = sameDate
         ? dayjs(startDate).format("MMM D, YYYY")
         : `${dayjs(startDate).format("MMM D, YYYY")} - ${dayjs(endDate).format("MMM D, YYYY")}`;
+
+      if (Platform.OS === "android") {
+        if (!selectedPrinter) {
+          Alert.alert(
+            "Print EOD Report",
+            "Select a Bluetooth thermal printer in Settings first."
+          );
+          return;
+        }
+        const reportText = formatEscPosEndOfDayReport({
+          storeName: settings?.storeName,
+          address: settings?.address,
+          supportPhone: settings?.supportPhone,
+          period,
+          generatedAt: new Date(),
+          subtotal,
+          summary: report.summary,
+          payments: report.payments,
+          itemSales: report.itemSales,
+          cashiers: report.cashiers,
+        });
+        await BluetoothPrinter.printReceipt(
+          selectedPrinter.address,
+          reportText,
+          logoUri,
+          null,
+          null,
+          false
+        );
+        return;
+      }
+
       const paymentRows = report.payments.map((payment) => `
         <div class="item"><div><strong>${escapeHtml(paymentLabel(payment.method))}</strong><small>${payment.transactions} transactions</small></div><strong>${currency(payment.amount)}</strong></div>
       `).join("");
@@ -295,10 +481,34 @@ export default function ReportsScreen() {
       });
     } catch (error: any) {
       const cancelled = error?.message?.toLowerCase().includes("cancel");
-      Alert.alert("Print EOD Report", cancelled ? "Printer selection was cancelled." : "No thermal printer was selected or the print service is unavailable.");
+      Alert.alert(
+        "Print EOD Report",
+        cancelled
+          ? "Printer selection was cancelled."
+          : error?.message ??
+              "No thermal printer was selected or the print service is unavailable."
+      );
     } finally {
       setPrintingEod(false);
     }
+  };
+
+  const queueEndOfDay = async () => {
+    if (queueingEod) return;
+    if (!dayjs(startDate).isSame(endDate, "day")) {
+      Alert.alert("End of day", "Choose a single business date before closing an end-of-day report.");
+      return;
+    }
+    setQueueingEod(true);
+    try {
+      const result = await EndOfDayService.closeAndQueue({
+        businessDate: dayjs(startDate).format("YYYY-MM-DD"),
+      });
+      Alert.alert("End of day saved", `The report and recoverable backup are stored locally for OMS upload.\n\nBackup: ${result.backup.fileUri}`);
+      setEodVisible(false);
+    } catch (error: any) {
+      Alert.alert("End of day", error?.message ?? "Unable to create the recoverable EOD package.");
+    } finally { setQueueingEod(false); }
   };
 
   const summaryCards = [
@@ -322,18 +532,18 @@ export default function ReportsScreen() {
           <TouchableOpacity
             style={[
               styles.printButton,
-              { backgroundColor: colors.panel, borderColor: dark ? "#8abaff" : "#17386b" },
+              { backgroundColor: colors.panel, borderColor: theme.primary },
               !report.sales.length && styles.disabled,
             ]}
             onPress={() => setEodVisible(true)}
             disabled={!report.sales.length || loading}
           >
-            <Ionicons name="print-outline" size={18} color={dark ? "#8abaff" : "#17386b"} />
-            <Text style={[styles.printButtonText, { color: dark ? "#8abaff" : "#17386b" }]}>End of Day</Text>
+            <Ionicons name="print-outline" size={18} color={theme.primary} />
+            <Text style={[styles.printButtonText, { color: theme.primary }]}>End of Day</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.exportButton, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
-            {exporting ? <ActivityIndicator color="#ffffff" /> : <Ionicons name="download-outline" size={18} color="#ffffff" />}
-            <Text style={styles.exportText}>Export CSV</Text>
+          <TouchableOpacity style={[styles.exportButton, { backgroundColor: theme.primary }, !report.sales.length && styles.disabled]} onPress={exportCsv} disabled={!report.sales.length || exporting}>
+            {exporting ? <ActivityIndicator color={theme.onPrimary} /> : <Ionicons name="download-outline" size={18} color={theme.onPrimary} />}
+            <Text style={[styles.exportText, { color: theme.onPrimary }]}>Export CSV</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -341,28 +551,28 @@ export default function ReportsScreen() {
       <View style={styles.rangeRow}>
         <View style={styles.presets}>
           {([['today', 'Today'], ['7days', '7 Days'], ['30days', '30 Days']] as const).map(([key, label]) => (
-            <TouchableOpacity key={key} style={[styles.presetButton, { borderColor: colors.border, backgroundColor: colors.panel }, preset === key && styles.presetActive]} onPress={() => applyPreset(key)}>
-              <Text style={[styles.presetText, { color: colors.muted }, preset === key && styles.presetTextActive]}>{label}</Text>
+            <TouchableOpacity key={key} style={[styles.presetButton, { borderColor: preset === key ? theme.primary : colors.border, backgroundColor: preset === key ? theme.primary : colors.panel }]} onPress={() => applyPreset(key)}>
+              <Text style={[styles.presetText, { color: preset === key ? theme.onPrimary : colors.muted }]}>{label}</Text>
             </TouchableOpacity>
           ))}
         </View>
         <View style={styles.customDates}>
-          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => setDateTarget("start")}>
+          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => openCalendar("start")}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={[styles.dateText, { color: colors.text }]}>{dayjs(startDate).format("MMM D, YYYY")}</Text>
           </TouchableOpacity>
           <Text style={{ color: colors.muted }}>to</Text>
-          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => setDateTarget("end")}>
+          <TouchableOpacity style={[styles.dateButton, { borderColor: colors.border, backgroundColor: colors.panel }]} onPress={() => openCalendar("end")}>
             <Ionicons name="calendar-outline" size={16} color={colors.muted} />
             <Text style={[styles.dateText, { color: colors.text }]}>{dayjs(endDate).format("MMM D, YYYY")}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {dateTarget && <DateTimePicker value={dateTarget === "start" ? startDate : endDate} mode="date" onChange={chooseDate} />}
+      <DateRangeCalendar visible={calendarVisible} startDate={startDate} endDate={endDate} initialTarget={dateTarget} onClose={() => { setCalendarVisible(false); setDateTarget(null); }} onApply={applyCustomRange} />
 
       {loading ? (
-        <View style={styles.loading}><ActivityIndicator size="large" color="#2563eb" /></View>
+        <View style={styles.loading}><ActivityIndicator size="large" color={theme.accent} /></View>
       ) : report.summary.transactionCount === 0 ? (
         <View style={[styles.empty, { backgroundColor: colors.panel, borderColor: colors.border }]}>
           <Ionicons name="bar-chart-outline" size={46} color={colors.muted} />
@@ -393,7 +603,7 @@ export default function ReportsScreen() {
               {report.payments.map((payment) => (
                 <View key={payment.method} style={styles.paymentRow}>
                   <View style={styles.rowBetween}><Text style={[styles.rowName, { color: colors.text }]}>{payment.method}</Text><Text style={[styles.rowValue, { color: colors.text }]}>{currency(payment.amount)}</Text></View>
-                  <View style={[styles.progressTrack, { backgroundColor: colors.panelAlt }]}><View style={[styles.progressFill, { width: `${Math.max(3, (payment.amount / paymentMax) * 100)}%` }]} /></View>
+                  <View style={[styles.progressTrack, { backgroundColor: colors.panelAlt }]}><View style={[styles.progressFill, { width: `${Math.max(3, (payment.amount / paymentMax) * 100)}%`, backgroundColor: theme.accent }]} /></View>
                   <Text style={[styles.smallText, { color: colors.muted }]}>{payment.transactions} transactions</Text>
                 </View>
               ))}
@@ -433,28 +643,28 @@ export default function ReportsScreen() {
           <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.border }]}>
             <View style={styles.rowBetween}>
               <View style={styles.flex}>
-                <Text style={[styles.panelTitle, { color: colors.text }]}>Sales &amp; Sync Status</Text>
-                <Text style={[styles.panelCaption, { color: colors.muted }]}>Every recorded sale and whether it reached the OMS</Text>
+                <Text style={[styles.panelTitle, { color: colors.text }]}>{showOmsSyncStatus ? "Sales & Sync Status" : "Sales Records"}</Text>
+                <Text style={[styles.panelCaption, { color: colors.muted }]}>{showOmsSyncStatus ? "Every recorded sale and whether it reached the OMS" : "Every sale recorded locally for this dealership"}</Text>
               </View>
-              {report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
+              {showOmsSyncStatus && report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
                 <TouchableOpacity
-                  style={[styles.retryAllButton, { borderColor: colors.border }]}
+                  style={[styles.retryAllButton, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                   onPress={retryFailedSales}
                   disabled={retryingId !== null}
                 >
                   {retryingId === "all" ? (
-                    <ActivityIndicator size="small" color="#17386b" />
+                    <ActivityIndicator size="small" color={theme.accent} />
                   ) : (
-                    <Ionicons name="refresh" size={15} color="#17386b" />
+                    <Ionicons name="refresh" size={15} color={theme.accent} />
                   )}
-                  <Text style={styles.retryAllText}>Retry failed</Text>
+                  <Text style={[styles.retryAllText, { color: theme.accent }]}>Retry failed</Text>
                 </TouchableOpacity>
               )}
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.salesTable}>
+              <View style={[styles.salesTable, !showOmsSyncStatus && styles.salesTableLocal]}>
                 <View style={[styles.salesRow, { backgroundColor: colors.panelAlt }]}>
-                  {["Receipt", "Date", "Cashier", "Total", "Status", "Reason", ""].map((label, index) => (
+                  {(showOmsSyncStatus ? ["Receipt", "Date", "Cashier", "Total", "Status", "Reason", ""] : ["Receipt", "Date", "Cashier", "Total"]).map((label, index) => (
                     <Text key={`${label}-${index}`} style={[styles.salesCell, styles.salesHeader, { color: colors.muted }]}>{label}</Text>
                   ))}
                 </View>
@@ -467,23 +677,23 @@ export default function ReportsScreen() {
                       <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{dayjs(sale.createdAt).format("MMM D, HH:mm")}</Text>
                       <Text style={[styles.salesCell, { color: colors.text }]} numberOfLines={1}>{sale.cashierName}</Text>
                       <Text style={[styles.salesCell, { color: colors.text }]}>{currency(sale.total)}</Text>
-                      <Text style={[styles.salesCell, { color: info.color, fontWeight: "700" }]} numberOfLines={1}>{info.label}</Text>
+                      {showOmsSyncStatus ? <><Text style={[styles.salesCell, { color: info.color, fontWeight: "700" }]} numberOfLines={1}>{info.label}</Text>
                       <Text style={[styles.salesReasonCell, { color: colors.muted }]} numberOfLines={2}>{sale.syncError ?? ""}</Text>
                       <View style={styles.salesCell}>
                         {canRetry && (
                           <TouchableOpacity
-                            style={styles.retryRowButton}
+                            style={[styles.retryRowButton, { borderColor: theme.accent, backgroundColor: theme.surfaceAlt }]}
                             onPress={() => retrySale(sale.id)}
                             disabled={retryingId !== null}
                           >
                             {retryingId === sale.id ? (
-                              <ActivityIndicator size="small" color="#17386b" />
+                              <ActivityIndicator size="small" color={theme.accent} />
                             ) : (
-                              <Text style={styles.retryRowText}>Retry</Text>
+                              <Text style={[styles.retryRowText, { color: theme.accent }]}>Retry</Text>
                             )}
                           </TouchableOpacity>
                         )}
-                      </View>
+                      </View></> : null}
                     </View>
                   );
                 })}
@@ -497,6 +707,8 @@ export default function ReportsScreen() {
         onClose={() => setEodVisible(false)}
         onPrint={printEndOfDay}
         printing={printingEod}
+        onQueueUpload={() => void queueEndOfDay()}
+        queueingUpload={queueingEod}
         report={report}
         settings={settings}
         startDate={startDate}
@@ -565,4 +777,34 @@ const styles = StyleSheet.create({
   salesHeader: { fontWeight: "800", textTransform: "uppercase", fontSize: 10 },
   retryRowButton: { borderWidth: 1, borderColor: "#17386b", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 5, alignItems: "center", justifyContent: "center", minWidth: 60 },
   retryRowText: { color: "#17386b", fontSize: 12, fontWeight: "700" },
+  salesTableLocal: { minWidth: 520 },
+  calendarBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.58)", alignItems: "center", justifyContent: "center", padding: 20 },
+  calendarModal: { width: "100%", maxWidth: 560, borderWidth: 1, borderRadius: 18, padding: 18, elevation: 12 },
+  calendarTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  calendarTitle: { fontSize: 20, fontWeight: "900" },
+  calendarSubtitle: { fontSize: 11, marginTop: 3 },
+  calendarClose: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  rangeSummaryRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
+  rangeSummary: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  rangeSummaryLabel: { fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
+  rangeSummaryValue: { fontSize: 13, fontWeight: "800", marginTop: 2 },
+  rangeSummaryDivider: { alignItems: "center", gap: 2, paddingHorizontal: 2 },
+  rangeSummarySpan: { fontSize: 9, fontWeight: "900" },
+  calendarMonthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 18, marginBottom: 8 },
+  calendarMonth: { fontSize: 16, fontWeight: "900" },
+  calendarNav: { width: 38, height: 38, borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  calendarWeek: { flexDirection: "row", marginBottom: 2 },
+  calendarWeekday: { width: "14.2857%", textAlign: "center", fontSize: 10, fontWeight: "900", paddingVertical: 7, textTransform: "uppercase" },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarDayWrap: { width: "14.2857%", aspectRatio: 1, padding: 1.5 },
+  calendarDayTrack: { flex: 1, alignItems: "center", justifyContent: "center" },
+  calendarDayDot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  calendarDayText: { fontSize: 12.5, fontWeight: "800" },
+  calendarLegend: { flexDirection: "row", gap: 16, marginTop: 8, marginBottom: 2 },
+  calendarLegendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  calendarLegendDot: { width: 12, height: 12, borderRadius: 6 },
+  calendarLegendText: { fontSize: 10, fontWeight: "700" },
+  calendarQuickRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  calendarQuick: { minHeight: 38, borderWidth: 1, borderRadius: 9, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  calendarApply: { minHeight: 40, borderRadius: 9, paddingHorizontal: 18, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", marginLeft: "auto" },
 });

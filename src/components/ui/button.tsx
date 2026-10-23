@@ -8,6 +8,7 @@ import {
   type TextStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
@@ -21,29 +22,6 @@ interface ButtonProps {
   style?: ViewStyle;
 }
 
-const variantStyles: Record<ButtonVariant, { container: ViewStyle; text: TextStyle }> = {
-  primary: {
-    container: { backgroundColor: "#17386b" },
-    text: { color: "#ffffff" },
-  },
-  secondary: {
-    container: {
-      backgroundColor: "transparent",
-      borderWidth: 1.5,
-      borderColor: "#17386b",
-    },
-    text: { color: "#17386b" },
-  },
-  danger: {
-    container: { backgroundColor: "#dc3545" },
-    text: { color: "#ffffff" },
-  },
-  ghost: {
-    container: { backgroundColor: "transparent" },
-    text: { color: "#17386b" },
-  },
-};
-
 export function Button({
   title,
   onPress,
@@ -53,7 +31,14 @@ export function Button({
   icon,
   style,
 }: ButtonProps) {
-  const v = variantStyles[variant];
+  const theme = usePosTheme();
+  const variants: Record<ButtonVariant, { container: ViewStyle; text: TextStyle }> = {
+    primary: { container: { backgroundColor: theme.primary }, text: { color: theme.onPrimary } },
+    secondary: { container: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: theme.primary }, text: { color: theme.primary } },
+    danger: { container: { backgroundColor: "#dc3545" }, text: { color: "#ffffff" } },
+    ghost: { container: { backgroundColor: "transparent" }, text: { color: theme.accent } },
+  };
+  const v = variants[variant];
 
   return (
     <TouchableOpacity

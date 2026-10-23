@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -12,34 +12,107 @@ import {
   Switch,
   Linking,
   useWindowDimensions,
+  Animated,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, type AudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/lib/storage/app-storage";
+import { File } from "expo-file-system";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { useIsDarkTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore, type FeedbackSound } from "@/lib/stores/ui-store";
+import { ThemeColorEditor } from "@/components/ui/theme-color-editor";
+import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
+import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { useAccessSettingsStore } from "@/lib/stores/access-settings-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
-import { CashierService } from "@/lib/services/cashier.service";
+import { CashierService, SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
+import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
+import { PERMISSION_CATEGORIES, PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
+import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
+import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.service";
+import { useBackupListStore } from "@/lib/stores/backup-list-store";
+import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
+import { runAutoBackupNow } from "@/lib/services/auto-backup.service";
 import {
   BluetoothPrinter,
   type BluetoothPrinterDevice,
 } from "@/lib/printers/bluetooth-printer";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
+
+const formatFileSize = (bytes: number) => {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const AUTO_BACKUP_INTERVAL_PRESETS = [1, 6, 12, 24, 48, 72, 168] as const;
+const formatBackupIntervalLabel = (hours: number) => (hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`);
+
+export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
+type SettingsSectionDefinition = {
+  id: SettingsSectionId;
+  title: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  keywords: string;
+  adminOnly?: boolean;
+};
+
+export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
+  { id: "dealership", title: "Dealership Platform", description: "Business identity, branding, OMS connection, and receipt design.", icon: "business-outline", keywords: "business branding dealership company logo OMS dependent receipt designer template" , adminOnly: true },
+  { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
+  { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
+  { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },
+  { id: "permissions", title: "Roles & Permissions", description: "Apply access presets and control what each role can open or change.", icon: "key-outline", keywords: "permissions access roles administrator manager cashier inventory clerk auditor preset pages buttons create edit delete crud", adminOnly: true },
+  { id: "security", title: "PIN Security", description: "Failed PIN limit and locked account recovery.", icon: "shield-checkmark-outline", keywords: "security pin failed attempts lock unlock accounts maximum", adminOnly: true },
+  { id: "auto_lock", title: "Auto Lock", description: "Automatically sign out an idle POS terminal.", icon: "time-outline", keywords: "security auto lock idle timeout minutes sign out session", adminOnly: true },
+  { id: "audit", title: "Audit Logs", description: "Review user, sale, login, and transfer activity.", icon: "document-text-outline", keywords: "audit logs activity events sale login failed logout transfer history", adminOnly: true },
+  { id: "oms", title: "OMS & Synchronization", description: "OMS server connection, API key, QR setup, and synchronization.", icon: "cloud-outline", keywords: "oms connection server api key sync synchronization qr online offline" , adminOnly: true },
+  { id: "printer", title: "Bluetooth Printer", description: "Pair, connect, and test the thermal receipt printer.", icon: "print-outline", keywords: "bluetooth thermal printer jk-5802h receipt esc pos paired device test print", adminOnly: true },
+  { id: "hardware_test", title: "Hardware Test", description: "Test the cash drawer, camera scanner, and USB barcode scanner.", icon: "hardware-chip-outline", keywords: "test open cash register drawer bluetooth printer camera usb barcode scanner hardware", adminOnly: true },
+  { id: "navigation", title: "Navigation Style", description: "Choose automatic, sidebar, or bottom navigation.", icon: "grid-outline", keywords: "navigation style sidebar bottom auto menu" },
+  { id: "sales_layout", title: "Sales Layout", description: "Choose a left- or right-handed checkout layout.", icon: "swap-horizontal-outline", keywords: "sales layout handed left right cart dominant hand checkout" },
+  { id: "theme", title: "Theme & Colors", description: "Light, dark, and custom colors throughout the POS.", icon: "color-palette-outline", keywords: "theme appearance light dark auto system color palette primary accent background navigation text border" },
+  { id: "sounds", title: "Sounds", description: "Checkout, transfer, connection sounds, and volume.", icon: "volume-high-outline", keywords: "sounds audio volume mute notifications feedback checkout transfer connected failed" },
+  { id: "display", title: "Application Size", description: "Scale text, images, controls, and navigation.", icon: "resize-outline", keywords: "application size zoom scale text images controls accessibility display" },
+  { id: "database", title: "Database & Recovery", description: "List, restore, or delete backups and configure automatic backups.", icon: "server-outline", keywords: "database backup export import recovery restore checksum schema sqlite file data auto automatic schedule interval hours list delete remove local files", adminOnly: true },
+  { id: "device", title: "Device & Session", description: "Registration status, sign out, and device reset.", icon: "tablet-portrait-outline", keywords: "device session sign out logout reset registration terminal" },
+];
+
+const SECTION_MATCHERS: Record<SettingsSectionId, string[]> = {
+  dealership: ["business branding dealership operating mode receipt designer"],
+  store: ["store details"],
+  tax: ["tax profile"],
+  users: ["users cashiers roles"],
+  permissions: ["permissions access roles presets"],
+  security: ["security pin"],
+  auto_lock: ["security auto lock"],
+  audit: ["audit logs"],
+  oms: ["oms connection"],
+  printer: ["bluetooth thermal printer"],
+  hardware_test: ["test open cash register"],
+  navigation: ["navigation style"],
+  sales_layout: ["sales layout"],
+  theme: ["theme appearance"],
+  sounds: ["sounds audio"],
+  display: ["application size"],
+  database: ["database backup export import recovery restore"],
+  device: ["device session"],
+};
 
 const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
   SALE_CREATED: { bg: "#dcfce7", text: "#166534" },
@@ -52,6 +125,7 @@ const EVENT_COLORS: Record<string, { bg: string; text: string }> = {
 const AUDIT_FILTERS = ["ALL", "SALE_CREATED", "LOGIN_SUCCESS", "LOGIN_FAILED", "TRANSFER"] as const;
 const APPLICATION_SIZES = [50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150] as const;
 function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onChange: (value: number) => void; dark: boolean }) {
+  const theme = usePosTheme();
   return (
     <View style={styles.sizeOptions}>
       {APPLICATION_SIZES.map((size) => {
@@ -61,14 +135,13 @@ function ApplicationSizeButtons({ value, onChange, dark }: { value: number; onCh
             key={size}
             style={[
               styles.sizeOption,
-              { backgroundColor: dark ? "#0f141d" : "#f8fafc", borderColor: dark ? "#334155" : "#dbe3ec" },
-              selected && styles.sizeOptionSelected,
+              { backgroundColor: selected ? theme.primary : theme.surfaceAlt, borderColor: selected ? theme.primary : theme.border },
             ]}
             onPress={() => onChange(size / 100)}
             accessibilityRole="button"
             accessibilityState={{ selected }}
           >
-            <Text style={[styles.sizeOptionText, { color: dark ? "#cbd5e1" : "#475569" }, selected && styles.sizeOptionTextSelected]}>
+            <Text style={[styles.sizeOptionText, { color: selected ? theme.onPrimary : theme.text }]}>
               {size}%
             </Text>
           </TouchableOpacity>
@@ -95,22 +168,23 @@ function SoundVolumeControl({
   onChange: (value: number) => void;
   onPreview: () => void;
 }) {
+  const theme = usePosTheme();
   const percent = Math.round(value * 100);
   const adjust = (delta: number) => onChange(Math.round((value + delta) * 10) / 10);
-  const buttonColor = dark ? "#cbd5e1" : "#17386b";
+  const buttonColor = theme.accent;
 
   return (
-    <View style={[styles.soundItem, { borderBottomColor: dark ? "#1e293b" : "#edf1f5" }]}>
+    <View style={[styles.soundItem, { borderBottomColor: theme.border }]}>
       <View style={styles.soundItemHeader}>
-        <View style={[styles.soundItemIcon, { backgroundColor: dark ? "#1e293b" : "#eef4ff" }]}>
-          <Ionicons name={icon} size={18} color={dark ? "#93c5fd" : "#17386b"} />
+        <View style={[styles.soundItemIcon, { backgroundColor: theme.surfaceAlt }]}>
+          <Ionicons name={icon} size={18} color={theme.accent} />
         </View>
-        <Text style={[styles.soundItemTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{title}</Text>
-        <Text style={[styles.soundItemPercent, { color: muted ? (dark ? "#64748b" : "#94a3b8") : buttonColor }]}>{percent}%</Text>
+        <Text style={[styles.soundItemTitle, { color: theme.text }]}>{title}</Text>
+        <Text style={[styles.soundItemPercent, { color: muted ? theme.muted : buttonColor }]}>{percent}%</Text>
         <TouchableOpacity
           style={[
             styles.soundItemPreview,
-            { backgroundColor: dark ? "#1e293b" : "#f7f9fc", borderColor: dark ? "#334155" : "#dbe3ec" },
+            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
             (muted || value <= 0) && styles.volumeButtonDisabled,
           ]}
           onPress={onPreview}
@@ -122,18 +196,18 @@ function SoundVolumeControl({
       </View>
       <View style={styles.volumeControl}>
         <TouchableOpacity
-          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value <= 0 && styles.volumeButtonDisabled]}
+          style={[styles.soundStepButton, { borderColor: theme.border }, value <= 0 && styles.volumeButtonDisabled]}
           onPress={() => adjust(-0.1)}
           disabled={value <= 0}
           accessibilityLabel={`Lower ${title} volume`}
         >
           <Ionicons name="remove" size={17} color={buttonColor} />
         </TouchableOpacity>
-        <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
-          <View style={[styles.volumeFill, { width: `${percent}%`, opacity: muted ? 0.45 : 1 }]} />
+        <View style={[styles.volumeTrack, { backgroundColor: theme.surfaceAlt }]}>
+          <View style={[styles.volumeFill, { width: `${percent}%`, opacity: muted ? 0.45 : 1, backgroundColor: theme.accent }]} />
         </View>
         <TouchableOpacity
-          style={[styles.soundStepButton, { borderColor: dark ? "#334155" : "#dbe3ec" }, value >= 1 && styles.volumeButtonDisabled]}
+          style={[styles.soundStepButton, { borderColor: theme.border }, value >= 1 && styles.volumeButtonDisabled]}
           onPress={() => adjust(0.1)}
           disabled={value >= 1}
           accessibilityLabel={`Raise ${title} volume`}
@@ -150,6 +224,10 @@ interface CashierRow {
   displayName: string;
   username: string | null;
   roleName: string;
+  roleId: string | null;
+  failedPinAttempts: number;
+  accountLocked: number;
+  accountLockedAt: string | null;
 }
 
 interface AuditLogEntry {
@@ -161,9 +239,15 @@ interface AuditLogEntry {
 }
 
 const OMS_STORAGE_KEY = "nct-pos-oms";
+const LAST_SETTINGS_SECTION_KEY = "nct-pos-last-settings-section";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("store");
+  const settingsSectionRestoredRef = useRef(false);
+  const detailAnimation = useRef(new Animated.Value(1)).current;
+  const detailScrollRef = useRef<ScrollView | null>(null);
+  const activeSectionDefinition = SETTINGS_SECTIONS.find((item) => item.id === activeSection) ?? null;
   const checkoutPreviewPlayer = useAudioPlayer(
     require("../../../assets/sounds/cash-register-sound.wav")
   );
@@ -186,6 +270,8 @@ export default function SettingsScreen() {
     setThemeMode,
     navigationMode,
     setNavigationMode,
+    salesHandedness,
+    setSalesHandedness,
     uiScale,
     setUiScale,
     soundMuted,
@@ -196,14 +282,45 @@ export default function SettingsScreen() {
     setFeedbackSoundVolume,
   } = useUiStore();
   const dark = useIsDarkTheme();
+  const posTheme = usePosTheme();
   const autoLockMinutes = useAccessSettingsStore((state) => state.autoLockMinutes);
   const setAutoLockMinutes = useAccessSettingsStore((state) => state.setAutoLockMinutes);
+  const maxPinAttempts = useAccessSettingsStore((state) => state.maxPinAttempts);
+  const setMaxPinAttempts = useAccessSettingsStore((state) => state.setMaxPinAttempts);
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const toggleCashierLink = useAccessSettingsStore((state) => state.toggleCashierLink);
   const removeCashierFromGroup = useAccessSettingsStore((state) => state.removeCashierFromGroup);
   const { width: windowWidth } = useWindowDimensions();
   const isWideColumns = windowWidth >= 900;
   const [settingsSearch, setSettingsSearch] = useState("");
+  const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<{ file: File; envelope: BackupEnvelope } | null>(null);
+  const [busyBackupUri, setBusyBackupUri] = useState<string | null>(null);
+  const [restorePinVisible, setRestorePinVisible] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<{ uri: string; label: string } | null>(null);
+  const [restorePin, setRestorePin] = useState("");
+  const [restorePinError, setRestorePinError] = useState<string | null>(null);
+  const [restorePinBusy, setRestorePinBusy] = useState(false);
+  const restoreLockRef = useRef(false);
+  const [backupIntervalInput, setBackupIntervalInput] = useState(() => String(useBackupSettingsStore.getState().autoBackupIntervalHours));
+  const backupItems = useBackupListStore((state) => state.items);
+  const backupListLoading = useBackupListStore((state) => state.loading);
+  const refreshBackupList = useBackupListStore((state) => state.refresh);
+  const autoBackupEnabled = useBackupSettingsStore((state) => state.autoBackupEnabled);
+  const autoBackupIntervalHours = useBackupSettingsStore((state) => state.autoBackupIntervalHours);
+  const lastAutoBackupAt = useBackupSettingsStore((state) => state.lastAutoBackupAt);
+  const setAutoBackupEnabled = useBackupSettingsStore((state) => state.setAutoBackupEnabled);
+  const setAutoBackupIntervalHours = useBackupSettingsStore((state) => state.setAutoBackupIntervalHours);
+  const nextAutoBackupLabel = useMemo(() => {
+    if (!autoBackupEnabled) return "";
+    const nowMs = Date.now();
+    const baseMs = lastAutoBackupAt ? new Date(lastAutoBackupAt).valueOf() : nowMs;
+    const diffHours = Math.max(0, (baseMs + autoBackupIntervalHours * 3_600_000 - nowMs) / 3_600_000);
+    if (!lastAutoBackupAt) return "right away on the next check";
+    if (diffHours < 1) return `in ${Math.max(1, Math.round(diffHours * 60))} min`;
+    if (diffHours < 48) return `in ${Math.max(1, Math.round(diffHours))} hours`;
+    return `in ${Math.max(1, Math.round(diffHours / 24))} days`;
+  }, [autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt]);
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -226,7 +343,7 @@ export default function SettingsScreen() {
   const setSelectedPrinter = usePrinterStore((state) => state.setSelectedPrinter);
   const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [connectedPrinterId, setConnectedPrinterId] = useState<string | null>(null);
-  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "disconnect" | null>(null);
+  const [printerAction, setPrinterAction] = useState<"refresh" | "connect" | "test" | "drawer" | "disconnect" | null>(null);
 
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -235,21 +352,60 @@ export default function SettingsScreen() {
   const [newUsername, setNewUsername] = useState("");
   const [newUserPin, setNewUserPin] = useState("");
   const [newUserPinConfirm, setNewUserPinConfirm] = useState("");
+  const [newUserRoleId, setNewUserRoleId] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
+  const [permissionRoles, setPermissionRoles] = useState<PermissionRoleRow[]>([]);
+  const [selectedPermissionRoleId, setSelectedPermissionRoleId] = useState("");
+  const selectedPermissionRoleIdRef = useRef("");
+  const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
+  const [permissionUsers, setPermissionUsers] = useState<PermissionUserRow[]>([]);
+  const [selectedPermissionUserId, setSelectedPermissionUserId] = useState("");
+  const selectedPermissionUserIdRef = useRef("");
+  const [selectedUserOverrides, setSelectedUserOverrides] = useState<UserPermissionOverrides>({});
+  const [showPermissionRolePicker, setShowPermissionRolePicker] = useState(false);
+  const [hardwareScannerVisible, setHardwareScannerVisible] = useState(false);
+  const [hardwareScanResult, setHardwareScanResult] = useState("");
+  const [permissionsBusy, setPermissionsBusy] = useState(false);
   const [autoLockValue, setAutoLockValue] = useState(() => String(autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? autoLockMinutes / 60 : autoLockMinutes || 15));
   const [autoLockUnit, setAutoLockUnit] = useState<"minutes" | "hours">(() => autoLockMinutes >= 60 && autoLockMinutes % 60 === 0 ? "hours" : "minutes");
+  const [maxPinAttemptsValue, setMaxPinAttemptsValue] = useState(() => String(maxPinAttempts || 5));
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditFilter, setAuditFilter] = useState<string>("ALL");
 
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrScanning, setQrScanning] = useState(false);
+  const isSuperAdmin = Boolean(session?.isSuperAdmin);
+  const roleAccess = useRolePermissions();
+  const canManageSettings = isSuperAdmin || roleAccess.has("POS_SETTINGS");
+  const canManageUsers = isSuperAdmin || roleAccess.has("POS_USERS");
+  const canViewAudit = isSuperAdmin || roleAccess.has("POS_AUDIT");
+  const canManageBackups = isSuperAdmin || roleAccess.has("POS_BACKUP");
+  const isBuiltInSuperAdmin = session?.cashierId === SUPER_ADMIN_ID;
+
+  useFocusEffect(useCallback(() => {
+    if (canManageBackups) void refreshBackupList();
+  }, [canManageBackups, refreshBackupList]));
 
   useEffect(() => {
     const normalizedScale = Math.min(1.5, Math.max(0.5, Math.round(uiScale * 10) / 10));
     if (normalizedScale !== uiScale) setUiScale(normalizedScale);
   }, [setUiScale, uiScale]);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(LAST_SETTINGS_SECTION_KEY)
+      .then((saved) => {
+        if (active && saved && SETTINGS_SECTIONS.some((section) => section.id === saved)) setActiveSection(saved as SettingsSectionId);
+      })
+      .finally(() => { settingsSectionRestoredRef.current = true; });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (settingsSectionRestoredRef.current) void AsyncStorage.setItem(LAST_SETTINGS_SECTION_KEY, activeSection);
+  }, [activeSection]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -295,7 +451,8 @@ export default function SettingsScreen() {
     try {
       // Prefer Role.name, fallback to raw roleId / CashierRole via join coalesce; ensure Role table may have been seeded as Admin
       const rows = await query<CashierRow>(
-        `SELECT c.id, c.displayName, c.username, COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
+        `SELECT c.id, c.displayName, c.username, c.roleId, c.failedPinAttempts, c.accountLocked, c.accountLockedAt,
+                COALESCE(r.name, (SELECT r2.name FROM Role r2 WHERE r2.id = c.roleId), 'Cashier') as roleName
          FROM Cashier c
          LEFT JOIN Role r ON c.roleId = r.id
          WHERE c.active = 1
@@ -307,6 +464,59 @@ export default function SettingsScreen() {
       setCashiers([]);
     }
   }, []);
+
+  const loadPermissionSettings = useCallback(async () => {
+    try {
+      await PermissionService.ensureDefaults();
+      const roles = await PermissionService.getRoles();
+      setPermissionRoles(roles);
+      const currentRoleId = selectedPermissionRoleIdRef.current;
+      const nextRoleId = currentRoleId && roles.some((role) => role.id === currentRoleId)
+        ? currentRoleId
+        : roles.find((role) => role.name.toLowerCase() !== "admin")?.id ?? roles[0]?.id ?? "";
+      selectedPermissionRoleIdRef.current = nextRoleId;
+      setSelectedPermissionRoleId(nextRoleId);
+      setSelectedRolePermissions(nextRoleId ? await PermissionService.getRolePermissions(nextRoleId) : []);
+      const users = nextRoleId ? await PermissionService.getUsersByRole(nextRoleId) : [];
+      setPermissionUsers(users);
+      const currentUserId = selectedPermissionUserIdRef.current;
+      const nextUserId = users.some((user) => user.id === currentUserId)
+        ? currentUserId
+        : users[0]?.id ?? "";
+      selectedPermissionUserIdRef.current = nextUserId;
+      setSelectedPermissionUserId(nextUserId);
+      setSelectedUserOverrides(nextUserId ? await PermissionService.getUserPermissionOverrides(nextUserId) : {});
+    } catch {
+      setPermissionRoles([]);
+      setSelectedRolePermissions([]);
+      setPermissionUsers([]);
+      selectedPermissionRoleIdRef.current = "";
+      selectedPermissionUserIdRef.current = "";
+      setSelectedPermissionUserId("");
+      setSelectedUserOverrides({});
+    }
+  }, []);
+
+  const applyPinSecurity = useCallback(() => {
+    const attempts = Number(maxPinAttemptsValue);
+    if (!Number.isFinite(attempts) || attempts < 1 || attempts > 20) {
+      Alert.alert("Security", "Failed PIN attempts must be between 1 and 20.");
+      return;
+    }
+    setMaxPinAttempts(attempts);
+    setMaxPinAttemptsValue(String(Math.floor(attempts)));
+    Alert.alert("Security Updated", `Accounts will lock after ${Math.floor(attempts)} failed PIN attempts.`);
+  }, [maxPinAttemptsValue, setMaxPinAttempts]);
+
+  const handleUnlockUser = useCallback(async (user: CashierRow) => {
+    try {
+      await CashierService.unlockManagedUser(user.id);
+      await loadUsers();
+      Alert.alert("Account Unlocked", `${user.displayName} can sign in again.`);
+    } catch (error: any) {
+      Alert.alert("Unlock Failed", error?.message ?? "Unable to unlock this account.");
+    }
+  }, [loadUsers]);
 
   const loadAuditLogs = useCallback(async () => {
     try {
@@ -328,16 +538,17 @@ export default function SettingsScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadSettings(), loadOmsSettings(), loadUsers(), loadAuditLogs()]);
+      await Promise.all([loadSettings(), loadOmsSettings(), loadUsers(), loadAuditLogs(), loadPermissionSettings()]);
       setLoading(false);
     })();
-  }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs]);
+  }, [loadSettings, loadOmsSettings, loadUsers, loadAuditLogs, loadPermissionSettings]);
 
   useFocusEffect(useCallback(() => {
     loadOmsSettings();
     loadUsers();
     loadAuditLogs();
-  }, [loadOmsSettings, loadUsers, loadAuditLogs]));
+    loadPermissionSettings();
+  }, [loadOmsSettings, loadUsers, loadAuditLogs, loadPermissionSettings]));
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -575,6 +786,133 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleSelectBackup = async () => {
+    setBackupBusy("import");
+    try {
+      const picked = await File.pickFileAsync({ mimeTypes: ["application/octet-stream", "application/json", "*/*"] });
+      if (picked.canceled || !picked.result) return;
+      const envelope = await RecoveryService.validate(picked.result.uri);
+      setSelectedBackup({ file: picked.result, envelope });
+    } catch (error: any) {
+      Alert.alert("Import database", error?.message ?? "The selected file is not a valid POS backup.");
+      setSelectedBackup(null);
+    } finally { setBackupBusy(null); }
+  };
+
+  const handleCreateLocalBackup = async () => {
+    setBackupBusy("export");
+    try {
+      const { envelope } = await RecoveryService.createBackup();
+      await refreshBackupList();
+      Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.`);
+    } catch (error: any) {
+      Alert.alert("Create backup", error?.message ?? "Unable to create the database backup.");
+    } finally { setBackupBusy(null); }
+  };
+
+  const handleDeleteBackup = (uri: string, name: string) => {
+    Alert.alert(
+      "Delete backup",
+      `Are you sure you want to delete ${name}? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void (async () => {
+          setBusyBackupUri(uri);
+          try {
+            await RecoveryService.deleteBackup(uri);
+            await refreshBackupList();
+          } catch (error: any) {
+            Alert.alert("Delete backup", error?.message ?? "Unable to delete the backup file.");
+          } finally {
+            setBusyBackupUri(null);
+          }
+        })() }
+      ]
+    );
+  };
+
+  const handleRunAutoBackup = async () => {
+    setBackupBusy("export");
+    try {
+      await runAutoBackupNow();
+      await refreshBackupList();
+      Alert.alert("Auto backup created", "A checksum-verified local backup was created.");
+    } catch (error: any) {
+      Alert.alert("Auto backup", error?.message ?? "Unable to create the auto backup.");
+    } finally {
+      setBackupBusy(null);
+    }
+  };
+
+  const handleApplyBackupInterval = () => {
+    const parsed = Number(backupIntervalInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      Alert.alert("Auto backup", "Enter a valid number of hours (at least 1).");
+      setBackupIntervalInput(String(autoBackupIntervalHours));
+      return;
+    }
+    const value = Math.min(168, Math.max(1, Math.round(parsed)));
+    setAutoBackupIntervalHours(value);
+    setBackupIntervalInput(String(value));
+  };
+
+  const handleBackupIntervalPreset = (hours: number) => {
+    const value = Math.min(168, Math.max(1, Math.round(hours)));
+    setAutoBackupIntervalHours(value);
+    setBackupIntervalInput(String(value));
+  };
+
+  const requestRestore = (uri: string, label: string) => {
+    setRestoreTarget({ uri, label });
+    setRestorePin("");
+    setRestorePinError(null);
+    setRestorePinVisible(true);
+  };
+
+  const handleRestoreBackup = (uri?: string, label?: string) => {
+    const target = uri ?? selectedBackup?.file.uri;
+    if (!target) return;
+    requestRestore(target, label ?? selectedBackup?.file.name ?? "");
+  };
+
+  const confirmRestoreWithPin = () => {
+    if (!restoreTarget || restoreLockRef.current) return;
+    if (!restorePin.trim()) {
+      setRestorePinError("Enter your PIN to continue.");
+      return;
+    }
+    restoreLockRef.current = true;
+    setRestorePinBusy(true);
+    (async () => {
+      try {
+        const verification = await CashierService.verifyCurrentUserPin(restorePin.trim());
+        if (!verification.success) {
+          setRestorePinError(verification.error ?? "Incorrect PIN.");
+          return;
+        }
+        const target = restoreTarget.uri;
+        setRestorePinVisible(false);
+        setRestoreTarget(null);
+        setBackupBusy("import");
+        try {
+          await RecoveryService.restoreBackup(target);
+          setSelectedBackup(null);
+          await refreshBackupList();
+          Alert.alert("Database restored", "The database and branding assets were restored and verified. Return to sign-in before continuing.", [
+            { text: "Continue", onPress: () => router.replace("/(auth)") },
+          ]);
+        } catch (error: any) {
+          Alert.alert("Restore database", error?.message ?? "The backup could not be restored.");
+        } finally { setBackupBusy(null); }
+      } catch (error: any) {
+        setRestorePinError(error?.message ?? "Unable to verify your PIN.");
+      } finally {
+        restoreLockRef.current = false;
+        setRestorePinBusy(false);
+      }
+    })().catch(() => { restoreLockRef.current = false; setRestorePinBusy(false); });
+  };
+
   const loadPairedPrinters = async () => {
     setPrinterAction("refresh");
     try {
@@ -638,11 +976,35 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleCashRegisterTest = async () => {
+    if (!isSuperAdmin) return;
+    if (!selectedPrinter) {
+      Alert.alert("Open Cash Register", "Select a Bluetooth thermal printer first.");
+      return;
+    }
+
+    setPrinterAction("drawer");
+    try {
+      await BluetoothPrinter.openCashDrawer(selectedPrinter.address);
+      setConnectedPrinterId(selectedPrinter.id);
+      Alert.alert("Command Sent", "The open cash register command was sent to the selected printer.");
+    } catch (error: any) {
+      setConnectedPrinterId(null);
+      Alert.alert(
+        "Cash Register Test Failed",
+        error?.message ?? "Unable to open the cash register. Check its cable and printer connection."
+      );
+    } finally {
+      setPrinterAction(null);
+    }
+  };
+
   const resetUserForm = () => {
     setNewUserName("");
     setNewUsername("");
     setNewUserPin("");
     setNewUserPinConfirm("");
+    setNewUserRoleId(permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id ?? "");
     setEditingUser(null);
   };
 
@@ -657,6 +1019,7 @@ export default function SettingsScreen() {
     setNewUsername(user.username ?? "");
     setNewUserPin("");
     setNewUserPinConfirm("");
+    setNewUserRoleId(user.roleId ?? permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id ?? "");
     setShowCreateUser(true);
   };
 
@@ -681,13 +1044,14 @@ export default function SettingsScreen() {
           displayName: newUserName,
           username: newUsername,
           pin: newUserPin || undefined,
+          roleId: newUserRoleId || undefined,
         });
       } else {
         await CashierService.createLocalUser({
           displayName: newUserName,
           username: newUsername,
           pin: newUserPin,
-          roleId: session?.roleId,
+          roleId: newUserRoleId || permissionRoles.find((role) => role.name.toLowerCase() === "cashier")?.id,
         });
       }
       const wasEditing = Boolean(editingUser);
@@ -728,6 +1092,83 @@ export default function SettingsScreen() {
     );
   };
 
+  const selectPermissionRole = async (roleId: string) => {
+    selectedPermissionRoleIdRef.current = roleId;
+    setSelectedPermissionRoleId(roleId);
+    setShowPermissionRolePicker(false);
+    setPermissionsBusy(true);
+    try {
+      const [rolePermissions, users] = await Promise.all([
+        PermissionService.getRolePermissions(roleId),
+        PermissionService.getUsersByRole(roleId),
+      ]);
+      setSelectedRolePermissions(rolePermissions);
+      setPermissionUsers(users);
+      const userId = users[0]?.id ?? "";
+      selectedPermissionUserIdRef.current = userId;
+      setSelectedPermissionUserId(userId);
+      setSelectedUserOverrides(userId ? await PermissionService.getUserPermissionOverrides(userId) : {});
+    } catch {
+      setSelectedRolePermissions([]);
+      setPermissionUsers([]);
+      selectedPermissionUserIdRef.current = "";
+      setSelectedPermissionUserId("");
+      setSelectedUserOverrides({});
+    }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const selectPermissionUser = async (cashierId: string) => {
+    selectedPermissionUserIdRef.current = cashierId;
+    setSelectedPermissionUserId(cashierId);
+    setPermissionsBusy(true);
+    try { setSelectedUserOverrides(await PermissionService.getUserPermissionOverrides(cashierId)); }
+    catch { setSelectedUserOverrides({}); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const applyPermissionPreset = async (presetKey: PermissionPresetKey) => {
+    if (!selectedPermissionUserId) return;
+    const selectedUser = permissionUsers.find((user) => user.id === selectedPermissionUserId);
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.applyPresetToUser(selectedPermissionUserId, presetKey);
+      setSelectedUserOverrides(await PermissionService.getUserPermissionOverrides(selectedPermissionUserId));
+      Alert.alert("User permissions updated", `${PERMISSION_PRESETS[presetKey].name} access was applied only to ${selectedUser?.displayName ?? "this user"}.`);
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to apply the permission preset."); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const toggleUserPermission = async (code: string) => {
+    if (!selectedPermissionUserId) return;
+    const inherited = selectedRolePermissions.includes(code);
+    const current = selectedUserOverrides[code] ?? inherited;
+    const next = !current;
+    const storedOverride = next === inherited ? null : next;
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.setUserPermission(selectedPermissionUserId, code, storedOverride);
+      setSelectedUserOverrides((currentOverrides) => {
+        const updated = { ...currentOverrides };
+        if (storedOverride === null) delete updated[code];
+        else updated[code] = storedOverride;
+        return updated;
+      });
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to update this permission."); }
+    finally { setPermissionsBusy(false); }
+  };
+
+  const resetUserPermissions = async () => {
+    if (!selectedPermissionUserId) return;
+    setPermissionsBusy(true);
+    try {
+      await PermissionService.clearUserPermissionOverrides(selectedPermissionUserId);
+      setSelectedUserOverrides({});
+      Alert.alert("Role defaults restored", "This user now inherits every permission from the selected role.");
+    } catch (error: any) { Alert.alert("Permissions", error?.message ?? "Unable to restore role defaults."); }
+    finally { setPermissionsBusy(false); }
+  };
+
   const applyAutoLock = () => {
     const amount = Number(autoLockValue);
     if (!Number.isInteger(amount) || amount < 1) {
@@ -747,8 +1188,41 @@ export default function SettingsScreen() {
       ? auditLogs
       : auditLogs.filter((l) => l.eventType === auditFilter);
   const normalizedSettingsSearch = settingsSearch.trim().toLowerCase();
-  const showSettingsSection = (...keywords: string[]) =>
-    !normalizedSettingsSearch || keywords.some((keyword) => keyword.toLowerCase().includes(normalizedSettingsSearch));
+  const showSettingsSection = (...keywords: string[]) => {
+    if (!activeSection) return false;
+    const requested = keywords.join(" ").toLowerCase();
+    return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
+  };
+  const canOpenSettingsSection = (item: SettingsSectionDefinition) => {
+    if (isSuperAdmin) return true;
+    if (item.id === "store" || item.id === "tax" || item.id === "auto_lock") return canManageSettings;
+    if (!item.adminOnly) return true;
+    if (item.id === "users" || item.id === "security") return canManageUsers;
+    if (item.id === "audit") return canViewAudit;
+    if (item.id === "database") return canManageBackups;
+    if (item.id === "permissions") return false;
+    return canManageSettings;
+  };
+  const visibleSettingsSections = SETTINGS_SECTIONS.filter((item) => {
+    if (!canOpenSettingsSection(item)) return false;
+    if (!normalizedSettingsSearch) return true;
+    return `${item.title} ${item.description} ${item.keywords}`.toLowerCase().includes(normalizedSettingsSearch);
+  });
+  const selectedPermissionRole = permissionRoles.find((role) => role.id === selectedPermissionRoleId);
+  const selectedPermissionUser = permissionUsers.find((user) => user.id === selectedPermissionUserId);
+  const accessibleSettingsSectionIds = SETTINGS_SECTIONS.filter(canOpenSettingsSection).map((item) => item.id).join("|");
+  useEffect(() => {
+    const accessible = accessibleSettingsSectionIds.split("|").filter(Boolean) as SettingsSectionId[];
+    if (!accessible.includes(activeSection) && accessible[0]) setActiveSection(accessible[0]);
+  }, [accessibleSettingsSectionIds, activeSection]);
+  const openSettingsSection = (section: SettingsSectionId) => {
+    if (section === activeSection) return;
+    setActiveSection(section);
+    detailScrollRef.current?.scrollTo({ y: 0, animated: false });
+    detailAnimation.stopAnimation();
+    detailAnimation.setValue(0);
+    Animated.spring(detailAnimation, { toValue: 1, useNativeDriver: true, tension: 85, friction: 11 }).start();
+  };
   const soundVolumePercent = Math.round(soundVolume * 100);
   const adjustSoundVolume = (delta: number) => {
     const next = Math.round((soundVolume + delta) * 10) / 10;
@@ -756,47 +1230,53 @@ export default function SettingsScreen() {
   };
 
   // Dark-aware helpers
-  const cardBg = dark ? "#141922" : "#ffffff";
-  const cardBorder = dark ? "#28303d" : "#dde3ea";
-  const sectionTitleColor = dark ? "#e2e8f0" : "#1a202c";
-  const sectionDescColor = dark ? "#94a3b8" : "#6b7b8d";
-  const fieldLabelColor = dark ? "#94a3b8" : "#6b7b8d";
-  const fieldValueColor = dark ? "#e2e8f0" : "#1a202c";
-  const borderColor = dark ? "#1e293b" : "#f0f4ff";
-  const inputBg = dark ? "#1e293b" : "#f7f9fc";
-  const inputBorder = dark ? "#334155" : "#e2e8f0";
-  const inputColor = dark ? "#e2e8f0" : "#1a202c";
-  const pickerBg = dark ? "#1e293b" : "#f7f9fc";
-  const pickerBorder = dark ? "#334155" : "#e2e8f0";
-  const pickerTextColor = dark ? "#e2e8f0" : "#1a202c";
+  const cardBg = posTheme.surface;
+  const cardBorder = posTheme.border;
+  const sectionTitleColor = posTheme.text;
+  const sectionDescColor = posTheme.muted;
+  const fieldLabelColor = posTheme.muted;
+  const fieldValueColor = posTheme.text;
+  const borderColor = posTheme.border;
+  const inputBg = posTheme.surfaceAlt;
+  const inputBorder = posTheme.border;
+  const inputColor = posTheme.text;
+  const pickerBg = posTheme.surfaceAlt;
+  const pickerBorder = posTheme.border;
+  const pickerTextColor = posTheme.text;
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-        <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+      <View style={[styles.loadingContainer, { backgroundColor: posTheme.background }]}>
+        <ActivityIndicator size="large" color={posTheme.accent} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]} contentContainerStyle={styles.content}>
-      <Text style={[styles.screenTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Settings</Text>
-      <Text style={[styles.screenSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Store, appearance, connections, and device preferences</Text>
-      <View style={[styles.settingsSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}>
-        <Ionicons name="search" size={18} color={dark ? "#64748b" : "#8e99a4"} />
-        <TextInput
-          style={[styles.settingsSearchInput, { color: inputColor }]}
-          placeholder="Search settings..."
-          placeholderTextColor={dark ? "#64748b" : "#9aa4b2"}
-          value={settingsSearch}
-          onChangeText={setSettingsSearch}
-        />
-        {settingsSearch.length > 0 && (
-          <TouchableOpacity onPress={() => setSettingsSearch("")} accessibilityLabel="Clear settings search">
-            <Ionicons name="close-circle" size={18} color={dark ? "#64748b" : "#8e99a4"} />
-          </TouchableOpacity>
-        )}
+    <View style={[styles.settingsSplit, { backgroundColor: posTheme.background }]}>
+      <View style={[styles.settingsSidebar, { width: isWideColumns ? 228 : 154, backgroundColor: posTheme.surface, borderRightColor: posTheme.border }]}>
+        <Text style={[styles.settingsSidebarTitle, { color: posTheme.text }]}>Settings</Text>
+        <View style={[styles.settingsSidebarSearch, { backgroundColor: inputBg, borderColor: inputBorder }]}><Ionicons name="search" size={15} color={posTheme.muted} /><TextInput style={[styles.settingsSidebarSearchInput, { color: inputColor }]} placeholder="Search..." placeholderTextColor={posTheme.muted} value={settingsSearch} onChangeText={setSettingsSearch} />{settingsSearch ? <TouchableOpacity onPress={() => setSettingsSearch("")}><Ionicons name="close-circle" size={16} color={posTheme.muted} /></TouchableOpacity> : null}</View>
+        {normalizedSettingsSearch ? <Text style={[styles.settingsSidebarCount, { color: posTheme.muted }]}>{visibleSettingsSections.length} matching sections</Text> : null}
+        <ScrollView style={styles.settingsLinksScroll} contentContainerStyle={styles.settingsLinks} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+          {visibleSettingsSections.map((item) => { const selected = activeSection === item.id; return <TouchableOpacity key={item.id} onPress={() => openSettingsSection(item.id)} style={[styles.settingsLink, { borderColor: selected ? posTheme.accent : "transparent", backgroundColor: selected ? posTheme.surfaceAlt : "transparent" }]} activeOpacity={0.72}><View style={[styles.settingsLinkIcon, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt }]}><Ionicons name={item.icon} size={17} color={selected ? posTheme.onPrimary : posTheme.accent} /></View><Text numberOfLines={2} style={[styles.settingsLinkText, { color: selected ? posTheme.text : posTheme.muted }, selected && { fontWeight: "900" }]}>{item.title}</Text></TouchableOpacity>; })}
+          {visibleSettingsSections.length === 0 ? <View style={styles.settingsSidebarEmpty}><Ionicons name="search-outline" size={24} color={posTheme.muted} /><Text style={{ color: posTheme.muted, fontSize: 11, textAlign: "center" }}>No matching setting</Text></View> : null}
+        </ScrollView>
       </View>
+      <Animated.View style={[styles.settingsDetailPane, { opacity: detailAnimation, transform: [{ translateX: detailAnimation.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }] }]}>
+        <ScrollView ref={detailScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.settingsDetailContent} keyboardShouldPersistTaps="handled">
+      <View style={styles.settingsDetailHeader}><View style={{ flex: 1 }}><Text style={[styles.screenTitle, { color: posTheme.text, marginBottom: 2 }]}>{activeSectionDefinition?.title ?? "Settings"}</Text><Text style={[styles.screenSubtitle, { color: posTheme.muted, marginBottom: 0 }]}>{activeSectionDefinition?.description}</Text></View></View>
+
+      {canManageSettings && showSettingsSection("business branding dealership operating mode receipt designer") && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Dealership Platform</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
+            <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
+            <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
+          </View>
+        </Card>
+      )}
 
       <View style={[styles.twoColRow, isWideColumns && styles.twoColRowWide]}>
         {/* Store Details Card */}
@@ -918,23 +1398,23 @@ export default function SettingsScreen() {
             </Text>
             <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create device users and choose which accounts share sales, receipts, and reports.</Text>
           </View>
-          <TouchableOpacity style={styles.addUserButton} onPress={openCreateUser}>
-            <Ionicons name="person-add-outline" size={17} color="#ffffff" />
-            <Text style={styles.addUserButtonText}>Add user</Text>
+          <TouchableOpacity style={[styles.addUserButton, { backgroundColor: posTheme.primary }]} onPress={openCreateUser}>
+            <Ionicons name="person-add-outline" size={17} color={posTheme.onPrimary} />
+            <Text style={[styles.addUserButtonText, { color: posTheme.onPrimary }]}>Add user</Text>
           </TouchableOpacity>
         </View>
 
         {cashiers.length === 0 ? (
-          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
-            <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
+          <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt }]}>
+            <Text style={[styles.emptyText, { color: posTheme.muted }]}>
               No users synced yet. Connect to OMS and sync to load users.
             </Text>
           </View>
         ) : (
           cashiers.map((user) => (
             <View key={user.id} style={[styles.userRow, { borderBottomColor: borderColor }]}>
-              <View style={[styles.userAvatar, { backgroundColor: dark ? "#1e3a5f" : "#dfeaff" }]}>
-                <Text style={[styles.userAvatarText, { color: dark ? "#93c5fd" : "#17386b" }]}>
+              <View style={[styles.userAvatar, { backgroundColor: posTheme.surfaceAlt }]}>
+                <Text style={[styles.userAvatarText, { color: posTheme.accent }]}>
                   {user.displayName?.substring(0, 2)?.toUpperCase() ?? "U"}
                 </Text>
               </View>
@@ -942,32 +1422,36 @@ export default function SettingsScreen() {
                 <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
                 <Text style={[styles.userUsername, { color: fieldLabelColor }]}>{user.username ? `@${user.username}` : "PIN login"}</Text>
               </View>
-              <View style={[styles.badge, { borderColor: dark ? "#334155" : "#e2e8f0", backgroundColor: dark ? "#1e293b" : "transparent" }]}>
-                <Text style={[styles.badgeText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>{user.roleName || "Cashier"}</Text>
+              <View style={[styles.badge, { borderColor: posTheme.border, backgroundColor: posTheme.surfaceAlt }]}>
+                <Text style={[styles.badgeText, { color: posTheme.muted }]}>{user.roleName || "Cashier"}</Text>
               </View>
+              {Boolean(user.accountLocked) && (
+                <View style={styles.lockedBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#ffffff" />
+                  <Text style={styles.lockedBadgeText}>Locked</Text>
+                </View>
+              )}
               {session?.cashierId === user.id && (
                 <View style={styles.youBadge}>
                   <Text style={styles.youBadgeText}>You</Text>
                 </View>
               )}
-              {session?.cashierId && user.id !== session.cashierId && (
+              {session?.cashierId && !isSuperAdmin && user.id !== session.cashierId && (
                 <TouchableOpacity
                   style={[
                     styles.linkUserButton,
-                    { borderColor: dark ? "#334155" : "#cbd5e1" },
-                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonActive,
+                    { borderColor: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.primary : posTheme.border, backgroundColor: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.primary : posTheme.surfaceAlt },
                   ]}
                   onPress={() => toggleCashierLink(session.cashierId, user.id)}
                 >
                   <Ionicons
                     name={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "link" : "unlink-outline"}
                     size={15}
-                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "#ffffff" : fieldLabelColor}
+                    color={salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.onPrimary : fieldLabelColor}
                   />
                   <Text style={[
                     styles.linkUserButtonText,
-                    { color: fieldLabelColor },
-                    salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) && styles.linkUserButtonTextActive,
+                    { color: salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? posTheme.onPrimary : fieldLabelColor },
                   ]}>
                     {salesGroupCashierIds.includes(session.cashierId) && salesGroupCashierIds.includes(user.id) ? "Shared" : "Separate"}
                   </Text>
@@ -996,6 +1480,76 @@ export default function SettingsScreen() {
         )}
       </Card>
 
+      {isSuperAdmin && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("permissions access roles presets") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Roles & Permissions</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose a role to find its users, then customize access for one person. Role permissions remain the default until a user override is added.</Text>
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor }]}>Role to configure</Text>
+          <TouchableOpacity style={[styles.permissionSelect, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => setShowPermissionRolePicker(true)}>
+            <View><Text style={[styles.permissionSelectValue, { color: posTheme.text }]}>{selectedPermissionRole?.name ?? "Select a role"}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>{selectedPermissionRole?.description ?? "Choose which role's users to display"}</Text></View>
+            <Ionicons name="chevron-down" size={20} color={posTheme.accent} />
+          </TouchableOpacity>
+
+          <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Users in {selectedPermissionRole?.name ?? "role"}</Text>
+          {permissionUsers.length === 0 ? <View style={[styles.permissionNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}><Ionicons name="people-outline" size={19} color={posTheme.accent} /><Text style={{ color: posTheme.muted, flex: 1 }}>No active users are assigned to this role.</Text></View> : <View style={styles.permissionUserGrid}>{permissionUsers.map((user) => { const selected = user.id === selectedPermissionUserId; return <TouchableOpacity key={user.id} style={[styles.permissionUser, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]} onPress={() => void selectPermissionUser(user.id)}><Ionicons name="person-circle-outline" size={22} color={selected ? posTheme.onPrimary : posTheme.accent} /><View style={{ flex: 1 }}><Text style={[styles.permissionUserName, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{user.displayName}</Text><Text style={[styles.permissionUserHandle, { color: selected ? posTheme.onPrimary : posTheme.muted }]}>{user.username ? `@${user.username}` : "PIN account"}</Text></View>{Object.keys(selectedUserOverrides).length > 0 && selected ? <View style={[styles.overrideBadge, { backgroundColor: posTheme.accent }]}><Text style={[styles.overrideBadgeText, { color: posTheme.onPrimary }]}>CUSTOM</Text></View> : null}</TouchableOpacity>; })}</View>}
+
+          {selectedPermissionUser ? <>
+            <View style={styles.permissionHeadingRow}><View><Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Access for {selectedPermissionUser.displayName}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>Switches show effective access. “Override” differs from the {selectedPermissionRole?.name} default.</Text></View><TouchableOpacity disabled={permissionsBusy || Object.keys(selectedUserOverrides).length === 0} onPress={() => void resetUserPermissions()} style={[styles.resetPermissionButton, { borderColor: posTheme.border, opacity: Object.keys(selectedUserOverrides).length === 0 ? 0.5 : 1 }]}><Ionicons name="refresh" size={16} color={posTheme.accent} /><Text style={{ color: posTheme.text, fontSize: 11, fontWeight: "800" }}>Use role defaults</Text></TouchableOpacity></View>
+            <Text style={[styles.fieldLabel, { color: fieldLabelColor, marginTop: 16 }]}>Apply a preset to this user</Text>
+            <View style={styles.permissionPresetGrid}>{(Object.entries(PERMISSION_PRESETS) as Array<[PermissionPresetKey, typeof PERMISSION_PRESETS[PermissionPresetKey]]>).map(([key, preset]) => <TouchableOpacity key={key} disabled={permissionsBusy} style={[styles.permissionPreset, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]} onPress={() => void applyPermissionPreset(key)}><Text style={[styles.permissionPresetTitle, { color: posTheme.text }]}>{preset.name}</Text><Text style={[styles.permissionPresetDesc, { color: posTheme.muted }]}>{preset.description}</Text></TouchableOpacity>)}</View>
+            {PERMISSION_CATEGORIES.map((category) => <View key={category} style={[styles.permissionCategory, { borderColor: posTheme.border }]}><View style={[styles.permissionCategoryHeader, { backgroundColor: posTheme.surfaceAlt }]}><Ionicons name={category === "Pages" ? "documents-outline" : category === "Buttons & Actions" ? "hand-left-outline" : "create-outline"} size={18} color={posTheme.accent} /><View><Text style={[styles.permissionCategoryTitle, { color: posTheme.text }]}>{category}</Text><Text style={[styles.permissionCategoryHint, { color: posTheme.muted }]}>{category === "Pages" ? "Controls which screens this user can open." : category === "Buttons & Actions" ? "Controls operational buttons and sensitive actions." : "Controls creating, updating, and removing records."}</Text></View></View>{POS_PERMISSIONS.filter((permission) => permission.category === category).map((permission) => { const inherited = selectedRolePermissions.includes(permission.code); const overridden = Object.prototype.hasOwnProperty.call(selectedUserOverrides, permission.code); const enabled = selectedUserOverrides[permission.code] ?? inherited; return <TouchableOpacity key={permission.code} disabled={permissionsBusy} style={[styles.permissionItem, { borderBottomColor: posTheme.border }]} onPress={() => void toggleUserPermission(permission.code)}><View style={{ flex: 1 }}><View style={styles.permissionItemTitleRow}><Text style={[styles.permissionItemTitle, { color: posTheme.text }]}>{permission.name}</Text><View style={[styles.permissionSourceBadge, { backgroundColor: overridden ? posTheme.primary : posTheme.surfaceAlt, borderColor: posTheme.border }]}><Text style={{ color: overridden ? posTheme.onPrimary : posTheme.muted, fontSize: 9, fontWeight: "900" }}>{overridden ? "USER OVERRIDE" : "ROLE DEFAULT"}</Text></View></View><Text style={[styles.permissionItemDesc, { color: posTheme.muted }]}>{permission.description}</Text><Text style={[styles.permissionItemGroup, { color: posTheme.accent }]}>{permission.group}</Text></View><Switch value={enabled} disabled={permissionsBusy} onValueChange={() => void toggleUserPermission(permission.code)} trackColor={{ false: posTheme.surfaceAlt, true: posTheme.primary }} thumbColor={enabled ? posTheme.onPrimary : posTheme.muted} /></TouchableOpacity>; })}</View>)}
+          </> : null}
+        </Card>
+      )}
+
+      {canManageUsers && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security pin failed attempts lock unlock accounts") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Security</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Set the failed PIN limit and unlock cashier accounts.</Text>
+
+          <View style={styles.securitySettingRow}>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={[styles.fieldValue, { color: fieldValueColor }]}>Failed PIN attempts</Text>
+              <Text style={[styles.securityHelp, { color: sectionDescColor }]}>Lock an account after this many consecutive incorrect PINs.</Text>
+            </View>
+            <TextInput
+              style={[styles.securityNumberInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+              value={maxPinAttemptsValue}
+              onChangeText={(value) => setMaxPinAttemptsValue(value.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+              maxLength={2}
+              accessibilityLabel="Maximum failed PIN attempts"
+            />
+            <TouchableOpacity style={[styles.securityApplyButton, { backgroundColor: posTheme.primary }]} onPress={applyPinSecurity}>
+              <Ionicons name="checkmark" size={17} color={posTheme.onPrimary} />
+              <Text style={[styles.securityApplyText, { color: posTheme.onPrimary }]}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.securityListTitle, { color: fieldValueColor }]}>Locked accounts</Text>
+          {cashiers.filter((user) => Boolean(user.accountLocked)).length === 0 ? (
+            <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Text style={[styles.emptyText, { color: sectionDescColor }]}>No accounts are locked.</Text>
+            </View>
+          ) : (
+            cashiers.filter((user) => Boolean(user.accountLocked)).map((user) => (
+              <View key={`locked-${user.id}`} style={[styles.lockedUserRow, { borderBottomColor: borderColor }]}>
+                <View style={styles.lockedUserCopy}>
+                  <Text style={[styles.userName, { color: fieldValueColor }]}>{user.displayName}</Text>
+                  <Text style={[styles.userUsername, { color: fieldLabelColor }]}>
+                    {user.failedPinAttempts} failed attempts{user.accountLockedAt ? ` · ${new Date(user.accountLockedAt).toLocaleString()}` : ""}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.unlockButton} onPress={() => void handleUnlockUser(user)}>
+                  <Ionicons name="lock-open-outline" size={16} color="#ffffff" />
+                  <Text style={styles.unlockButtonText}>Unlock</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </Card>
+      )}
+
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("security auto lock idle timeout pin") && styles.hidden]}>
         <View style={styles.autoLockHeading}>
           <View style={styles.sectionHeadingCopy}>
@@ -1005,8 +1559,8 @@ export default function SettingsScreen() {
           <Switch
             value={autoLockMinutes > 0}
             onValueChange={(enabled) => enabled ? applyAutoLock() : setAutoLockMinutes(0)}
-            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: "#5f7fae" }}
-            thumbColor={autoLockMinutes > 0 ? "#17386b" : "#f8fafc"}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={autoLockMinutes > 0 ? posTheme.primary : posTheme.surface}
           />
         </View>
         <View style={styles.autoLockEditor}>
@@ -1022,17 +1576,17 @@ export default function SettingsScreen() {
             {(["minutes", "hours"] as const).map((unit) => (
               <TouchableOpacity
                 key={unit}
-                style={[styles.autoLockUnit, autoLockUnit === unit && styles.autoLockUnitSelected]}
+                style={[styles.autoLockUnit, autoLockUnit === unit && { backgroundColor: posTheme.primary }]}
                 onPress={() => setAutoLockUnit(unit)}
                 accessibilityState={{ selected: autoLockUnit === unit }}
               >
-                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? "#ffffff" : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
+                <Text style={[styles.autoLockUnitText, { color: autoLockUnit === unit ? posTheme.onPrimary : fieldLabelColor }]}>{unit === "minutes" ? "Minutes" : "Hours"}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          <TouchableOpacity style={styles.autoLockApply} onPress={applyAutoLock}>
-            <Ionicons name="checkmark" size={17} color="#ffffff" />
-            <Text style={styles.autoLockApplyText}>Apply</Text>
+          <TouchableOpacity style={[styles.autoLockApply, { backgroundColor: posTheme.primary }]} onPress={applyAutoLock}>
+            <Ionicons name="checkmark" size={17} color={posTheme.onPrimary} />
+            <Text style={[styles.autoLockApplyText, { color: posTheme.onPrimary }]}>Apply</Text>
           </TouchableOpacity>
         </View>
         <Text style={[styles.autoLockStatus, { color: sectionDescColor }]}>
@@ -1051,10 +1605,10 @@ export default function SettingsScreen() {
           {AUDIT_FILTERS.map((f) => (
             <TouchableOpacity
               key={f}
-              style={[styles.filterChip, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }, auditFilter === f && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: auditFilter === f ? posTheme.primary : posTheme.surfaceAlt, borderColor: auditFilter === f ? posTheme.primary : posTheme.border }]}
               onPress={() => setAuditFilter(f)}
             >
-              <Text style={[styles.filterChipText, { color: dark ? "#94a3b8" : "#6b7b8d" }, auditFilter === f && styles.filterChipTextActive]}>
+              <Text style={[styles.filterChipText, { color: auditFilter === f ? posTheme.onPrimary : posTheme.muted }]}>
                 {f === "ALL" ? "ALL" : f.replace("_", " ")}
               </Text>
             </TouchableOpacity>
@@ -1062,13 +1616,13 @@ export default function SettingsScreen() {
         </ScrollView>
 
         {filteredAuditLogs.length === 0 ? (
-          <View style={[styles.emptyBox, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+          <View style={[styles.emptyBox, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
             <Text style={[styles.emptyText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>No audit logs recorded yet.</Text>
           </View>
         ) : (
           <View style={styles.auditList}>
             {filteredAuditLogs.map((log) => {
-              const colors = EVENT_COLORS[log.eventType] ?? { bg: dark ? "#1e293b" : "#f3f4f6", text: dark ? "#94a3b8" : "#6b7280" };
+              const colors = EVENT_COLORS[log.eventType] ?? { bg: posTheme.surfaceAlt, text: posTheme.accent };
               return (
                 <View key={log.id} style={[styles.auditRow, { borderBottomColor: borderColor }]}>
                   <View style={[styles.eventBadge, { backgroundColor: colors.bg }]}>
@@ -1092,6 +1646,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* OMS Connection Card */}
+      {canManageSettings && (
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("oms connection server api key sync qr") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>OMS Connection</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>
@@ -1149,7 +1704,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <View style={[styles.statusBar, { backgroundColor: dark ? "#1e293b" : "#f1f5f9" }]}>
+        <View style={[styles.statusBar, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
           <View
             style={[
               styles.statusDot,
@@ -1159,7 +1714,7 @@ export default function SettingsScreen() {
               liveStatus === "idle" && styles.statusIdle,
             ]}
           />
-          <Text style={[styles.statusText, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>
+          <Text style={[styles.statusText, { color: posTheme.muted }]}>
             {liveStatus === "connected" && "Connected to OMS"}
             {liveStatus === "connecting" && "Connecting to OMS..."}
             {liveStatus === "offline" && "Offline"}
@@ -1172,6 +1727,7 @@ export default function SettingsScreen() {
           )}
         </View>
       </Card>
+      )}
 
       {/* Bluetooth Thermal Printer Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("bluetooth thermal printer jk-5802h receipt esc pos paired device") && styles.hidden]}>
@@ -1180,7 +1736,7 @@ export default function SettingsScreen() {
             <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Bluetooth Thermal Printer</Text>
             <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select a paired 58mm ESC/POS printer for receipts.</Text>
           </View>
-          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : (dark ? "#2a303a" : "#eef2f6") }]}>
+          <View style={[styles.printerStatusBadge, { backgroundColor: connectedPrinterId ? (dark ? "#123524" : "#dcfce7") : posTheme.surfaceAlt, borderColor: connectedPrinterId ? "#22c55e" : posTheme.border }]}>
             <View style={[styles.printerStatusDot, { backgroundColor: connectedPrinterId ? "#22c55e" : "#94a3b8" }]} />
             <Text style={[styles.printerStatusText, { color: connectedPrinterId ? (dark ? "#86efac" : "#166534") : fieldLabelColor }]}>
               {connectedPrinterId ? "Connected" : "Not connected"}
@@ -1190,8 +1746,8 @@ export default function SettingsScreen() {
 
         {selectedPrinter && (
           <View style={[styles.selectedPrinterSummary, { backgroundColor: inputBg, borderColor: inputBorder }]}>
-            <View style={[styles.printerIcon, { backgroundColor: dark ? "#17345b" : "#e8f0ff" }]}>
-              <Ionicons name="print-outline" size={22} color={dark ? "#93c5fd" : "#17386b"} />
+            <View style={[styles.printerIcon, { backgroundColor: posTheme.surfaceAlt }]}>
+              <Ionicons name="print-outline" size={22} color={posTheme.accent} />
             </View>
             <View style={styles.printerDeviceCopy}>
               <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{selectedPrinter.name}</Text>
@@ -1208,9 +1764,9 @@ export default function SettingsScreen() {
             disabled={printerAction !== null}
           >
             {printerAction === "refresh" ? (
-              <ActivityIndicator size="small" color={dark ? "#93c5fd" : "#17386b"} />
+              <ActivityIndicator size="small" color={posTheme.accent} />
             ) : (
-              <Ionicons name="refresh" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+              <Ionicons name="refresh" size={17} color={posTheme.accent} />
             )}
             <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Refresh paired devices</Text>
           </TouchableOpacity>
@@ -1218,7 +1774,7 @@ export default function SettingsScreen() {
             style={[styles.printerToolButton, { backgroundColor: inputBg, borderColor: inputBorder }]}
             onPress={() => void Linking.sendIntent("android.settings.BLUETOOTH_SETTINGS")}
           >
-            <Ionicons name="bluetooth" size={17} color={dark ? "#93c5fd" : "#17386b"} />
+            <Ionicons name="bluetooth" size={17} color={posTheme.accent} />
             <Text style={[styles.printerToolText, { color: fieldValueColor }]}>Bluetooth settings</Text>
           </TouchableOpacity>
         </View>
@@ -1234,12 +1790,12 @@ export default function SettingsScreen() {
                     styles.printerDeviceRow,
                     { borderBottomColor: inputBorder },
                     index === pairedPrinters.length - 1 && styles.printerDeviceRowLast,
-                    selected && { backgroundColor: dark ? "#162845" : "#eef4ff" },
+                    selected && { backgroundColor: posTheme.surfaceAlt },
                   ]}
                   onPress={() => setSelectedPrinter(printer)}
                 >
-                  <View style={[styles.printerRadio, { borderColor: selected ? "#2563a6" : (dark ? "#64748b" : "#94a3b8") }]}>
-                    {selected && <View style={styles.printerRadioSelected} />}
+                  <View style={[styles.printerRadio, { borderColor: selected ? posTheme.accent : posTheme.muted }]}>
+                    {selected && <View style={[styles.printerRadioSelected, { backgroundColor: posTheme.accent }]} />}
                   </View>
                   <View style={styles.printerDeviceCopy}>
                     <Text style={[styles.printerDeviceName, { color: fieldValueColor }]} numberOfLines={1}>{printer.name}</Text>
@@ -1251,8 +1807,8 @@ export default function SettingsScreen() {
             })}
           </View>
         ) : (
-          <View style={[styles.printerEmpty, { backgroundColor: dark ? "#101722" : "#f8fafc", borderColor: inputBorder }]}>
-            <Ionicons name="bluetooth-outline" size={20} color={fieldLabelColor} />
+          <View style={[styles.printerEmpty, { backgroundColor: posTheme.surfaceAlt, borderColor: inputBorder }]}>
+            <Ionicons name="bluetooth-outline" size={20} color={posTheme.accent} />
             <Text style={[styles.printerEmptyText, { color: fieldLabelColor }]}>Pair the JK-5802H in Android settings, then refresh this list.</Text>
           </View>
         )}
@@ -1290,6 +1846,34 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
+      {canManageSettings && (
+        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("test open cash register drawer bluetooth printer camera usb barcode scanner hardware") && styles.hidden]}>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Hardware Diagnostics</Text>
+          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Verify the cash drawer and both supported barcode input methods before serving customers.</Text>
+          <View style={styles.hardwareTestGrid}>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="cash-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Cash drawer</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Sends the drawer-open command through the selected printer.</Text>
+              <Button title="Open Cash Register" onPress={handleCashRegisterTest} loading={printerAction === "drawer"} disabled={!selectedPrinter || (printerAction !== null && printerAction !== "drawer")} icon="cash-outline" style={styles.hardwareTestButton} />
+            </View>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="camera-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Camera barcode scanner</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Open the in-app scanner and scan any supported product barcode.</Text>
+              <Button title="Test Camera Scanner" onPress={() => setHardwareScannerVisible(true)} icon="scan-outline" style={styles.hardwareTestButton} />
+            </View>
+            <View style={[styles.hardwareTestItem, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border }]}>
+              <Ionicons name="barcode-outline" size={24} color={posTheme.accent} />
+              <Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>USB barcode scanner</Text>
+              <Text style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Tap USB Ready, then scan a barcode with the connected scanner.</Text>
+              <UsbBarcodeScannerInput onScan={(code) => setHardwareScanResult(code)} dark={dark} disabled={activeSection !== "hardware_test"} />
+            </View>
+          </View>
+          {hardwareScanResult ? <View style={[styles.hardwareScanSuccess, { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.accent }]}><Ionicons name="checkmark-circle" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={[styles.hardwareTestTitle, { color: posTheme.text }]}>Scanner is working</Text><Text selectable style={[styles.hardwareTestHelp, { color: posTheme.muted }]}>Received: {hardwareScanResult}</Text></View><TouchableOpacity onPress={() => setHardwareScanResult("")}><Ionicons name="close-circle" size={20} color={posTheme.muted} /></TouchableOpacity></View> : null}
+        </Card>
+      )}
+
       {/* Navigation Style Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("navigation style sidebar bottom auto") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Navigation Style</Text>
@@ -1305,18 +1889,62 @@ export default function SettingsScreen() {
               key={opt.key}
               style={[
                 styles.navCard,
-                { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
-                navigationMode === opt.key && styles.navCardActive,
+                { backgroundColor: navigationMode === opt.key ? posTheme.primary : posTheme.surfaceAlt, borderColor: navigationMode === opt.key ? posTheme.primary : posTheme.border },
               ]}
               onPress={() => setNavigationMode(opt.key)}
             >
-              <View style={[styles.navIconWrap, navigationMode === opt.key && styles.navIconWrapActive]}>
-                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? "#fff" : dark ? "#94a3b8" : "#17386b"} />
+              <View style={[styles.navIconWrap, { backgroundColor: navigationMode === opt.key ? posTheme.accent : posTheme.surface }]}>
+                <Ionicons name={opt.icon} size={22} color={navigationMode === opt.key ? posTheme.onPrimary : posTheme.accent} />
               </View>
-              <Text style={[styles.navLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, navigationMode === opt.key && styles.navLabelActive]}>
+              <Text style={[styles.navLabel, { color: navigationMode === opt.key ? posTheme.onPrimary : posTheme.text }]}>
                 {opt.label}
               </Text>
-              <Text style={[styles.navDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, navigationMode === opt.key && styles.navDescActive]}>
+              <Text style={[styles.navDesc, { color: navigationMode === opt.key ? posTheme.onPrimary : posTheme.muted }]}>
+                {opt.desc}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Card>
+
+      {/* Sales Layout Card */}
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("sales layout handed left right cart dominant hand") && styles.hidden]}>
+        <View style={styles.autoLockHeading}>
+          <View style={styles.sectionHeadingCopy}>
+            <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Sales Layout</Text>
+            <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Move the cart to the left side for left-handed use, or keep it on the right.</Text>
+          </View>
+          <Switch
+            value={salesHandedness === "left"}
+            onValueChange={(enabled) => setSalesHandedness(enabled ? "left" : "right")}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={salesHandedness === "left" ? posTheme.primary : posTheme.surface}
+            accessibilityLabel="Left-handed sales layout"
+          />
+        </View>
+
+        <View style={styles.navGrid}>
+          {([
+            { key: "right" as const, label: "Right-handed", icon: "arrow-forward-circle-outline" as const, desc: "Products left, cart right" },
+            { key: "left" as const, label: "Left-handed", icon: "arrow-back-circle-outline" as const, desc: "Cart left, products right" },
+          ]).map((opt) => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[
+                styles.navCard,
+                { backgroundColor: salesHandedness === opt.key ? posTheme.primary : posTheme.surfaceAlt, borderColor: salesHandedness === opt.key ? posTheme.primary : posTheme.border },
+              ]}
+              onPress={() => setSalesHandedness(opt.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: salesHandedness === opt.key }}
+            >
+              <View style={[styles.navIconWrap, { backgroundColor: salesHandedness === opt.key ? posTheme.accent : posTheme.surface }]}>
+                <Ionicons name={opt.icon} size={22} color={salesHandedness === opt.key ? posTheme.onPrimary : posTheme.accent} />
+              </View>
+              <Text style={[styles.navLabel, { color: salesHandedness === opt.key ? posTheme.onPrimary : posTheme.text }]}>
+                {opt.label}
+              </Text>
+              <Text style={[styles.navDesc, { color: salesHandedness === opt.key ? posTheme.onPrimary : posTheme.muted }]}>
                 {opt.desc}
               </Text>
             </TouchableOpacity>
@@ -1325,26 +1953,27 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Theme Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("theme appearance light dark auto system") && styles.hidden]}>
+      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("theme appearance light dark auto system color palette primary accent background navigation") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Theme</Text>
-        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Select your preferred appearance.</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose an appearance and customize the colors shared by login, registration, navigation, and the main POS.</Text>
 
         <View style={styles.themeGrid}>
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "light" && styles.themeCardActive,
+              themeMode === "light" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("light")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "light" && styles.themeIconWrapActive]}>
-              <Ionicons name="sunny-outline" size={22} color={themeMode === "light" ? "#fff" : "#f59e0b"} />
+            <View style={[styles.themeIconWrap, themeMode === "light" && styles.themeIconWrapActive, themeMode === "light" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="sunny-outline" size={22} color={themeMode === "light" ? posTheme.onPrimary : "#f59e0b"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "light" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "light" ? posTheme.onPrimary : posTheme.text }, themeMode === "light" && styles.themeLabelActive]}>
               Light
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "light" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "light" ? posTheme.onPrimary : posTheme.muted }, themeMode === "light" && styles.themeDescActive]}>
               Bright mode for daytime
             </Text>
           </TouchableOpacity>
@@ -1352,18 +1981,19 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "dark" && styles.themeCardActive,
+              themeMode === "dark" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("dark")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "dark" && styles.themeIconWrapActive]}>
-              <Ionicons name="moon-outline" size={22} color={themeMode === "dark" ? "#fff" : "#6366f1"} />
+            <View style={[styles.themeIconWrap, themeMode === "dark" && styles.themeIconWrapActive, themeMode === "dark" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="moon-outline" size={22} color={themeMode === "dark" ? posTheme.onPrimary : "#6366f1"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "dark" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "dark" ? posTheme.onPrimary : posTheme.text }, themeMode === "dark" && styles.themeLabelActive]}>
               Dark
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "dark" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "dark" ? posTheme.onPrimary : posTheme.muted }, themeMode === "dark" && styles.themeDescActive]}>
               Low-light friendly
             </Text>
           </TouchableOpacity>
@@ -1371,22 +2001,24 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[
               styles.themeCard,
-              { backgroundColor: dark ? "#1e293b" : "#f8fbff", borderColor: dark ? "#334155" : "#e2e8f0" },
+              { backgroundColor: posTheme.surfaceAlt, borderColor: posTheme.border },
               themeMode === "system" && styles.themeCardActive,
+              themeMode === "system" && { backgroundColor: posTheme.primary, borderColor: posTheme.primary },
             ]}
             onPress={() => setThemeMode("system")}
           >
-            <View style={[styles.themeIconWrap, themeMode === "system" && styles.themeIconWrapActive]}>
-              <Ionicons name="contrast-outline" size={22} color={themeMode === "system" ? "#fff" : "#0ea5e9"} />
+            <View style={[styles.themeIconWrap, themeMode === "system" && styles.themeIconWrapActive, themeMode === "system" && { backgroundColor: posTheme.accent }]}>
+              <Ionicons name="contrast-outline" size={22} color={themeMode === "system" ? posTheme.onPrimary : "#0ea5e9"} />
             </View>
-            <Text style={[styles.themeLabel, { color: dark ? "#e2e8f0" : "#1a202c" }, themeMode === "system" && styles.themeLabelActive]}>
+            <Text style={[styles.themeLabel, { color: themeMode === "system" ? posTheme.onPrimary : posTheme.text }, themeMode === "system" && styles.themeLabelActive]}>
               Auto
             </Text>
-            <Text style={[styles.themeDesc, { color: dark ? "#94a3b8" : "#6b7b8d" }, themeMode === "system" && styles.themeDescActive]}>
+            <Text style={[styles.themeDesc, { color: themeMode === "system" ? posTheme.onPrimary : posTheme.muted }, themeMode === "system" && styles.themeDescActive]}>
               Follow system appearance
             </Text>
           </TouchableOpacity>
         </View>
+        <ThemeColorEditor />
       </Card>
 
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("sounds audio volume mute notifications feedback") && styles.hidden]}>
@@ -1394,11 +2026,11 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Control checkout, transfer, and connection feedback.</Text>
 
         <View style={[styles.soundToggleRow, { borderBottomColor: borderColor }]}>
-          <View style={[styles.soundIcon, { backgroundColor: dark ? "#1e3a5f" : "#e8f0ff" }]}>
+          <View style={[styles.soundIcon, { backgroundColor: posTheme.surfaceAlt }]}>
             <Ionicons
               name={soundMuted ? "volume-mute-outline" : "volume-high-outline"}
               size={22}
-              color={dark ? "#93c5fd" : "#17386b"}
+              color={posTheme.accent}
             />
           </View>
           <View style={styles.soundToggleCopy}>
@@ -1410,8 +2042,8 @@ export default function SettingsScreen() {
           <Switch
             value={!soundMuted}
             onValueChange={(enabled) => setSoundMuted(!enabled)}
-            trackColor={{ false: dark ? "#334155" : "#cbd5e1", true: dark ? "#315f9c" : "#8db4ed" }}
-            thumbColor={!soundMuted ? "#17386b" : dark ? "#94a3b8" : "#f8fafc"}
+            trackColor={{ false: posTheme.border, true: posTheme.accent }}
+            thumbColor={!soundMuted ? posTheme.primary : posTheme.surface}
             accessibilityLabel="Sound effects"
           />
         </View>
@@ -1427,10 +2059,10 @@ export default function SettingsScreen() {
             disabled={soundVolume <= 0}
             accessibilityLabel="Lower sound volume"
           >
-            <Ionicons name="remove" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Ionicons name="remove" size={20} color={posTheme.accent} />
           </TouchableOpacity>
-          <View style={[styles.volumeTrack, { backgroundColor: dark ? "#273244" : "#dbe3ec" }]}>
-            <View style={[styles.volumeFill, { width: `${soundVolumePercent}%`, opacity: soundMuted ? 0.45 : 1 }]} />
+          <View style={[styles.volumeTrack, { backgroundColor: posTheme.surfaceAlt }]}>
+            <View style={[styles.volumeFill, { width: `${soundVolumePercent}%`, opacity: soundMuted ? 0.45 : 1, backgroundColor: posTheme.accent }]} />
           </View>
           <TouchableOpacity
             style={[styles.volumeButton, { backgroundColor: inputBg, borderColor: inputBorder }, soundVolume >= 1 && styles.volumeButtonDisabled]}
@@ -1438,7 +2070,7 @@ export default function SettingsScreen() {
             disabled={soundVolume >= 1}
             accessibilityLabel="Raise sound volume"
           >
-            <Ionicons name="add" size={20} color={dark ? "#cbd5e1" : "#17386b"} />
+            <Ionicons name="add" size={20} color={posTheme.accent} />
           </TouchableOpacity>
         </View>
 
@@ -1489,6 +2121,120 @@ export default function SettingsScreen() {
         <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
+      {canManageBackups && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore auto automatic schedule interval hours list delete remove local files") && styles.hidden]}>
+        <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Database & Recovery</Text>
+        <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the complete local database, branding assets, theme palettes, and device UI preferences, or validate and restore a compatible backup.</Text>
+        <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Restore can be performed at any time. The format, schema version, checksum, business identity, and totals are always validated, and you must enter your POS login {isBuiltInSuperAdmin ? "password" : "PIN"} to confirm. Restoring replaces the current database, so create a backup first if the existing data matters.</Text></View></View>
+
+        <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+          <View style={styles.autoBackupHeading}>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={{ color: posTheme.text, fontWeight: "900" }}>Auto backup</Text>
+              <Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Create a checksum-verified local backup automatically on a schedule.</Text>
+            </View>
+            <Switch
+              value={autoBackupEnabled}
+              onValueChange={setAutoBackupEnabled}
+              trackColor={{ false: posTheme.border, true: posTheme.accent }}
+              thumbColor={autoBackupEnabled ? posTheme.primary : posTheme.surface}
+            />
+          </View>
+          <View style={styles.autoBackupControls}>
+            <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 13 }}>Back up every</Text>
+            <TextInput
+              style={[styles.autoBackupInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+              value={backupIntervalInput}
+              onChangeText={(value) => setBackupIntervalInput(value.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+              maxLength={3}
+              accessibilityLabel="Auto backup interval in hours"
+            />
+            <Text style={{ color: posTheme.muted, fontSize: 12 }}>hours</Text>
+            <TouchableOpacity style={[styles.autoBackupApply, { backgroundColor: posTheme.primary }]} onPress={handleApplyBackupInterval}>
+              <Ionicons name="checkmark" size={16} color={posTheme.onPrimary} />
+              <Text style={{ color: posTheme.onPrimary, fontWeight: "800", fontSize: 12 }}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.autoBackupPresets}>
+            {AUTO_BACKUP_INTERVAL_PRESETS.map((hours) => {
+              const active = autoBackupIntervalHours === hours;
+              return (
+                <TouchableOpacity
+                  key={hours}
+                  style={[styles.autoBackupPreset, { borderColor: active ? posTheme.primary : posTheme.border, backgroundColor: active ? posTheme.primary : "transparent" }]}
+                  onPress={() => handleBackupIntervalPreset(hours)}
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={{ color: active ? posTheme.onPrimary : posTheme.muted, fontWeight: "800", fontSize: 11 }}>{formatBackupIntervalLabel(hours)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.autoBackupStatus}>
+            <Ionicons name="time-outline" size={15} color={posTheme.muted} />
+            <Text style={{ color: posTheme.muted, fontSize: 12, flex: 1 }}>
+              {autoBackupEnabled
+                ? `Every ${formatBackupIntervalLabel(autoBackupIntervalHours)} · Last: ${lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString() : "never"} · Next: ${nextAutoBackupLabel}`
+                : "Auto backup is off. Turn it on to keep a scheduled recovery copy."}
+            </Text>
+          </View>
+          <Button title={backupBusy === "export" ? "Backing up..." : "Back Up Now"} icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
+        </View>
+
+        <View style={styles.backupActions}>
+          <Button title={backupBusy === "export" ? "Exporting backup..." : "Export Backup Locally"} icon="download-outline" onPress={() => void handleCreateLocalBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
+          <Button title={backupBusy === "import" ? "Reading backup..." : "Select Backup File"} icon="folder-open-outline" variant="secondary" onPress={() => void handleSelectBackup()} loading={backupBusy === "import" && !selectedBackup} disabled={backupBusy !== null} style={styles.backupButton} />
+        </View>
+        {selectedBackup ? <View style={[styles.backupManifest, { borderColor: posTheme.accent, backgroundColor: posTheme.surfaceAlt }]}>
+          <View style={styles.backupManifestTitle}><Ionicons name="checkmark-circle" size={21} color="#16a34a" /><Text style={{ color: posTheme.text, fontWeight: "900" }}>Verified backup selected</Text></View>
+          <Text style={[styles.backupFileName, { color: posTheme.text }]} numberOfLines={2}>{selectedBackup.file.name}</Text>
+          <View style={styles.backupTotals}><Text style={{ color: posTheme.muted }}>Created</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{new Date(selectedBackup.envelope.createdAt).toLocaleString()}</Text><Text style={{ color: posTheme.muted }}>Schema</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>v{selectedBackup.envelope.schemaVersion}</Text><Text style={{ color: posTheme.muted }}>Business ID</Text><Text selectable style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.businessId}</Text><Text style={{ color: posTheme.muted }}>Theme & UI preferences</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.uiPreferences ? "Included" : "Legacy backup — database only"}</Text><Text style={{ color: posTheme.muted }}>Records</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.totals.sales} sales · {selectedBackup.envelope.totals.products} products · {selectedBackup.envelope.totals.inventoryQuantity} stock</Text></View>
+          <View style={styles.backupActions}><Button title="Choose Another" variant="secondary" icon="folder-open-outline" onPress={() => void handleSelectBackup()} disabled={backupBusy !== null} style={styles.backupButton} /><Button title="Restore Backup" variant="danger" icon="refresh-outline" onPress={() => handleRestoreBackup()} loading={backupBusy === "import"} disabled={backupBusy !== null} style={styles.backupButton} /></View>
+        </View> : null}
+
+        <View style={styles.backupListHeader}>
+          <Text style={{ color: sectionTitleColor, fontWeight: "900", fontSize: 15 }}>Local backups</Text>
+          <View style={styles.backupListMeta}>
+            <Text style={{ color: sectionDescColor, fontSize: 12 }}>{backupItems.length} {backupItems.length === 1 ? "file" : "files"}</Text>
+            <TouchableOpacity style={[styles.backupRefreshButton, { borderColor: posTheme.border }]} onPress={() => void refreshBackupList()} disabled={backupListLoading} accessibilityLabel="Refresh backup list">
+              <Ionicons name="refresh-outline" size={16} color={posTheme.accent} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        {backupListLoading && backupItems.length === 0 ? (
+          <View style={styles.backupListEmpty}><ActivityIndicator size="small" color={posTheme.accent} /></View>
+        ) : backupItems.length === 0 ? (
+          <View style={[styles.backupListEmpty, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+            <Ionicons name="folder-open-outline" size={22} color={posTheme.muted} />
+            <Text style={{ color: posTheme.muted, fontSize: 12, textAlign: "center" }}>No local backups yet. Export a backup or turn on auto backup to create one.</Text>
+          </View>
+        ) : (
+          <View style={styles.backupList}>
+            {backupItems.map((backup) => (
+              <View key={backup.uri} style={[styles.backupFileRow, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+                <Ionicons name="document-text-outline" size={19} color={posTheme.accent} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>{backup.name}</Text>
+                  <Text style={{ color: posTheme.muted, fontSize: 11, marginTop: 3 }}>{new Date(backup.createdAt).toLocaleString()} · {formatFileSize(backup.size)}</Text>
+                </View>
+                <View style={styles.backupFileActions}>
+                  {busyBackupUri === backup.uri ? <ActivityIndicator size="small" color={posTheme.accent} /> : <>
+                    <TouchableOpacity style={[styles.backupFileAction, { borderColor: posTheme.primary }]} onPress={() => handleRestoreBackup(backup.uri, backup.name)} disabled={backupBusy !== null} accessibilityLabel={`Restore ${backup.name}`}>
+                      <Ionicons name="refresh-outline" size={15} color={posTheme.primary} />
+                      <Text style={{ color: posTheme.primary, fontWeight: "800", fontSize: 11 }}>Restore</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.backupFileAction, { borderColor: "#dc3545" }]} onPress={() => handleDeleteBackup(backup.uri, backup.name)} disabled={backupBusy !== null} accessibilityLabel={`Delete ${backup.name}`}>
+                      <Ionicons name="trash-outline" size={15} color="#dc3545" />
+                      <Text style={{ color: "#dc3545", fontWeight: "800", fontSize: 11 }}>Delete</Text>
+                    </TouchableOpacity>
+                  </>}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </Card>}
+
       {/* Device Card */}
       <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("device session sign out reset registration") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Device</Text>
@@ -1517,7 +2263,7 @@ export default function SettingsScreen() {
 
       <Modal visible={showCreateUser} transparent animationType="fade" onRequestClose={closeUserModal}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.createUserModal, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: cardBorder }]}>
+          <View style={[styles.createUserModal, { backgroundColor: posTheme.surface, borderColor: cardBorder }]}>
             <View style={styles.createUserHeader}>
               <View>
                 <Text style={[styles.modalTitle, { color: sectionTitleColor }]}>{editingUser ? "Edit User" : "Create User"}</Text>
@@ -1531,6 +2277,8 @@ export default function SettingsScreen() {
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserName} onChangeText={setNewUserName} placeholder="Cashier name" placeholderTextColor={fieldLabelColor} />
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Username (optional)</Text>
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUsername} onChangeText={setNewUsername} placeholder="Username" placeholderTextColor={fieldLabelColor} autoCapitalize="none" />
+            <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Access role</Text>
+            <View style={styles.permissionRoleRow}>{permissionRoles.filter((role) => role.name.toLowerCase() !== "admin" || editingUser?.roleId === role.id).map((role) => { const selected = newUserRoleId === role.id; return <TouchableOpacity key={`user-role-${role.id}`} onPress={() => setNewUserRoleId(role.id)} style={[styles.permissionRole, { backgroundColor: selected ? posTheme.primary : posTheme.surfaceAlt, borderColor: selected ? posTheme.primary : posTheme.border }]}><Text style={[styles.permissionRoleText, { color: selected ? posTheme.onPrimary : posTheme.text }]}>{role.name}</Text></TouchableOpacity>; })}</View>
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>{editingUser ? "New 6-digit PIN (optional)" : "6-digit PIN"}</Text>
             <TextInput style={[styles.createUserInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]} value={newUserPin} onChangeText={setNewUserPin} placeholder={editingUser ? "Keep current PIN" : "Enter PIN"} placeholderTextColor={fieldLabelColor} keyboardType="number-pad" secureTextEntry maxLength={6} />
             <Text style={[styles.createUserLabel, { color: fieldLabelColor }]}>Confirm PIN</Text>
@@ -1540,6 +2288,29 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      <Modal visible={showPermissionRolePicker} transparent animationType="fade" onRequestClose={() => setShowPermissionRolePicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowPermissionRolePicker(false)}>
+          <View style={[styles.permissionRolePicker, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
+            <Text style={[styles.modalTitle, { color: posTheme.text }]}>Select role</Text>
+            <Text style={[styles.permissionSelectHint, { color: posTheme.muted, marginBottom: 8 }]}>The user list will be filtered to this role.</Text>
+            {permissionRoles.map((role) => {
+              const selected = role.id === selectedPermissionRoleId;
+              return <TouchableOpacity key={`permission-role-option-${role.id}`} style={[styles.permissionRoleOption, { backgroundColor: selected ? posTheme.surfaceAlt : "transparent", borderBottomColor: posTheme.border }]} onPress={() => void selectPermissionRole(role.id)}><View style={{ flex: 1 }}><Text style={[styles.permissionRoleOptionTitle, { color: posTheme.text }]}>{role.name}</Text><Text style={[styles.permissionSelectHint, { color: posTheme.muted }]}>{role.description || "POS access role"}</Text></View>{selected ? <Ionicons name="checkmark-circle" size={21} color={posTheme.accent} /> : null}</TouchableOpacity>;
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <BarcodeScannerModal
+        visible={hardwareScannerVisible}
+        dark={dark}
+        onClose={() => setHardwareScannerVisible(false)}
+        onScan={(code) => {
+          setHardwareScanResult(code);
+          setHardwareScannerVisible(false);
+        }}
+      />
+
       {/* Currency Picker Modal */}
       <Modal visible={showCurrencyPicker} transparent animationType="fade">
         <TouchableOpacity
@@ -1547,7 +2318,7 @@ export default function SettingsScreen() {
           activeOpacity={1}
           onPress={() => setShowCurrencyPicker(false)}
         >
-          <View style={[styles.modalContent, { backgroundColor: dark ? "#1e293b" : "#fff" }]}>
+          <View style={[styles.modalContent, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
             <Text style={[styles.modalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Select Currency</Text>
             {CURRENCY_OPTIONS.map((c) => (
               <TouchableOpacity
@@ -1562,12 +2333,47 @@ export default function SettingsScreen() {
                   {c}
                 </Text>
                 {currencyCode === c && (
-                  <Ionicons name="checkmark" size={18} color={dark ? "#60a5fa" : "#17386b"} />
+                  <Ionicons name="checkmark" size={18} color={posTheme.accent} />
                 )}
               </TouchableOpacity>
             ))}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Restore PIN Confirmation Modal */}
+      <Modal visible={restorePinVisible} transparent animationType="fade" onRequestClose={() => { if (!restorePinBusy) { setRestorePinVisible(false); setRestoreTarget(null); } }}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.restorePinModal, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
+            <View style={styles.backupManifestTitle}><Ionicons name="lock-closed-outline" size={20} color={posTheme.primary} /><Text style={{ color: posTheme.text, fontWeight: "900", fontSize: 16 }}>Confirm restore</Text></View>
+            <Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18 }}>Restoring replaces the entire local database with the selected backup. This cannot be undone.</Text>
+            {restoreTarget?.label ? <Text style={[styles.backupFileName, { color: posTheme.text, marginTop: 10, marginBottom: 0 }]} numberOfLines={2}>{restoreTarget.label}</Text> : null}
+            <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12, marginTop: 12, marginBottom: 6 }}>{isBuiltInSuperAdmin ? "Enter your password" : "Enter your PIN"} to continue</Text>
+            <TextInput
+              style={[styles.restorePinInput, { backgroundColor: inputBg, borderColor: restorePinError ? "#dc3545" : inputBorder, color: inputColor }]}
+              value={restorePin}
+              onChangeText={(value) => { setRestorePin(isBuiltInSuperAdmin ? value : value.replace(/[^0-9]/g, "")); if (restorePinError) setRestorePinError(null); }}
+              secureTextEntry
+              autoFocus
+              keyboardType={isBuiltInSuperAdmin ? "default" : "number-pad"}
+              maxLength={isBuiltInSuperAdmin ? 64 : 6}
+              placeholder={isBuiltInSuperAdmin ? "Password" : "6-digit PIN"}
+              placeholderTextColor={posTheme.muted}
+              editable={!restorePinBusy}
+              onSubmitEditing={confirmRestoreWithPin}
+            />
+            {restorePinError ? <Text style={{ color: "#dc3545", fontSize: 12, marginTop: 8 }}>{restorePinError}</Text> : null}
+            <View style={styles.restorePinActions}>
+              <TouchableOpacity style={[styles.restorePinCancel, { borderColor: posTheme.border }]} onPress={() => { if (!restorePinBusy) { setRestorePinVisible(false); setRestoreTarget(null); } }} disabled={restorePinBusy}>
+                <Text style={{ color: posTheme.muted, fontWeight: "800", fontSize: 13 }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.restorePinConfirm, { backgroundColor: "#dc3545" }]} onPress={confirmRestoreWithPin} disabled={restorePinBusy}>
+                {restorePinBusy ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="refresh-outline" size={16} color="#ffffff" />}
+                <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 13 }}>{backupBusy === "import" ? "Restoring..." : "Restore database"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* QR Scanner Modal */}
@@ -1589,11 +2395,27 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </Modal>
-    </ScrollView>
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  settingsSplit: { flex: 1, flexDirection: "row", overflow: "hidden" },
+  settingsSidebar: { height: "100%", borderRightWidth: 1, paddingTop: 14, paddingHorizontal: 9 },
+  settingsSidebarTitle: { fontSize: 19, fontWeight: "900", paddingHorizontal: 5, marginBottom: 10 },
+  settingsSidebarSearch: { minHeight: 38, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
+  settingsSidebarSearchInput: { flex: 1, minWidth: 0, paddingVertical: 7, fontSize: 12 },
+  settingsSidebarCount: { fontSize: 10, paddingHorizontal: 4, marginTop: 7 },
+  settingsLinksScroll: { flex: 1, marginTop: 8 },
+  settingsLinks: { paddingBottom: 18, gap: 3 },
+  settingsLink: { minHeight: 45, borderWidth: 1, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 7 },
+  settingsLinkIcon: { width: 30, height: 30, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  settingsLinkText: { flex: 1, fontSize: 11, lineHeight: 14 },
+  settingsSidebarEmpty: { alignItems: "center", paddingVertical: 30, gap: 7 },
+  settingsDetailPane: { flex: 1, minWidth: 0 },
+  settingsDetailContent: { padding: 18, paddingBottom: 56 },
   container: {
     flex: 1,
     backgroundColor: "#f8fbff",
@@ -1632,6 +2454,16 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     fontSize: 14,
   },
+  searchResultCount: { fontSize: 12, marginTop: -7, marginBottom: 13 },
+  settingsHubGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  settingsHubCard: { width: "100%", maxWidth: 560, minHeight: 96, borderWidth: 1, borderRadius: 12, padding: 15, flexDirection: "row", alignItems: "center", gap: 12 },
+  settingsHubIcon: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  settingsHubTitle: { fontSize: 16, fontWeight: "900" },
+  settingsHubDescription: { fontSize: 12, lineHeight: 17, marginTop: 3 },
+  settingsHubMatch: { fontSize: 11, fontWeight: "800", marginTop: 6 },
+  noSettingsResults: { minHeight: 180, borderWidth: 1, borderRadius: 12, borderStyle: "dashed", alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
+  settingsDetailHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 18 },
+  settingsBackButton: { width: 44, height: 44, borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   hidden: {
     display: "none",
   },
@@ -1663,6 +2495,29 @@ const styles = StyleSheet.create({
     color: "#6b7b8d",
     marginBottom: 16,
   },
+  backupNotice: { borderWidth: 1, borderRadius: 10, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 14 },
+  backupActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  backupButton: { flexGrow: 1, minWidth: 190 },
+  backupManifest: { borderWidth: 1, borderRadius: 10, padding: 14, marginTop: 15 },
+  backupManifestTitle: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
+  backupFileName: { fontFamily: "monospace", fontSize: 12, marginBottom: 12 },
+  backupTotals: { gap: 4, marginBottom: 14 },
+  backupAutoPanel: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 15, gap: 12 },
+  autoBackupHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14 },
+  autoBackupControls: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  autoBackupInput: { width: 74, minHeight: 40, borderWidth: 1, borderRadius: 7, paddingHorizontal: 12, fontSize: 14, fontWeight: "700", textAlign: "center" },
+  autoBackupApply: { minHeight: 40, borderRadius: 7, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  autoBackupPresets: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  autoBackupPreset: { minHeight: 34, borderWidth: 1, borderRadius: 7, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  autoBackupStatus: { flexDirection: "row", alignItems: "flex-start", gap: 7 },
+  backupListHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 18, marginBottom: 10 },
+  backupListMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backupRefreshButton: { width: 32, height: 32, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  backupList: { gap: 10 },
+  backupListEmpty: { borderWidth: 1, borderRadius: 10, padding: 18, alignItems: "center", justifyContent: "center", gap: 8 },
+  backupFileRow: { borderWidth: 1, borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  backupFileActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backupFileAction: { minHeight: 32, borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
   sectionHeadingRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1925,6 +2780,85 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     color: "#6b7b8d",
+  },
+  lockedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#dc3545",
+  },
+  lockedBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  securitySettingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 18,
+  },
+  securityHelp: {
+    fontSize: 11,
+    marginTop: 3,
+  },
+  securityNumberInput: {
+    width: 64,
+    height: 42,
+    borderWidth: 1,
+    borderRadius: 7,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  securityApplyButton: {
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  securityApplyText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  securityListTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  lockedUserRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+  },
+  lockedUserCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  unlockButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 7,
+    backgroundColor: "#17386b",
+  },
+  unlockButtonText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   youBadge: {
     paddingHorizontal: 8,
@@ -2419,6 +3353,48 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minWidth: 150,
   },
+  testActionButton: {
+    alignSelf: "flex-start",
+    minWidth: 220,
+  },
+  hardwareTestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  hardwareTestItem: { width: "31%", minWidth: 220, flexGrow: 1, borderWidth: 1, borderRadius: 10, padding: 14, gap: 7 },
+  hardwareTestTitle: { fontSize: 13, fontWeight: "900" },
+  hardwareTestHelp: { fontSize: 11, lineHeight: 16 },
+  hardwareTestButton: { marginTop: 5 },
+  hardwareScanSuccess: { marginTop: 12, borderWidth: 1, borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  permissionRoleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  permissionRole: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  permissionRoleText: { fontSize: 12, fontWeight: "800" },
+  permissionSelect: { minHeight: 64, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  permissionSelectValue: { fontSize: 14, fontWeight: "900" },
+  permissionSelectHint: { fontSize: 10, lineHeight: 15, marginTop: 2 },
+  permissionUserGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  permissionUser: { width: "48%", minWidth: 220, flexGrow: 1, minHeight: 58, borderWidth: 1, borderRadius: 10, padding: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  permissionUserName: { fontSize: 12, fontWeight: "900" },
+  permissionUserHandle: { fontSize: 10, marginTop: 2 },
+  overrideBadge: { borderRadius: 999, paddingHorizontal: 7, paddingVertical: 4 },
+  overrideBadgeText: { fontSize: 8, fontWeight: "900" },
+  permissionHeadingRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
+  resetPermissionButton: { minHeight: 36, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  permissionPresetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  permissionPreset: { width: "48%", minWidth: 210, flexGrow: 1, borderWidth: 1, borderRadius: 9, padding: 12 },
+  permissionPresetTitle: { fontSize: 13, fontWeight: "900" },
+  permissionPresetDesc: { fontSize: 11, lineHeight: 16, marginTop: 3 },
+  permissionNotice: { borderWidth: 1, borderRadius: 9, padding: 11, flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 },
+  permissionCategory: { borderWidth: 1, borderRadius: 10, overflow: "hidden", marginTop: 14 },
+  permissionCategoryHeader: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  permissionCategoryTitle: { fontSize: 13, fontWeight: "900" },
+  permissionCategoryHint: { fontSize: 10, lineHeight: 14, marginTop: 1 },
+  permissionItem: { minHeight: 66, borderBottomWidth: 1, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 12 },
+  permissionItemTitleRow: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  permissionSourceBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
+  permissionItemTitle: { fontSize: 13, fontWeight: "800" },
+  permissionItemDesc: { fontSize: 11, lineHeight: 16, marginTop: 2 },
+  permissionItemGroup: { fontSize: 10, fontWeight: "800", marginTop: 4, textTransform: "uppercase" },
+  permissionRolePicker: { width: "86%", maxWidth: 520, maxHeight: "80%", borderWidth: 1, borderRadius: 14, padding: 16 },
+  permissionRoleOption: { minHeight: 58, borderBottomWidth: 1, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  permissionRoleOptionTitle: { fontSize: 13, fontWeight: "900" },
   dangerBtn: {
     marginTop: 16,
   },
@@ -2441,6 +3417,11 @@ const styles = StyleSheet.create({
     color: "#1a202c",
     marginBottom: 12,
   },
+  restorePinModal: { width: "90%", maxWidth: 420, borderWidth: 1, borderRadius: 16, padding: 20 },
+  restorePinInput: { minHeight: 46, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, fontSize: 16, fontWeight: "700", letterSpacing: 2 },
+  restorePinActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  restorePinCancel: { flex: 1, minHeight: 44, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  restorePinConfirm: { flex: 1.4, minHeight: 44, borderRadius: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   modalOption: {
     flexDirection: "row",
     justifyContent: "space-between",

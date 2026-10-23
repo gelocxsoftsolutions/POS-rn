@@ -12,12 +12,13 @@ import {
   ActivityIndicator,
   StatusBar,
   Image,
-  useColorScheme,
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
+import { decodeQrFromBase64 } from "@/lib/qr/decode-image-qr";
 import { DeviceService } from "@/lib/services/device.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
@@ -26,6 +27,8 @@ import { AuthenticationService } from "@/lib/services/authentication.service";
 import { sha256 } from "@/lib/crypto/ed25519";
 import { generateEd25519Keypair } from "@/lib/crypto/ed25519";
 import { useDeviceStore } from "@/lib/stores/device-store";
+import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 import * as Constants from "expo-constants";
 
 type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
@@ -37,6 +40,76 @@ interface CashierPin {
   pin: string;
 }
 
+function normalizeServerUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const normalized = raw.trim().replace(/\/+$/, "");
+  return normalized || undefined;
+}
+
+function asCleanString(raw: unknown): string | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw).trim() || undefined;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+// QR scanners routinely append trailing newlines/whitespace, OMS QR payloads
+// use varying key names, and the api client joins baseUrl + path verbatim
+// (a trailing slash becomes a double-slash 404). The manual form trims and
+// the user types a clean URL, which is why manual entry worked while QR
+// scans failed with "Invalid activation token".
+function extractQrPayload(data: string): { activationToken?: string; url?: string } {
+  const text = data.trim();
+
+  if (text.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      const source = parsed && typeof parsed === "object" ? parsed : null;
+      const obj =
+        source && source.data && typeof source.data === "object" && !Array.isArray(source.data)
+          ? source.data
+          : source;
+      if (obj) {
+        const token =
+          asCleanString(obj.activationToken) ??
+          asCleanString(obj.token) ??
+          asCleanString(obj.activation_token) ??
+          asCleanString(obj.activationCode) ??
+          asCleanString(obj.code);
+        const url = normalizeServerUrl(
+          obj.serverUrl ?? obj.server ?? obj.url ?? obj.server_url ?? obj.omsUrl ?? obj.baseUrl ?? obj.host
+        );
+        // Valid JSON object: return what we found (possibly no token, which
+        // the caller reports as an invalid QR instead of sending garbage).
+        return { activationToken: token, url };
+      }
+    } catch {
+      // fall through to raw handling below
+    }
+  }
+
+  // Activation link, e.g. https://oms.example.com/activate?token=ABC123
+  const tokenMatch = text.match(/[?&](token|activationToken|activation_token|activationCode|code)=([^&#\s]+)/i);
+  if (tokenMatch) {
+    let server: string | undefined;
+    try {
+      const parsedUrl = new URL(text);
+      server = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    } catch {
+      server = undefined;
+    }
+    try {
+      const token = decodeURIComponent(tokenMatch[2]).trim() || undefined;
+      if (token) return { activationToken: token, url: normalizeServerUrl(server) };
+    } catch {
+      const token = tokenMatch[2].trim() || undefined;
+      if (token) return { activationToken: token, url: normalizeServerUrl(server) };
+    }
+  }
+
+  return { activationToken: text || undefined };
+}
+
 export default function RegisterDevice() {
   const [step, setStep] = useState<Step>("choose");
   const [token, setToken] = useState("");
@@ -44,31 +117,36 @@ export default function RegisterDevice() {
   const [loading, setLoading] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
   const [cashierPins, setCashierPins] = useState<CashierPin[]>([]);
   const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   const router = useRouter();
   const device = useDeviceStore((s) => s.device);
+  const business = useBusinessConfigStore((s) => s.configuration);
   const setDevice = useDeviceStore((s) => s.setDevice);
   const registering = useRef(false);
-  const isDark = useColorScheme() === "dark";
+  const theme = usePosTheme();
+  const isDark = theme.dark;
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const shortEdge = Math.min(width, height);
   const scannerSize = Math.max(160, Math.min(320, shortEdge - 64));
   const palette = {
-    background: isDark ? "#07111f" : "#f8fbff",
-    surface: isDark ? "#111c2e" : "#ffffff",
-    elevated: isDark ? "#17243a" : "#f0f4ff",
-    border: isDark ? "#2b3a50" : "#e2e8f0",
-    borderSoft: isDark ? "#213047" : "#eef2f7",
-    text: isDark ? "#f8fafc" : "#1a202c",
-    accent: isDark ? "#8abaff" : "#17386b",
-    muted: isDark ? "#a8b4c5" : "#6b7b8d",
-    subtle: isDark ? "#7f8da2" : "#94a3b8",
-    input: isDark ? "#0c1627" : "#f8fbff",
-    info: isDark ? "#12233a" : "#f0f4ff",
+    background: theme.background,
+    surface: theme.surface,
+    elevated: theme.surfaceAlt,
+    border: theme.border,
+    borderSoft: theme.border,
+    text: theme.text,
+    accent: theme.primary,
+    muted: theme.muted,
+    subtle: theme.muted,
+    input: theme.surface,
+    info: theme.surfaceAlt,
   };
-  const logoSource = require("../../../assets/nct-seafoods-logo.png");
+  const logoSource = business.businessLogoUri
+    ? { uri: business.businessLogoUri }
+    : require("../../../assets/nct-seafoods-logo.png");
   const statusBar = (
     <StatusBar
       barStyle={isDark ? "light-content" : "dark-content"}
@@ -94,7 +172,7 @@ export default function RegisterDevice() {
             adjustsFontSizeToFit
             minimumFontScale={0.8}
           >
-            NCT Seafoods POS System
+            {business.posSystemName}
           </Text>
         </View>
       )}
@@ -107,10 +185,15 @@ export default function RegisterDevice() {
     registering.current = true;
     setLoading(true);
     try {
-      const serverUrl = url || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
+      // Defense in depth: never send a token with scanner whitespace or a
+      // server URL with a trailing slash (the api client concatenates
+      // baseUrl + path verbatim, so "host//api/..." 404s).
+      const cleanToken = activationToken.trim();
+      const serverUrl =
+        normalizeServerUrl(url) || process.env.EXPO_PUBLIC_OMS_URL || "https://staging.nctseafoods.store";
       const keys = generateEd25519Keypair();
       const result = await DeviceService.register({
-        activationToken,
+        activationToken: cleanToken,
         publicKey: keys.publicKey,
         privateKey: keys.privateKey,
         machineIdentifier: Constants.default?.sessionId ?? "unknown",
@@ -118,6 +201,7 @@ export default function RegisterDevice() {
         appVersion: Constants.default?.expoConfig?.version ?? "1.0.0",
         osVersion: "Android",
         serverUrl,
+        requestedOperatingMode: "NCT_DEPENDENT",
       });
 
       if (result.success && result.device) {
@@ -199,16 +283,7 @@ export default function RegisterDevice() {
     if (scanned) return;
     setScanned(true);
     try {
-      let activationToken: string | undefined;
-      let url: string | undefined;
-
-      try {
-        const parsed = JSON.parse(data);
-        activationToken = parsed.activationToken ?? parsed.token;
-        url = parsed.serverUrl ?? parsed.url;
-      } catch {
-        activationToken = data.trim();
-      }
+      const { activationToken, url } = extractQrPayload(data);
 
       if (!activationToken) {
         Alert.alert("Invalid QR", "QR code does not contain an activation token.");
@@ -223,6 +298,46 @@ export default function RegisterDevice() {
       setScanned(false);
     }
   }, [scanned, doRegister]);
+
+  const handleUploadQr = useCallback(async () => {
+    if (uploadingQr || scanned) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Photo library access is needed to upload a QR code image.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]?.base64) return;
+
+      setUploadingQr(true);
+      const asset = result.assets[0];
+      const base64 = asset.base64 as string;
+      const qrText = decodeQrFromBase64(base64, asset.mimeType ?? undefined);
+      if (!qrText) {
+        Alert.alert("No QR Found", "No QR code could be read from that image. Try a clearer screenshot.");
+        return;
+      }
+
+      setScanned(true);
+      const { activationToken, url } = extractQrPayload(qrText);
+      if (!activationToken) {
+        Alert.alert("Invalid QR", "QR code does not contain an activation token.");
+        setScanned(false);
+        return;
+      }
+      await doRegister(activationToken, url);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not read the QR image.");
+    } finally {
+      setUploadingQr(false);
+    }
+  }, [uploadingQr, scanned, doRegister]);
 
   if (step === "success") {
     return (
@@ -288,6 +403,7 @@ export default function RegisterDevice() {
           </View>
           <View style={styles.brandFooter}>
             <Image source={logoSource} style={styles.brandFooterLogo} resizeMode="contain" />
+            <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600" }}>{business.headerName} - {business.posSystemName}</Text>
             <Text style={[styles.brandFooterText, { color: palette.muted }]}>NCT Seafoods  •  Point of Sale</Text>
           </View>
         </ScrollView>
@@ -345,9 +461,9 @@ export default function RegisterDevice() {
             <View style={[styles.formIconCircle, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
               <Ionicons name="key-outline" size={28} color={palette.accent} />
             </View>
-            <Text style={[styles.formTitle, { color: palette.text }]}>Set Cashier PINs</Text>
+            <Text style={[styles.formTitle, { color: palette.text }]}>Reset Cashier PINs</Text>
             <Text style={[styles.formSubtitle, { color: palette.muted }]}>
-              Assign a PIN for each cashier to sign in quickly on this terminal
+              Assign a new PIN for every cashier account on this terminal
             </Text>
           </View>
 
@@ -386,13 +502,6 @@ export default function RegisterDevice() {
                   <Ionicons name="checkmark" size={16} color="#ffffff" style={{ marginLeft: 8 }} />
                 </>
               )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modeToggle, { borderColor: palette.border }]}
-              onPress={() => setStep("success")}
-            >
-              <Text style={[styles.modeToggleText, { color: palette.accent }]}>Skip for now</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -499,8 +608,23 @@ export default function RegisterDevice() {
             )}
             <Text style={[styles.qrTitle, { color: palette.text }]}>Scan QR Code</Text>
             <Text style={[styles.qrSubtitleCenter, { color: palette.muted }]}>
-              Point your camera at the QR code displayed on your OMS dashboard
+              Point your camera at the QR code displayed on your OMS dashboard, or upload a saved QR image
             </Text>
+            <TouchableOpacity
+              style={[styles.uploadBtn, (uploadingQr || loading) && styles.registerBtnDisabled]}
+              onPress={handleUploadQr}
+              disabled={uploadingQr || loading}
+              activeOpacity={0.8}
+            >
+              {uploadingQr ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={styles.uploadBtnText}>Upload QR from Gallery</Text>
+                </>
+              )}
+            </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cancelButton, { backgroundColor: palette.surface, borderColor: palette.border }]}
               onPress={() => { setStep("choose"); setScanned(false); }}
@@ -755,6 +879,19 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
+  modeOption: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  modeNotes: {
+    minHeight: 88,
+    textAlignVertical: "top",
+  },
   optionRecommended: {
     borderColor: "#17386b",
     borderWidth: 2,
@@ -884,7 +1021,11 @@ const styles = StyleSheet.create({
   cornerBL: { bottom: 14, left: 14, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 10 },
   cornerBR: { bottom: 14, right: 14, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 10 },
   cameraOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: "rgba(15,23,41,0.62)",
     alignItems: "center",
     justifyContent: "center",
@@ -966,11 +1107,33 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#e2e8f0",
     backgroundColor: "#ffffff",
+    marginTop: 10,
   },
   cancelButtonText: {
     fontSize: 13,
     fontWeight: "700",
     color: "#475569",
+  },
+  uploadBtn: {
+    flexDirection: "row",
+    backgroundColor: "#17386b",
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#17386b",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  uploadBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   formContent: {
     paddingHorizontal: 24,
@@ -1078,17 +1241,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#ffffff",
     letterSpacing: 0.2,
-  },
-  modeToggle: {
-    marginTop: 14,
-    alignItems: "center",
-    paddingVertical: 6,
-  },
-  modeToggleText: {
-    fontSize: 13,
-    color: "#64748b",
-    fontWeight: "600",
-    textDecorationLine: "underline",
   },
   successContainer: {
     flex: 1,
@@ -1208,6 +1360,7 @@ const styles = StyleSheet.create({
     height: 28,
   },
   brandFooterText: {
+    display: "none",
     fontSize: 11,
     fontWeight: "700",
     color: "#94a3b8",

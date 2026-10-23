@@ -7,6 +7,7 @@ type ReportSettings = {
   storeName?: string;
   address?: string | null;
   supportPhone?: string | null;
+  logoUri?: string | null;
 };
 
 type Props = {
@@ -14,6 +15,8 @@ type Props = {
   onClose: () => void;
   onPrint: () => void;
   printing: boolean;
+  onQueueUpload: () => void;
+  queueingUpload: boolean;
   report: SalesReport;
   settings: ReportSettings | null;
   startDate: Date;
@@ -34,6 +37,8 @@ export function EndOfDayReportModal({
   onClose,
   onPrint,
   printing,
+  onQueueUpload,
+  queueingUpload,
   report,
   settings,
   startDate,
@@ -52,7 +57,7 @@ export function EndOfDayReportModal({
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.content}>
               <Image
-                source={require("../../../assets/thermal-printer-logo.jpg")}
+                source={settings?.logoUri ? { uri: settings.logoUri } : require("../../../assets/thermal-printer-logo.jpg")}
                 style={styles.logo}
                 resizeMode="contain"
               />
@@ -120,6 +125,14 @@ export function EndOfDayReportModal({
                   icon="print-outline"
                   loading={printing}
                   style={styles.actionButton}
+                />
+                <Button
+                  title={queueingUpload ? "Preparing backup..." : "Close EOD & Queue OMS Backup"}
+                  onPress={onQueueUpload}
+                  icon="cloud-upload-outline"
+                  loading={queueingUpload}
+                  variant="secondary"
+                  style={styles.doneButton}
                 />
                 <Button title="Done" onPress={onClose} variant="secondary" style={styles.doneButton} />
               </View>

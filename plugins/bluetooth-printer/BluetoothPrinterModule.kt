@@ -142,6 +142,32 @@ class BluetoothPrinterModule(
   }
 
   @ReactMethod
+  fun getDrawableDataUri(resourceName: String, mimeType: String, promise: Promise) {
+    executor.execute {
+      try {
+        val normalizedName = resourceName
+          .substringAfterLast('/')
+          .substringBeforeLast('.')
+          .replace(Regex("[^a-zA-Z0-9_]"), "")
+        val resourceId = reactContext.resources.getIdentifier(
+          normalizedName,
+          "drawable",
+          reactContext.packageName
+        )
+        if (resourceId == 0) {
+          promise.reject("DRAWABLE_NOT_FOUND", "Bundled print asset was not found: $normalizedName")
+          return@execute
+        }
+        val bytes = reactContext.resources.openRawResource(resourceId).use { it.readBytes() }
+        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        promise.resolve("data:$mimeType;base64,$encoded")
+      } catch (error: Exception) {
+        promise.reject("DRAWABLE_READ_FAILED", error.message ?: "Unable to read bundled print asset.", error)
+      }
+    }
+  }
+
+  @ReactMethod
   fun printReceipt(content: String, logoDataUri: String?, barcodeValue: String?, qrMatrix: String?, openDrawer: Boolean, promise: Promise) {
     executor.execute {
       try {
@@ -169,6 +195,25 @@ class BluetoothPrinterModule(
       } catch (error: Exception) {
         closeSocket()
         promise.reject("RECEIPT_PRINT_FAILED", error.message ?: "The receipt could not be printed.", error)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun openCashDrawer(promise: Promise) {
+    executor.execute {
+      try {
+        val activeSocket = socket
+        if (activeSocket?.isConnected != true) {
+          promise.reject("PRINTER_NOT_CONNECTED", "Connect a printer before opening the cash register.")
+          return@execute
+        }
+        activeSocket.outputStream.write(byteArrayOf(0x1B, 0x70, 0x00, 0x32, 0xC8.toByte()))
+        activeSocket.outputStream.flush()
+        promise.resolve(true)
+      } catch (error: Exception) {
+        closeSocket()
+        promise.reject("CASH_DRAWER_OPEN_FAILED", error.message ?: "The cash register could not be opened.", error)
       }
     }
   }

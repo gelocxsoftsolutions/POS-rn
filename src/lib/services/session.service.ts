@@ -2,6 +2,7 @@ import { ShiftRepository } from "@/lib/repositories/shift.repository";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { queryFirst } from "@/lib/db/connection";
+import { EndOfDayService } from "@/lib/backup/end-of-day.service";
 
 export const SessionService = {
   async getCurrent() {
@@ -43,7 +44,7 @@ export const SessionService = {
         cashierId: session?.cashierId,
         cashierName: session?.cashierName,
         deviceId: device?.id,
-        deviceName: device?.deviceName,
+        deviceName: device?.deviceName ?? undefined,
         branchId: device?.branchId ?? undefined,
         branchName: device?.branchName ?? undefined,
         openingFloat,
@@ -76,14 +77,25 @@ export const SessionService = {
         actualCash,
         difference,
       });
+      let uploadQueued = false;
+      let uploadWarning: string | undefined;
+      try {
+        await EndOfDayService.closeAndQueue({
+          businessDate: new Date().toISOString().split("T")[0],
+          shiftId,
+        });
+        uploadQueued = true;
+      } catch (error: any) {
+        uploadWarning = error?.message ?? "The EOD backup could not be queued.";
+      }
 
-      return { success: true, shift: closed };
+      return { success: true, shift: closed, uploadQueued, uploadWarning };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Failed to close shift" };
     }
   },
 
-  private async calculateExpectedCash(shiftId: string): Promise<number> {
+  async calculateExpectedCash(shiftId: string): Promise<number> {
     const result = await queryFirst<{ s: number }>(
       "SELECT COALESCE(SUM(total), 0) as s FROM Sale WHERE shiftId = ? AND paymentMethod = 'CASH' AND status = 'COMPLETED'",
       [shiftId]

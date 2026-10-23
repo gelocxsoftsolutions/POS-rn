@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 11;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -43,6 +43,17 @@ export const CREATE_TABLES = [
     FOREIGN KEY (permissionId) REFERENCES Permission(id) ON DELETE CASCADE
   )`,
 
+  `CREATE TABLE IF NOT EXISTS UserPermission (
+    cashierId TEXT NOT NULL,
+    permissionId TEXT NOT NULL,
+    granted INTEGER NOT NULL DEFAULT 1 CHECK (granted IN (0, 1)),
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (cashierId, permissionId),
+    FOREIGN KEY (cashierId) REFERENCES Cashier(id) ON DELETE CASCADE,
+    FOREIGN KEY (permissionId) REFERENCES Permission(id) ON DELETE CASCADE
+  )`,
+
   `CREATE TABLE IF NOT EXISTS Cashier (
     id TEXT PRIMARY KEY,
     employeeId TEXT UNIQUE,
@@ -55,6 +66,9 @@ export const CREATE_TABLES = [
     active INTEGER DEFAULT 1,
     pinLoginEnabled INTEGER DEFAULT 1,
     passwordLoginEnabled INTEGER DEFAULT 0,
+    failedPinAttempts INTEGER DEFAULT 0,
+    accountLocked INTEGER DEFAULT 0,
+    accountLockedAt TEXT,
     lastLogin TEXT,
     lastActivity TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
@@ -179,6 +193,9 @@ export const CREATE_TABLES = [
     taxGroupId TEXT,
     status TEXT DEFAULT 'ACTIVE',
     imageId TEXT,
+    businessId TEXT DEFAULT 'nct-default',
+    identitySource TEXT DEFAULT 'NCT',
+    omsVariationId TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (categoryId) REFERENCES Category(id),
@@ -292,6 +309,8 @@ export const CREATE_TABLES = [
     shiftId TEXT,
     deviceId TEXT,
     branchId INTEGER,
+    businessId TEXT DEFAULT 'nct-default',
+    originMode TEXT DEFAULT 'NCT_DEPENDENT',
     synced INTEGER DEFAULT 0,
     createdAt TEXT DEFAULT (datetime('now'))
   )`,
@@ -332,6 +351,8 @@ export const CREATE_TABLES = [
     address TEXT,
     phone TEXT,
     footer TEXT,
+    templateVersion INTEGER DEFAULT 1,
+    templateSnapshot TEXT,
     printedAt TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (saleId) REFERENCES Sale(id) ON DELETE CASCADE
@@ -347,6 +368,16 @@ export const CREATE_TABLES = [
     supportPhone TEXT DEFAULT '',
     address TEXT DEFAULT '',
     receiptFooter TEXT DEFAULT '',
+    businessId TEXT DEFAULT 'nct-default',
+    operatingMode TEXT DEFAULT 'NCT_DEPENDENT',
+    posSystemName TEXT DEFAULT 'NCT Seafoods POS',
+    headerName TEXT DEFAULT 'NCT Seafoods',
+    businessLogoUri TEXT,
+    receiptLogoUri TEXT,
+    contactEmail TEXT DEFAULT '',
+    receiptTemplateJson TEXT,
+    receiptTemplateVersion INTEGER DEFAULT 1,
+    modeChangedAt TEXT,
     updatedAt TEXT DEFAULT (datetime('now'))
   )`,
 
@@ -360,6 +391,7 @@ export const CREATE_TABLES = [
     retryCount INTEGER DEFAULT 0,
     maxRetries INTEGER DEFAULT 5,
     error TEXT,
+    dedupeKey TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT DEFAULT (datetime('now'))
   )`,
@@ -424,6 +456,26 @@ export const CREATE_TABLES = [
     updatedAt TEXT
   )`,
 
+  `CREATE TABLE IF NOT EXISTS ProductActionAudit (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    productId TEXT,
+    productCode TEXT,
+    action TEXT NOT NULL,
+    reasonCategory TEXT,
+    reason TEXT NOT NULL,
+    proofImageDataUri TEXT NOT NULL,
+    quantity REAL,
+    balanceBefore REAL,
+    balanceAfter REAL,
+    beforeJson TEXT,
+    afterJson TEXT,
+    createdById TEXT,
+    createdByName TEXT,
+    deviceId TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
+  )`,
+
   `CREATE TABLE IF NOT EXISTS Log (
     id TEXT PRIMARY KEY,
     level TEXT NOT NULL,
@@ -432,4 +484,118 @@ export const CREATE_TABLES = [
     details TEXT,
     createdAt TEXT DEFAULT (datetime('now'))
   )`,
+
+  `CREATE TABLE IF NOT EXISTS OperatingModeAudit (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    previousMode TEXT NOT NULL,
+    nextMode TEXT NOT NULL,
+    changedById TEXT,
+    changedByName TEXT,
+    stockResolution TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS BarcodeNamespace (
+    businessId TEXT NOT NULL,
+    deviceId TEXT NOT NULL,
+    nextSequence INTEGER DEFAULT 1,
+    PRIMARY KEY (businessId, deviceId)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS BackupManifest (
+    id TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    deviceId TEXT,
+    schemaVersion INTEGER NOT NULL,
+    databaseChecksum TEXT NOT NULL,
+    status TEXT DEFAULT 'PENDING',
+    remoteReference TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    uploadedAt TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ProductOmsMapping (
+    localProductId TEXT PRIMARY KEY,
+    businessId TEXT NOT NULL,
+    omsVariationId TEXT NOT NULL,
+    mappedById TEXT,
+    mappedByName TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (localProductId) REFERENCES Product(id),
+    UNIQUE (businessId, omsVariationId)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnRequest (
+    id TEXT PRIMARY KEY,
+    returnNumber TEXT UNIQUE NOT NULL,
+    saleId TEXT NOT NULL,
+    receiptNumber TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+    reason TEXT,
+    returnedTotal REAL DEFAULT 0,
+    replacementTotal REAL DEFAULT 0,
+    priceDifference REAL DEFAULT 0,
+    customerAcceptedShortfall INTEGER DEFAULT 0,
+    approvalCodeHash TEXT,
+    codeExpiresAt TEXT,
+    codeUsedAt TEXT,
+    codeGeneratedById TEXT,
+    codeGeneratedByName TEXT,
+    approvedById TEXT,
+    approvedByName TEXT,
+    approvedAt TEXT,
+    rejectedById TEXT,
+    rejectedByName TEXT,
+    rejectedAt TEXT,
+    rejectionReason TEXT,
+    exchangeSaleId TEXT,
+    topUpMethod TEXT,
+    requestedById TEXT,
+    requestedByName TEXT,
+    businessDate TEXT,
+    deviceId TEXT,
+    branchId INTEGER,
+    businessId TEXT DEFAULT 'nct-default',
+    originMode TEXT DEFAULT 'NCT_DEPENDENT',
+    synced INTEGER DEFAULT 0,
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (saleId) REFERENCES Sale(id),
+    FOREIGN KEY (exchangeSaleId) REFERENCES Sale(id)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnRequestItem (
+    id TEXT PRIMARY KEY,
+    returnRequestId TEXT NOT NULL,
+    saleItemId TEXT,
+    productId TEXT,
+    productName TEXT,
+    sku TEXT,
+    barcode TEXT,
+    quantity INTEGER DEFAULT 1,
+    unitPrice REAL DEFAULT 0,
+    lineTotal REAL DEFAULT 0,
+    condition TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (returnRequestId) REFERENCES ReturnRequest(id) ON DELETE CASCADE,
+    FOREIGN KEY (saleItemId) REFERENCES SaleItem(id)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnExchangeItem (
+    id TEXT PRIMARY KEY,
+    returnRequestId TEXT NOT NULL,
+    productId TEXT,
+    productName TEXT,
+    sku TEXT,
+    barcode TEXT,
+    quantity INTEGER DEFAULT 1,
+    unitPrice REAL DEFAULT 0,
+    lineTotal REAL DEFAULT 0,
+    unit TEXT,
+    weight REAL DEFAULT NULL,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (returnRequestId) REFERENCES ReturnRequest(id) ON DELETE CASCADE
+  )`,
+
 ];

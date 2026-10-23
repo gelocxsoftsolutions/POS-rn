@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -113,6 +113,10 @@ export default function TransfersScreen() {
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [showConfirmScanner, setShowConfirmScanner] = useState(false);
   const [confirmScanning, setConfirmScanning] = useState(false);
+  // Ref guards: state updates are async, so rapid double-taps / repeat QR
+  // scan events can otherwise run the receive flow twice and double stock.
+  const receiveSavingRef = useRef(false);
+  const confirmScanRef = useRef(false);
 
   const loadTransfers = useCallback(async () => {
     try {
@@ -269,7 +273,8 @@ export default function TransfersScreen() {
   }, [transferReceivedPlayer, soundMuted, soundVolume, transferSoundVolume]);
 
   const doFinalReceive = useCallback(async (omsTransferId?: number) => {
-    if (!receiveTransferId) return;
+    if (!receiveTransferId || receiveSavingRef.current) return;
+    receiveSavingRef.current = true;
     setReceiveSaving(true);
     try {
       const payload = receiveDraft.map((r) => ({ itemId: r.itemId, actualQty: r.actual, notes: r.notes.trim() || undefined }));
@@ -286,12 +291,13 @@ export default function TransfersScreen() {
         Alert.alert("Transfer Received", `${receiveTransferNumber} received with ${payload.reduce((s, p) => s + p.actualQty, 0)} items.`);
       } else {
         console.warn("[Transfer] receive returned null", receiveTransferId);
-        Alert.alert("Error", "Failed to receive transfer. Check that products are synced and try again.");
+        Alert.alert("Transfer Not Received", "The OMS did not confirm this transfer. Check the OMS connection and try again; local stock was not changed.");
       }
     } catch (e: any) {
       console.error("[Transfer] doFinalReceive error", e?.message ?? e);
       Alert.alert("Error", e?.message ?? "Failed to receive transfer.");
     } finally {
+      receiveSavingRef.current = false;
       setReceiveSaving(false);
     }
   }, [receiveTransferId, receiveDraft, receiveTransferNumber, session, loadTransfers, playTransferReceivedSound]);
@@ -327,7 +333,8 @@ export default function TransfersScreen() {
   }, [receiveTransferId, receiveDraft, permission, requestPermission]);
 
   const handleConfirmQrScan = useCallback(async (raw: string) => {
-    if (confirmScanning) return;
+    if (confirmScanning || confirmScanRef.current) return;
+    confirmScanRef.current = true;
     setConfirmScanning(true);
     setShowConfirmScanner(false);
     try {
@@ -350,6 +357,7 @@ export default function TransfersScreen() {
         { text: "OK", onPress: () => setShowReceiveChecklist(true) },
       ]);
     } finally {
+      confirmScanRef.current = false;
       setConfirmScanning(false);
     }
   }, [receiveTransferNumber, doFinalReceive, confirmScanning]);

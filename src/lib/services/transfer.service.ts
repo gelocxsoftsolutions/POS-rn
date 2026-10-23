@@ -8,6 +8,16 @@ import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import type { InventoryTransferDTO, PaginatedResult } from "@/lib/types/inventory";
 import type { TransferFilter } from "@/lib/repositories/transfer.repository";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { requirePermission } from "@/lib/services/authorization.service";
+import { assertCapability } from "@/lib/business/capabilities";
+
+function requireNctTransfers() {
+  assertCapability(
+    BusinessConfigurationService.current().operatingMode,
+    "receiveNctTransfers"
+  );
+}
 
 export interface TransferQrPayload {
   type: string;
@@ -16,8 +26,17 @@ export interface TransferQrPayload {
   transferNumber: string;
 }
 
+// Transfers in a final state must never change stock again. Receiving an
+// already-received transfer (double-tap, double QR scan) would otherwise add
+// the quantities a second time and inflate inventory.
+const RECEIVE_FINAL_STATUSES = ["RECEIVED", "REJECTED", "CANCELLED", "COMPLETED"];
+// Guards against two receive() calls for the same transfer running at the
+// same time (e.g. the QR scanner firing twice before state updates).
+const receiveInFlight = new Set<string>();
+
 export const TransferService = {
   async list(filters: TransferFilter): Promise<PaginatedResult<InventoryTransferDTO>> {
+    requireNctTransfers();
     try {
       return await TransferRepository.findMany(filters);
     } catch {
@@ -26,6 +45,7 @@ export const TransferService = {
   },
 
   async getById(id: string): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
     try {
       return await TransferRepository.findById(id);
     } catch {
@@ -44,9 +64,20 @@ export const TransferService = {
     maybeName?: string,
     omsTransferId?: number
   ): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "receive product transfers");
+    if (receiveInFlight.has(id)) {
+      try {
+        return await TransferRepository.findById(id);
+      } catch {
+        return null;
+      }
+    }
+    receiveInFlight.add(id);
     try {
       const transfer = await TransferRepository.findById(id);
       if (!transfer) return null;
+      if (RECEIVE_FINAL_STATUSES.includes(transfer.status)) return transfer;
 
       let checklist: Array<{ itemId: string; actualQty: number; notes?: string }> | undefined;
       let receivedByName: string;
@@ -60,6 +91,24 @@ export const TransferService = {
       const itemMap = new Map<string, { actualQty: number; notes?: string }>();
       if (checklist) {
         for (const c of checklist) itemMap.set(c.itemId, c);
+      }
+
+      // Confirm the transfer with OMS before exposing the received quantity
+      // locally. Otherwise checkout can see stock that OMS still considers 0.
+      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
+      let derivedOmsId: number | undefined;
+      if (!explicitId && transfer.transferNumber) {
+        const raw = transfer.transferNumber.replace(/\D/g, "");
+        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
+        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
+      }
+      const finalOmsId = explicitId ?? derivedOmsId;
+      if (finalOmsId) {
+        const confirmed = await this.confirmReceipt(finalOmsId, transfer.transferNumber);
+        if (!confirmed?.success) {
+          console.warn("[Transfer] OMS receipt confirmation failed", finalOmsId);
+          return null;
+        }
       }
 
       for (const item of transfer.items) {
@@ -220,31 +269,34 @@ export const TransferService = {
 
       const result = await TransferRepository.updateStatus(id, "RECEIVED", undefined, receivedByName);
 
-      // Notify OMS in background (best-effort) — prefer explicit omsTransferId from QR, fallback to transferNumber parsing
-      const explicitId = omsTransferId && omsTransferId > 0 ? omsTransferId : undefined;
-      let derivedOmsId: number | undefined;
-      const transferNumber = transfer.transferNumber;
-      if (transferNumber) {
-        const raw = transferNumber.replace(/\D/g, "");
-        const parsed = raw.length >= 4 ? parseInt(raw.slice(-8), 10) : parseInt(raw, 10);
-        if (!isNaN(parsed) && parsed > 0) derivedOmsId = parsed;
-      }
-      const finalOmsId = explicitId ?? derivedOmsId;
       if (explicitId) {
         await TransferRepository.removeLegacyPendingByTransferNumber(String(explicitId));
       }
-      if (finalOmsId) {
-        this.confirmReceipt(finalOmsId).catch((e) => console.warn("[Transfer] confirmReceipt failed", e));
+
+      // Re-read the canonical OMS balance immediately. This also corrects
+      // devices that still have a stale local quantity from an older build.
+      try {
+        const deviceId = useDeviceStore.getState().device?.deviceId;
+        if (deviceId) {
+          const { OmsSyncService } = await import("@/lib/services/oms-sync.service");
+          await OmsSyncService.syncInventory(deviceId);
+        }
+      } catch (e) {
+        console.warn("[Transfer] post-receive inventory refresh failed", e);
       }
 
       return result;
     } catch (e: any) {
       console.error("[Transfer] receive failed", e?.message ?? e, e);
       return null;
+    } finally {
+      receiveInFlight.delete(id);
     }
   },
 
   async reject(id: string, rejectedByName: string): Promise<InventoryTransferDTO | null> {
+    requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "reject product transfers");
     try {
       return await TransferRepository.updateStatus(id, "REJECTED", undefined, rejectedByName);
     } catch {
@@ -253,6 +305,7 @@ export const TransferService = {
   },
 
   parseTransferQr(qrData: string): TransferQrPayload | null {
+    if (!BusinessConfigurationService.capabilities().receiveNctTransfers) return null;
     try {
       const parsed = JSON.parse(qrData);
       if (parsed.type === "nct-transfer" && parsed.transferId && parsed.transferNumber) {
@@ -264,17 +317,42 @@ export const TransferService = {
     }
   },
 
-  async confirmReceipt(transferId: number): Promise<{ success: boolean; transferNumber: string } | null> {
+  async confirmReceipt(
+    transferId: number | string,
+    transferNumber?: string
+  ): Promise<{ success: boolean; transferNumber: string } | null> {
+    requireNctTransfers();
+    await requirePermission("POS_TRANSFERS", "confirm product transfers");
     try {
+      // The server validates this body with zod (non-strict: unknown keys are
+      // stripped, so sending the transfer number as well is harmless and
+      // covers server revisions that key off it). transferId must be a
+      // number: QR payloads sometimes carry it as a string, which fails
+      // numeric validation with 400 "Invalid body".
+      const numericId =
+        typeof transferId === "number" ? transferId : Number(String(transferId ?? "").trim());
+      if (!Number.isInteger(numericId) || numericId <= 0) {
+        console.warn("[Transfer] confirmReceipt skipped: invalid transfer id", transferId);
+        return null;
+      }
       const device = useDeviceStore.getState().device;
       const deviceId = device.deviceId ?? "";
+      if (!deviceId) {
+        console.warn("[Transfer] confirmReceipt skipped: no deviceId");
+        return null;
+      }
+      const body: Record<string, unknown> = { transferId: numericId, deviceId };
+      const cleanNumber = typeof transferNumber === "string" ? transferNumber.trim() : "";
+      if (cleanNumber) body.transferNumber = cleanNumber;
+      console.log("[Transfer] confirmReceipt sending", body);
       const res = await api.post<{ success: boolean; transferNumber: string }>(
         "/api/pos/transfers/receive",
-        { transferId, deviceId }
+        body
       );
       if (res.ok && res.data) {
         return res.data;
       }
+      console.warn("[Transfer] confirmReceipt rejected", res.status, JSON.stringify(res.error)?.slice(0, 300));
       return null;
     } catch {
       return null;
@@ -282,6 +360,7 @@ export const TransferService = {
   },
 
   async fetchFromOms(): Promise<{ synced: number }> {
+    requireNctTransfers();
     try {
       const device = useDeviceStore.getState().device;
       const deviceId = device.deviceId ?? "";

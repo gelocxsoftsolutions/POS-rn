@@ -6,6 +6,7 @@ import { TaxGroupRepository } from "@/lib/repositories/tax-group.repository";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
 import { queryFirst } from "@/lib/db/connection";
 import type { ProductFilter, ProductDTO, PaginatedResult } from "@/lib/types/inventory";
+import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 export const ProductService = {
   async search(filters: ProductFilter): Promise<PaginatedResult<ProductDTO>> {
@@ -26,9 +27,20 @@ export const ProductService = {
 
   async getByBarcode(barcode: string): Promise<ProductDTO | null> {
     try {
-      const barcodeRow = await BarcodeRepository.findByBarcode(barcode.trim());
-      if (!barcodeRow) return null;
-      return await ProductRepository.findById(barcodeRow.productId);
+      const normalized = normalizeScannedCode(barcode);
+      if (!normalized) return null;
+      const barcodeRow = await BarcodeRepository.findByBarcode(normalized);
+      if (barcodeRow) return await ProductRepository.findById(barcodeRow.productId);
+
+      const canonical = canonicalScannedCode(normalized);
+      const product = await queryFirst<{ id: string }>(
+        `SELECT id FROM Product
+         WHERE UPPER(REPLACE(TRIM(sku), ' ', '')) = ?
+            OR UPPER(REPLACE(TRIM(COALESCE(productCode, '')), ' ', '')) = ?
+         LIMIT 1`,
+        [canonical, canonical]
+      );
+      return product ? await ProductRepository.findById(product.id) : null;
     } catch {
       return null;
     }

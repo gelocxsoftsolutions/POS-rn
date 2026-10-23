@@ -21,9 +21,10 @@ import { Code128Barcode } from "@/components/ui/code128-barcode";
 import { BarcodeScannerModal } from "@/components/ui/barcode-scanner-modal";
 import { UsbBarcodeScannerInput } from "@/components/ui/usb-barcode-scanner-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { groupByVariation } from "@/lib/products/group-variations";
 import { ProductService } from "@/lib/services/product.service";
 import { BarcodeRepository } from "@/lib/repositories/barcode.repository";
-import { useIsDarkTheme, useUiStore } from "@/lib/stores/ui-store";
+import { useIsDarkTheme, usePosTheme, useUiStore } from "@/lib/stores/ui-store";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { usePrinterStore } from "@/lib/stores/printer-store";
 import { BluetoothPrinter } from "@/lib/printers/bluetooth-printer";
@@ -63,17 +64,21 @@ export default function ProductsScreen() {
   const [scannerVisible, setScannerVisible] = useState(false);
   const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
   const [printingBarcode, setPrintingBarcode] = useState<string | null>(null);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const productListRef = useRef<FlatList<ProductDTO[]> | null>(null);
   const barcodeTap = useRef<{ value: string; time: number } | null>(null);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
   const setPageSize = useUiStore((state) => state.setPageSize);
   const lastSyncTime = useSyncStore((state) => state.lastSyncTime);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const dark = useIsDarkTheme();
+  const theme = usePosTheme();
   const { width, height } = useWindowDimensions();
   const gridColumns = width < 700 ? 2 : 5;
   const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
   const gridImageSize = Math.min(160, gridCardWidth - 24);
   const detailImageSize = Math.min(320, width * 0.32, height * 0.34);
+  const backToTopThreshold = Math.max(260, height * 0.4);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -198,6 +203,15 @@ export default function ProductsScreen() {
     );
   }, [printVariationBarcode]);
 
+  const handleProductListScroll = useCallback((event: any) => {
+    const shouldShow = event.nativeEvent.contentOffset.y >= backToTopThreshold;
+    setShowBackToTop((visible) => visible === shouldShow ? visible : shouldShow);
+  }, [backToTopThreshold]);
+
+  const scrollProductsToTop = useCallback(() => {
+    productListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
   const stockBadge = (product: ProductDTO) => {
     const qty = (product as any).availableQty ?? 0;
     const min = (product as any).minimumStock ?? 0;
@@ -210,16 +224,16 @@ export default function ProductsScreen() {
     const badge = stockBadge(item);
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
-        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
             {item.imageUrl ? (
               <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
             ) : (
-              <Ionicons name="fish" size={32} color="#17386b" />
+              <Ionicons name="fish" size={32} color={theme.accent} />
             )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
@@ -231,20 +245,20 @@ export default function ProductsScreen() {
     const badge = stockBadge(item);
     return (
       <TouchableOpacity onPress={() => openDetail(item)} activeOpacity={0.7}>
-        <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.listCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.listRow}>
             <View style={styles.listImagePlaceholder}>
               {item.imageUrl ? (
                 <Image source={{ uri: item.imageUrl }} style={styles.productImage} resizeMode="contain" />
               ) : (
-                <Ionicons name="fish" size={28} color="#17386b" />
+                <Ionicons name="fish" size={28} color={theme.accent} />
               )}
             </View>
             <View style={styles.listInfo}>
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
               <View style={styles.listMeta}>
-                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+                <Text style={[styles.listProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
                 <Badge label={badge.label} color={badge.color} size="sm" />
               </View>
               {item.categoryName && (
@@ -326,14 +340,7 @@ export default function ProductsScreen() {
   const allCategories = [{ id: null, name: "All" } as any, ...categories];
 
   const groupedProducts = React.useMemo(() => {
-    const groups = new Map<string, ProductDTO[]>();
-    for (const p of products) {
-      const key = (p.productCode ? p.productCode : p.name).toLowerCase().trim();
-      const arr = groups.get(key);
-      if (arr) arr.push(p);
-      else groups.set(key, [p]);
-    }
-    const grouped = Array.from(groups.values()).map((g) => {
+    const grouped = groupByVariation(products).map((g) => {
       g.sort((a, b) => a.name.localeCompare(b.name) || (a.retailPrice ?? 0) - (b.retailPrice ?? 0));
       return g;
     });
@@ -369,12 +376,12 @@ export default function ProductsScreen() {
     const totalBadge = isMulti ? { label: `${group.length} variations`, color: "#6f42c1" } : badge;
     return (
       <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
-        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.gridCard, { width: gridCardWidth, backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={[styles.gridImagePlaceholder, { width: gridImageSize, height: gridImageSize }]}>
             {base.imageUrl ? (
               <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
             ) : (
-              <Ionicons name="fish" size={32} color="#17386b" />
+              <Ionicons name="fish" size={32} color={theme.accent} />
             )}
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
@@ -382,7 +389,7 @@ export default function ProductsScreen() {
             {isMulti && <Ionicons name="layers-outline" size={14} color="#6f42c1" />}
           </View>
           {isMulti && <Badge label={`${group.length} variations`} color="#6f42c1" size="sm" style={{ marginTop: 4, alignSelf: "flex-start" }} />}
-          <Text style={[styles.gridProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>{priceText}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {isMulti ? totalStock : base.availableQty ?? 0}</Text>
           <Badge label={totalBadge.label} color={totalBadge.color} size="sm" style={{ marginTop: 6 }} />
           {isMulti && (
@@ -404,13 +411,13 @@ export default function ProductsScreen() {
     const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
     return (
       <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
-        <Card style={[styles.listCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+        <Card style={[styles.listCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.listRow}>
             <View style={styles.listImagePlaceholder}>
               {base.imageUrl ? (
                 <Image source={{ uri: base.imageUrl }} style={styles.productImage} resizeMode="contain" />
               ) : (
-                <Ionicons name="fish" size={28} color="#17386b" />
+                <Ionicons name="fish" size={28} color={theme.accent} />
               )}
             </View>
             <View style={styles.listInfo}>
@@ -420,7 +427,7 @@ export default function ProductsScreen() {
               </View>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{base.sku}{isMulti ? ` +${group.length - 1} more` : ""}</Text>
               <View style={styles.listMeta}>
-                <Text style={[styles.listProductPrice, { color: dark ? "#ffffff" : "#17386b" }]}>{priceText}</Text>
+                <Text style={[styles.listProductPrice, { color: theme.primary }]}>{priceText}</Text>
                 <Badge label={isMulti ? `Stock:${totalStock}` : stockBadge(base).label} color={isMulti ? "#6f42c1" : stockBadge(base).color} size="sm" />
               </View>
               {base.categoryName && <Text style={styles.listCategory}>{base.categoryName}</Text>}
@@ -432,14 +439,17 @@ export default function ProductsScreen() {
     );
   };
 
-  return (
-    <View style={[styles.container, { backgroundColor: dark ? "#0b0f16" : "#f4f6f8" }]}>
-      <View style={styles.pageHeader}>
-        <View>
-          <Text style={[styles.pageTitle, { color: dark ? "#f5f7fa" : "#151a22" }]}>Products</Text>
-          <Text style={[styles.pageSubtitle, { color: dark ? "#8f99a8" : "#667080" }]}>Browse pricing, availability, and product details</Text>
-        </View>
+  const stickyHeader = (
+    <View style={[styles.pageHeader, styles.stickyPageHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
+      <View>
+        <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
+        <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
       </View>
+    </View>
+  );
+
+  const catalogControls = (
+    <View style={styles.catalogHeader}>
       <View style={styles.summaryRow}>
         {[
           { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
@@ -447,74 +457,74 @@ export default function ProductsScreen() {
           { label: "Low Stock", value: inventorySummary.lowStock, icon: "alert-circle-outline", color: "#d97706" },
           { label: "Out of Stock", value: inventorySummary.outOfStock, icon: "close-circle-outline", color: "#dc2626" },
         ].map((metric) => (
-          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: dark ? "#111827" : "#ffffff", borderColor: dark ? "#263244" : "#dfe5ec" }]}>
+          <View key={metric.label} style={[styles.summaryItem, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Ionicons name={metric.icon as any} size={14} color={metric.color} />
             <View>
-              <Text style={[styles.summaryValue, { color: dark ? "#f8fafc" : "#172033" }]}>{metric.value}</Text>
-              <Text style={[styles.summaryLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>{metric.label}</Text>
+              <Text style={[styles.summaryValue, { color: theme.text }]}>{metric.value}</Text>
+              <Text style={[styles.summaryLabel, { color: theme.muted }]}>{metric.label}</Text>
             </View>
           </View>
         ))}
       </View>
 
       <View style={[styles.searchTools, { zIndex: 20 }]}>
-        <View style={[styles.searchBar, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#28303d" : "#dde3ea" }]}>
-          <Ionicons name="search" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
+        <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Ionicons name="search" size={16} color={theme.muted} />
           <TextInput
-            style={[styles.searchInput, { color: dark ? "#e2e8f0" : "#1a202c" }]}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder="Search products..."
-            placeholderTextColor={dark ? "#4a6785" : "#b0b8c1"}
+            placeholderTextColor={theme.muted}
             value={search}
             onChangeText={(t) => { setSearch(t); setPage(1); }}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => { setSearch(""); setPage(1); }}>
-              <Ionicons name="close-circle" size={16} color={dark ? "#4a6785" : "#8e99a4"} />
+              <Ionicons name="close-circle" size={16} color={theme.muted} />
             </TouchableOpacity>
           )}
         </View>
         <View
           style={[
             styles.viewToggle,
-            { backgroundColor: dark ? "#141922" : "#eef2f7", borderColor: dark ? "#334155" : "#d8e0ea" },
+            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
           ]}
         >
-          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
-            <Ionicons name="grid" size={15} color={viewMode === "grid" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "grid" && { backgroundColor: theme.primary }]} onPress={() => setViewMode("grid")} accessibilityLabel="Grid view">
+            <Ionicons name="grid" size={15} color={viewMode === "grid" ? theme.onPrimary : theme.muted} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
-            <Ionicons name="list" size={15} color={viewMode === "list" ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
+          <TouchableOpacity style={[styles.viewToggleBtn, viewMode === "list" && { backgroundColor: theme.primary }]} onPress={() => setViewMode("list")} accessibilityLabel="List view">
+            <Ionicons name="list" size={15} color={viewMode === "list" ? theme.onPrimary : theme.muted} />
           </TouchableOpacity>
         </View>
         <View style={styles.categoryMenuWrap}>
           <TouchableOpacity
-            style={[styles.categoryButton, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}
+            style={[styles.categoryButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={() => setShowCategoryMenu((visible) => !visible)}
             accessibilityLabel="Choose product category"
           >
-            <Ionicons name="funnel-outline" size={17} color={dark ? "#cbd5e1" : "#17386b"} />
-            <Text style={[styles.categoryButtonText, { color: dark ? "#e2e8f0" : "#17386b" }]} numberOfLines={1}>
+            <Ionicons name="funnel-outline" size={17} color={theme.accent} />
+            <Text style={[styles.categoryButtonText, { color: theme.text }]} numberOfLines={1}>
               {allCategories.find((category) => category.id === selectedCategoryId)?.name ?? "Category"}
             </Text>
-            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={dark ? "#94a3b8" : "#64748b"} />
+            <Ionicons name={showCategoryMenu ? "chevron-up" : "chevron-down"} size={15} color={theme.muted} />
           </TouchableOpacity>
           {showCategoryMenu && (
-            <View style={[styles.categoryDropdown, { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#d8e0ea" }]}>
+            <View style={[styles.categoryDropdown, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <ScrollView style={styles.categoryDropdownScroll} nestedScrollEnabled>
                 {allCategories.map((category) => {
                   const selected = selectedCategoryId === category.id;
                   return (
                     <TouchableOpacity
                       key={category.id ?? "all"}
-                      style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
+                      style={[styles.categoryOption, selected && { backgroundColor: theme.primary }]}
                       onPress={() => {
                         setSelectedCategoryId(category.id);
                         setPage(1);
                         setShowCategoryMenu(false);
                       }}
                     >
-                      <Text style={[styles.categoryOptionText, { color: selected ? "#ffffff" : dark ? "#e2e8f0" : "#334155" }]}>{category.name}</Text>
-                      {selected && <Ionicons name="checkmark" size={16} color="#ffffff" />}
+                      <Text style={[styles.categoryOptionText, { color: selected ? theme.onPrimary : theme.text }]}>{category.name}</Text>
+                      {selected && <Ionicons name="checkmark" size={16} color={theme.onPrimary} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -528,13 +538,13 @@ export default function ProductsScreen() {
           compact
           disabled={scannerVisible || Boolean(detailProduct) || Boolean(variationGroup) || detailLoading}
         />
-        <TouchableOpacity style={styles.scanBtn} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
-          <Ionicons name="scan" size={18} color="#ffffff" />
+        <TouchableOpacity style={[styles.scanBtn, { backgroundColor: theme.primary }]} onPress={() => setScannerVisible(true)} accessibilityLabel="Scan product barcode">
+          <Ionicons name="scan" size={18} color={theme.onPrimary} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.stockFilterLine}>
-        <Text style={[styles.filterLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Stock</Text>
+        <Text style={[styles.filterLabel, { color: theme.muted }]}>Stock</Text>
         <FlatList
           data={STOCK_FILTERS}
           horizontal
@@ -543,10 +553,10 @@ export default function ProductsScreen() {
           contentContainerStyle={styles.stockFilterContent}
           renderItem={({ item: sf }) => (
             <TouchableOpacity
-              style={[styles.filterChip, { backgroundColor: dark ? "#0d1b2e" : "#f0f4ff", borderColor: dark ? "#1a2a42" : "#e2e8f0" }, stockFilter === sf && styles.filterChipActive]}
+              style={[styles.filterChip, { backgroundColor: stockFilter === sf ? theme.primary : theme.surfaceAlt, borderColor: stockFilter === sf ? theme.primary : theme.border }]}
               onPress={() => { setStockFilter(sf); setPage(1); }}
             >
-              <Text style={[styles.filterText, { color: dark ? "#b8c2cf" : "#526174" }, stockFilter === sf && styles.filterTextActive]}>
+              <Text style={[styles.filterText, { color: stockFilter === sf ? theme.onPrimary : theme.text }]}>
                 {sf}
               </Text>
             </TouchableOpacity>
@@ -554,13 +564,23 @@ export default function ProductsScreen() {
           keyExtractor={(item) => item}
         />
       </View>
+    </View>
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {stickyHeader}
 
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#17386b" />
-        </View>
+        <ScrollView contentContainerStyle={styles.loadingScrollContent}>
+          {catalogControls}
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.accent} />
+          </View>
+        </ScrollView>
       ) : viewMode === "grid" ? (
         <FlatList
+          ref={productListRef}
           key={`grid-${gridColumns}`}
           data={pagedGroups}
           renderItem={renderGridGroup}
@@ -568,6 +588,11 @@ export default function ProductsScreen() {
           numColumns={gridColumns}
           contentContainerStyle={styles.gridList}
           columnWrapperStyle={styles.gridRow}
+          ListHeaderComponent={catalogControls}
+          ListHeaderComponentStyle={styles.listHeader}
+          removeClippedSubviews={false}
+          onScroll={handleProductListScroll}
+          scrollEventThrottle={16}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
@@ -577,12 +602,18 @@ export default function ProductsScreen() {
         />
       ) : (
         <FlatList
+          ref={productListRef}
           key="list"
           data={pagedGroups}
           renderItem={renderListGroup}
           keyExtractor={(item: ProductDTO[]) => item[0].id}
           numColumns={1}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={catalogControls}
+          ListHeaderComponentStyle={styles.listHeader}
+          removeClippedSubviews={false}
+          onScroll={handleProductListScroll}
+          scrollEventThrottle={16}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
@@ -604,9 +635,19 @@ export default function ProductsScreen() {
         dark={dark}
       />
 
+      {showBackToTop && !loading ? (
+        <TouchableOpacity
+          style={[styles.backToTopButton, { backgroundColor: theme.primary, borderColor: theme.surface }]}
+          onPress={scrollProductsToTop}
+          accessibilityLabel="Back to top of products"
+        >
+          <Ionicons name="arrow-up" size={22} color={theme.onPrimary} />
+        </TouchableOpacity>
+      ) : null}
+
       <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
         <View style={styles.variationModalOverlay}>
-          <View style={[styles.variationModal, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+          <View style={[styles.variationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.variationModalHeader}>
               <View style={styles.variationModalHeading}>
                 <Text style={[styles.variationModalTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{variationGroup?.[0].name}</Text>
@@ -622,7 +663,7 @@ export default function ProductsScreen() {
                 return (
                   <TouchableOpacity
                     key={variant.id}
-                    style={[styles.variationRow, { backgroundColor: dark ? "#0f1729" : "#f8fafc", borderColor: dark ? "#1e293b" : "#e2e8f0" }]}
+                    style={[styles.variationRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
                     onPress={() => {
                       setVariationGroup(null);
                       openDetail(variant);
@@ -633,7 +674,7 @@ export default function ProductsScreen() {
                       {variant.imageUrl ? (
                         <Image source={{ uri: variant.imageUrl }} style={styles.variationImage} resizeMode="contain" />
                       ) : (
-                        <Ionicons name="fish" size={24} color="#17386b" />
+                        <Ionicons name="fish" size={24} color={theme.accent} />
                       )}
                     </View>
                     <View style={styles.variationInfo}>
@@ -642,7 +683,7 @@ export default function ProductsScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={[styles.variationPrice, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
                       <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
                         <Badge label={badge.label} color={badge.color} size="sm" />
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
@@ -671,16 +712,17 @@ export default function ProductsScreen() {
         onRequestClose={() => setDetailProduct(null)}
       >
         {detailLoading ? (
-          <View style={[styles.detailLoadingContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-            <ActivityIndicator size="large" color={dark ? "#60a5fa" : "#17386b"} />
+          <View style={[styles.detailLoadingContainer, { backgroundColor: theme.background }]}>
+            <ActivityIndicator size="large" color={theme.accent} />
           </View>
         ) : detailProduct ? (
-          <View style={[styles.detailContainer, { backgroundColor: dark ? "#050a14" : "#f8fbff" }]}>
-            <View style={[styles.detailHeader, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
+          <View style={[styles.detailContainer, { backgroundColor: theme.background }]}>
+            <View style={[styles.detailHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={() => setDetailProduct(null)} style={styles.detailBackBtn}>
-                <Ionicons name="close" size={22} color="#17386b" />
+                <Ionicons name="close" size={22} color={theme.accent} />
               </TouchableOpacity>
-              <Text style={[styles.detailHeaderTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Details</Text>
+              <Text style={[styles.detailHeaderTitle, { color: theme.text }]}>Product Details</Text>
+              <View style={{ width: 36 }} />
             </View>
 
             <View style={[styles.detailBody, width < 700 && styles.detailBodyPortrait]}>
@@ -688,7 +730,7 @@ export default function ProductsScreen() {
                 style={[
                 styles.detailIdentity,
                 width < 700 && styles.detailIdentityPortrait,
-                { borderColor: dark ? "#1a2a42" : "#e8edf3" },
+                { borderColor: theme.border },
                 ]}
                 contentContainerStyle={styles.detailIdentityContent}
                 showsVerticalScrollIndicator={false}
@@ -697,21 +739,21 @@ export default function ProductsScreen() {
                   {detailProduct.imageUrl ? (
                     <Image source={{ uri: detailProduct.imageUrl }} style={styles.productImage} resizeMode="contain" />
                   ) : (
-                    <Ionicons name="fish" size={64} color="#17386b" />
+                    <Ionicons name="fish" size={64} color={theme.accent} />
                   )}
                 </View>
 
-                <Text style={[styles.detailProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.name}</Text>
-                <View style={[styles.detailBarcodeCard, { backgroundColor: dark ? "#0d1b2e" : "#ffffff", borderColor: dark ? "#1a2a42" : "#e8edf3" }]}>
+                <Text style={[styles.detailProductName, { color: theme.text }]}>{detailProduct.name}</Text>
+                <View style={[styles.detailBarcodeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <View style={styles.barcodeFooterHeading}>
-                    <Ionicons name="barcode-outline" size={20} color={dark ? "#8fb4e8" : "#17386b"} />
+                    <Ionicons name="barcode-outline" size={20} color={theme.accent} />
                     <Text style={[styles.barcodeFooterTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Variation Barcode</Text>
                   </View>
                   <Text style={[styles.barcodePrintHint, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Double tap a barcode to print</Text>
                   {detailBarcodes.length > 0 ? detailBarcodes.map((bc, index) => (
                     <TouchableOpacity
                       key={`${bc.barcode}-${index}`}
-                      style={[styles.barcodeRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff", opacity: printingBarcode === bc.barcode ? 0.6 : 1 }]}
+                      style={[styles.barcodeRow, { borderBottomColor: theme.border, opacity: printingBarcode === bc.barcode ? 0.6 : 1 }]}
                       onPress={() => handleBarcodeTap(bc.barcode)}
                       activeOpacity={0.85}
                       disabled={printingBarcode !== null}
@@ -731,68 +773,66 @@ export default function ProductsScreen() {
               </ScrollView>
 
               <ScrollView style={styles.detailInformation} contentContainerStyle={styles.detailScroll}>
-                <Text style={[styles.detailColumnTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Product Information</Text>
-                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
-                <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                  <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>SKU</Text>
-                  <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.sku}</Text>
+                <Text style={[styles.detailColumnTitle, { color: theme.text }]}>Product Information</Text>
+                <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
+                <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>SKU</Text>
+                  <Text style={[styles.detailInfoValue, { color: theme.text }]}>{detailProduct.sku}</Text>
                 </View>
                 {detailProduct.categoryName && (
-                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Category</Text>
-                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.categoryName}</Text>
+                  <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                    <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Category</Text>
+                    <Text style={[styles.detailInfoValue, { color: theme.text }]}>{detailProduct.categoryName}</Text>
                   </View>
                 )}
                 {detailProduct.weight != null && (
-                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Weight</Text>
-                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>
+                  <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                    <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Weight</Text>
+                    <Text style={[styles.detailInfoValue, { color: theme.text }]}>
                       {detailProduct.weight}
                       {detailProduct.unitName ? ` ${detailProduct.unitName}` : ""}
                     </Text>
                   </View>
                 )}
                 {detailProduct.brandName && (
-                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Brand</Text>
-                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.brandName}</Text>
+                  <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                    <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Brand</Text>
+                    <Text style={[styles.detailInfoValue, { color: theme.text }]}>{detailProduct.brandName}</Text>
                   </View>
                 )}
                 {detailProduct.unitName && (
-                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Unit</Text>
-                    <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{detailProduct.unitName}</Text>
+                  <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                    <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Unit</Text>
+                    <Text style={[styles.detailInfoValue, { color: theme.text }]}>{detailProduct.unitName}</Text>
                   </View>
                 )}
-                <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                  <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Price</Text>
-                  <Text style={[styles.detailInfoValueBold, { color: dark ? "#ffffff" : "#17386b" }]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
+                <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Price</Text>
+                  <Text style={[styles.detailInfoValueBold, { color: theme.primary }]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
                 </View>
                 {detailProduct.description && (
-                  <View style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                    <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>Description</Text>
-                    <Text style={[styles.detailInfoValue, { flex: 1, textAlign: "right", color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={3}>
+                  <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                    <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Description</Text>
+                    <Text style={[styles.detailInfoValue, { flex: 1, textAlign: "right", color: theme.text }]} numberOfLines={3}>
                       {detailProduct.description}
                     </Text>
                   </View>
                 )}
                 </View>
 
-                <Text style={[styles.detailColumnTitle, styles.inventoryTitle, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Inventory</Text>
-                <View style={[styles.detailSection, { backgroundColor: dark ? "#0d1b2e" : "#ffffff" }]}>
+                <Text style={[styles.detailColumnTitle, styles.inventoryTitle, { color: theme.text }]}>Inventory</Text>
+                <View style={[styles.detailSection, { backgroundColor: theme.surface }]}>
                   {[
                     ["Available", detailProduct.availableQty ?? 0],
-                    ["Minimum", detailProduct.minimumStock ?? 0],
                     ["Allocated", detailProduct.allocatedQty ?? 0],
                     ["Reserved", detailProduct.reservedQty ?? 0],
                     ["Sold", detailProduct.soldQty ?? 0],
                     ["Damaged", detailProduct.damagedQty ?? 0],
                     ["Adjustments", detailProduct.adjustmentQty ?? 0],
-                    ["Maximum", detailProduct.maximumStock ?? 0],
                   ].map(([label, value]) => (
-                    <View key={String(label)} style={[styles.detailInfoRow, { borderBottomColor: dark ? "#1a2a42" : "#f0f4ff" }]}>
-                      <Text style={[styles.detailInfoLabel, { color: dark ? "#8e99a4" : "#6b7b8d" }]}>{label}</Text>
-                      <Text style={[styles.detailInfoValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>{value}</Text>
+                    <View key={String(label)} style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
+                      <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>{label}</Text>
+                      <Text style={[styles.detailInfoValue, { color: theme.text }]}>{value}</Text>
                     </View>
                   ))}
                 </View>
@@ -810,6 +850,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fbff",
   },
+  catalogHeader: {
+    zIndex: 20,
+  },
+  listHeader: {
+    zIndex: 20,
+  },
   pageHeader: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -817,6 +863,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 4,
+  },
+  stickyPageHeader: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    elevation: 5,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    zIndex: 30,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  addProductButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
   },
   pageTitle: {
     fontSize: 24,
@@ -827,9 +895,29 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   loadingContainer: {
-    flex: 1,
+    minHeight: 320,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadingScrollContent: {
+    flexGrow: 1,
+  },
+  backToTopButton: {
+    position: "absolute",
+    right: 20,
+    bottom: 78,
+    minWidth: 56,
+    minHeight: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 10,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 7,
+    zIndex: 40,
   },
   emptyContainer: {
     alignItems: "center",

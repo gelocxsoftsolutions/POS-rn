@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/lib/storage/app-storage";
 
 interface CashierSessionData {
   sessionId: string;
@@ -12,6 +12,7 @@ interface CashierSessionData {
   loginTime: string;
   locked: boolean;
   lockedAt: string | null;
+  isSuperAdmin?: boolean;
 }
 
 interface CashierState {

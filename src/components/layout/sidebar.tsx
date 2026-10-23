@@ -44,10 +44,10 @@ export function Sidebar({ currentPath, transferCount = 0 }: SidebarProps) {
 
   useEffect(() => {
     if (!session?.roleId) return;
-    PermissionService.getRolePermissions(session.roleId)
+    PermissionService.getEffectivePermissions(session.roleId, session.cashierId)
       .then(setGrantedPermissions)
       .catch(() => {});
-  }, [session?.roleId]);
+  }, [session?.cashierId, session?.roleId]);
 
   const visibleItems = navItems.filter(
     (item) =>

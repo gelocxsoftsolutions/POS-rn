@@ -2,6 +2,7 @@ import React from "react";
 import { TouchableOpacity, Text, StyleSheet, View, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useCashierStore } from "@/lib/stores/cashier-store";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type Props = {
   dark?: boolean;
@@ -11,8 +12,9 @@ type Props = {
   pendingCount?: number;
 };
 
-export function SessionIndicator({ dark = false, onPress, statusLabel, statusColor, pendingCount = 0 }: Props) {
+export function SessionIndicator({ dark: _dark = false, onPress, statusLabel, statusColor, pendingCount = 0 }: Props) {
   const session = useCashierStore((s) => s.session);
+  const theme = usePosTheme();
 
   if (!session) return null;
 
@@ -20,22 +22,22 @@ export function SessionIndicator({ dark = false, onPress, statusLabel, statusCol
     <TouchableOpacity
       style={[
         styles.container,
-        dark ? styles.containerDark : styles.containerLight,
+        { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
       ]}
       onPress={onPress}
       activeOpacity={onPress ? 0.7 : 1}
       disabled={!onPress}
     >
-      <View style={[styles.avatar, dark ? styles.avatarDark : styles.avatarLight]}>
+      <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
         {session.photoUri ? (
           <Image source={{ uri: session.photoUri }} style={styles.avatarImage} />
         ) : (
-          <Ionicons name="person" size={14} color="#ffffff" />
+          <Ionicons name="person" size={14} color={theme.onPrimary} />
         )}
       </View>
       <View style={styles.info}>
         <Text
-          style={[styles.name, dark ? styles.nameDark : styles.nameLight]}
+          style={[styles.name, { color: theme.text }]}
           numberOfLines={1}
         >
           {session.cashierName}
@@ -43,16 +45,16 @@ export function SessionIndicator({ dark = false, onPress, statusLabel, statusCol
         {statusLabel ? (
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.role, dark ? styles.roleDark : styles.roleLight]}>{statusLabel}</Text>
+            <Text style={[styles.role, { color: theme.muted }]}>{statusLabel}</Text>
             {pendingCount > 0 && <Text style={styles.pendingText}>{pendingCount}</Text>}
           </View>
         ) : (
-          <Text style={[styles.role, dark ? styles.roleDark : styles.roleLight]}>
+          <Text style={[styles.role, { color: theme.muted }]}>
             {session.cashierRole}
           </Text>
         )}
       </View>
-      {onPress && <Ionicons name="chevron-forward" size={14} color={dark ? "#94a3b8" : "#64748b"} />}
+      {onPress && <Ionicons name="chevron-forward" size={14} color={theme.muted} />}
     </TouchableOpacity>
   );
 }
@@ -67,14 +69,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 34,
   },
-  containerLight: {
-    backgroundColor: "#f0f4ff",
-    borderColor: "#e0e7ff",
-  },
-  containerDark: {
-    backgroundColor: "#1e293b",
-    borderColor: "rgba(255,255,255,0.12)",
-  },
   avatar: {
     width: 24,
     height: 24,
@@ -82,12 +76,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 6,
-  },
-  avatarLight: {
-    backgroundColor: "#17386b",
-  },
-  avatarDark: {
-    backgroundColor: "#3b82f6",
   },
   avatarImage: {
     width: "100%",
@@ -102,20 +90,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     maxWidth: 80,
   },
-  nameLight: {
-    color: "#17386b",
-  },
-  nameDark: {
-    color: "#e2e8f0",
-  },
   role: {
     fontSize: 10,
-  },
-  roleLight: {
-    color: "#6b7b8d",
-  },
-  roleDark: {
-    color: "#94a3b8",
   },
   statusRow: {
     flexDirection: "row",

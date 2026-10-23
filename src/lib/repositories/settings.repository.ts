@@ -10,6 +10,16 @@ export interface StoreSettingsRow {
   supportPhone: string;
   address: string;
   receiptFooter: string;
+  businessId: string;
+  operatingMode: "NCT_DEPENDENT" | "INDEPENDENT";
+  posSystemName: string;
+  headerName: string;
+  businessLogoUri: string | null;
+  receiptLogoUri: string | null;
+  contactEmail: string;
+  receiptTemplateJson: string | null;
+  receiptTemplateVersion: number;
+  modeChangedAt: string | null;
   updatedAt: string;
 }
 
@@ -22,6 +32,16 @@ export interface UpsertSettingsInput {
   supportPhone?: string;
   address?: string;
   receiptFooter?: string;
+  businessId?: string;
+  operatingMode?: "NCT_DEPENDENT" | "INDEPENDENT";
+  posSystemName?: string;
+  headerName?: string;
+  businessLogoUri?: string | null;
+  receiptLogoUri?: string | null;
+  contactEmail?: string;
+  receiptTemplateJson?: string | null;
+  receiptTemplateVersion?: number;
+  modeChangedAt?: string | null;
 }
 
 export const SettingsRepository = {
@@ -33,8 +53,15 @@ export const SettingsRepository = {
 
     const now = new Date().toISOString();
     await execute(
-      `INSERT INTO StoreSettings (id, storeName, storeCode, currencyCode, taxLabel, taxRate, supportPhone, address, receiptFooter, updatedAt)
-       VALUES ('default', '', '', 'PHP', 'VAT', 0, '', '', '', ?)`,
+      `INSERT INTO StoreSettings (
+        id, storeName, storeCode, currencyCode, taxLabel, taxRate,
+        supportPhone, address, receiptFooter, businessId, operatingMode,
+        posSystemName, headerName, contactEmail, receiptTemplateVersion, updatedAt
+       ) VALUES (
+        'default', 'NCT Seafoods', '', 'PHP', 'VAT', 0, '', '',
+        'Thank you for your purchase!', 'nct-default', 'NCT_DEPENDENT',
+        'NCT Seafoods POS', 'NCT Seafoods', '', 1, ?
+       )`,
       [now]
     );
     return queryFirst<StoreSettingsRow>(
@@ -57,6 +84,16 @@ export const SettingsRepository = {
     if (input.supportPhone !== undefined) { fields.push("supportPhone = ?"); values.push(input.supportPhone); }
     if (input.address !== undefined) { fields.push("address = ?"); values.push(input.address); }
     if (input.receiptFooter !== undefined) { fields.push("receiptFooter = ?"); values.push(input.receiptFooter); }
+    if (input.businessId !== undefined) { fields.push("businessId = ?"); values.push(input.businessId); }
+    if (input.operatingMode !== undefined) { fields.push("operatingMode = ?"); values.push(input.operatingMode); }
+    if (input.posSystemName !== undefined) { fields.push("posSystemName = ?"); values.push(input.posSystemName); }
+    if (input.headerName !== undefined) { fields.push("headerName = ?"); values.push(input.headerName); }
+    if (input.businessLogoUri !== undefined) { fields.push("businessLogoUri = ?"); values.push(input.businessLogoUri); }
+    if (input.receiptLogoUri !== undefined) { fields.push("receiptLogoUri = ?"); values.push(input.receiptLogoUri); }
+    if (input.contactEmail !== undefined) { fields.push("contactEmail = ?"); values.push(input.contactEmail); }
+    if (input.receiptTemplateJson !== undefined) { fields.push("receiptTemplateJson = ?"); values.push(input.receiptTemplateJson); }
+    if (input.receiptTemplateVersion !== undefined) { fields.push("receiptTemplateVersion = ?"); values.push(input.receiptTemplateVersion); }
+    if (input.modeChangedAt !== undefined) { fields.push("modeChangedAt = ?"); values.push(input.modeChangedAt); }
 
     if (fields.length === 0) return existing;
 

@@ -4,6 +4,9 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useNetworkStore } from "@/lib/services/network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { SaleRepository } from "@/lib/repositories/sale.repository";
+import { acquireSaleSync, releaseSaleSync } from "@/lib/services/sale-sync-lock";
+import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import { queryFirst } from "@/lib/db/connection";
 
 const SYNC_INTERVAL_MS = 15_000;
 let syncTimer: ReturnType<typeof setInterval> | null = null;
@@ -12,6 +15,15 @@ async function pushUnsyncedSales(): Promise<void> {
   try {
     const unsynced = await SaleRepository.findUnsynced(50);
     for (const sale of unsynced) {
+      const identity = await queryFirst<{ originMode: string }>(
+        "SELECT originMode FROM Sale WHERE id = ?",
+        [sale.id]
+      );
+      // Independent sales are summarized through EOD uploads. They must never
+      // be replayed into operational OMS sale tables after a later mode switch.
+      if (identity?.originMode === "INDEPENDENT") continue;
+      if (!acquireSaleSync(sale.id)) continue;
+      try {
       const rawItems = sale.items ?? [];
       const items = rawItems
         .map((item) => ({
@@ -68,6 +80,9 @@ async function pushUnsyncedSales(): Promise<void> {
           );
         }
       }
+      } finally {
+        releaseSaleSync(sale.id);
+      }
     }
   } catch {
     // non-blocking
@@ -87,6 +102,7 @@ async function processSyncQueue(): Promise<void> {
 
 async function syncFromOms(): Promise<void> {
   try {
+    if (!BusinessConfigurationService.capabilities().importNctCatalog) return;
     const device = useDeviceStore.getState().device;
     if (!device.deviceId) return;
 

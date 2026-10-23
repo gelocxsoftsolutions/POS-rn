@@ -1,6 +1,7 @@
 import { query, queryFirst, execute } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
 import type { BarcodeDTO } from "@/lib/types/inventory";
+import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
 export interface UpsertBarcodeInput {
   productId: string;
@@ -10,10 +11,29 @@ export interface UpsertBarcodeInput {
 
 export const BarcodeRepository = {
   async findByBarcode(barcode: string): Promise<BarcodeDTO | null> {
-    return queryFirst<BarcodeDTO>(
+    const normalized = normalizeScannedCode(barcode);
+    if (!normalized) return null;
+
+    const exact = await queryFirst<BarcodeDTO>(
       "SELECT * FROM Barcode WHERE barcode = ? AND active = 1",
-      [barcode]
+      [normalized]
     );
+    if (exact) return exact;
+
+    const canonical = canonicalScannedCode(normalized);
+    const caseInsensitive = await queryFirst<BarcodeDTO>(
+      `SELECT * FROM Barcode
+       WHERE active = 1
+         AND UPPER(REPLACE(TRIM(barcode), ' ', '')) = ?
+       LIMIT 1`,
+      [canonical]
+    );
+    if (caseInsensitive) return caseInsensitive;
+
+    const rows = await query<BarcodeDTO>(
+      "SELECT * FROM Barcode WHERE active = 1"
+    );
+    return rows.find((row) => canonicalScannedCode(row.barcode) === canonical) ?? null;
   },
 
   async findByProduct(productId: string): Promise<BarcodeDTO[]> {

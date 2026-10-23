@@ -22,12 +22,11 @@ export function getApiConfig() {
 
 export async function initApiConfig() {
   try {
-    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+    const AsyncStorage = (await import("@/lib/storage/app-storage")).default;
     const raw = await AsyncStorage.getItem("nct-pos-oms");
     if (raw) {
       const parsed = JSON.parse(raw);
       const state = parsed?.state ?? parsed;
-      console.log("[API] initApiConfig raw keys:", Object.keys(parsed), "state:", state);
       if (state.serverUrl) config.baseUrl = state.serverUrl;
       if (state.apiKey) config.apiKey = state.apiKey;
       if (state.accessToken) config.accessToken = state.accessToken;
@@ -91,7 +90,7 @@ async function request<T>(
   if (config.apiKey) headers["x-pos-key"] = config.apiKey;
   if (config.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
 
-  console.log("[API]", method, url, "apiKey:", config.apiKey ? `${config.apiKey.slice(0,8)}...` : "MISSING", "accessToken:", config.accessToken ? `${config.accessToken.slice(0,8)}...` : "MISSING");
+  console.log("[API]", method, url);
 
   try {
     const controller = new AbortController();

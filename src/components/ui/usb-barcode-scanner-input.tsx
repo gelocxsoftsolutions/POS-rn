@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { usePosTheme } from "@/lib/stores/ui-store";
 
 type Props = {
   onScan: (barcode: string) => void | Promise<void>;
@@ -9,9 +11,10 @@ type Props = {
   compact?: boolean;
 };
 
-const SCAN_SETTLE_MS = 100;
+const SCAN_SETTLE_MS = 500;
 
 export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false, compact = false }: Props) {
+  const theme = usePosTheme();
   const inputRef = useRef<TextInput>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScanRef = useRef({ value: "", at: 0 });
@@ -24,19 +27,19 @@ export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false,
   }, [disabled]);
 
   const submitScan = useCallback((candidate: string) => {
-    const barcode = candidate.replace(/[\r\n\t]/g, "").trim();
+    const barcode = normalizeScannedCode(candidate);
     setValue("");
     if (!barcode || disabled) return;
 
     const now = Date.now();
-    if (lastScanRef.current.value === barcode && now - lastScanRef.current.at < 500) return;
+    if (lastScanRef.current.value === barcode && now - lastScanRef.current.at < 750) return;
     lastScanRef.current = { value: barcode, at: now };
     void onScan(barcode);
   }, [disabled, onScan]);
 
   const handleChangeText = useCallback((nextValue: string) => {
     const hasTerminator = /[\r\n\t]/.test(nextValue);
-    const cleanValue = nextValue.replace(/[\r\n\t]/g, "");
+    const cleanValue = normalizeScannedCode(nextValue);
     setValue(cleanValue);
 
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
@@ -86,19 +89,18 @@ export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false,
         style={[
           styles.statusButton,
           compact && styles.statusButtonCompact,
-          { backgroundColor: dark ? "#141922" : "#ffffff", borderColor: dark ? "#334155" : "#dbe3ec" },
-          focused && !disabled && styles.statusButtonReady,
+          { backgroundColor: focused && !disabled ? theme.primary : theme.surface, borderColor: focused && !disabled ? theme.primary : theme.border },
           disabled && styles.statusButtonDisabled,
         ]}
         onPress={focusScanner}
         disabled={disabled}
         accessibilityLabel={focused ? "USB barcode scanner ready" : "Activate USB barcode scanner"}
       >
-        <Ionicons name="barcode-outline" size={compact ? 17 : 20} color={focused && !disabled ? "#ffffff" : dark ? "#94a3b8" : "#64748b"} />
-        <Text style={[styles.statusText, compact && styles.statusTextCompact, { color: focused && !disabled ? "#ffffff" : dark ? "#cbd5e1" : "#475569" }]}>
+        <Ionicons name="barcode-outline" size={compact ? 17 : 20} color={focused && !disabled ? theme.onPrimary : theme.muted} />
+        <Text style={[styles.statusText, compact && styles.statusTextCompact, { color: focused && !disabled ? theme.onPrimary : theme.text }]}>
           {disabled ? "Paused" : focused ? "USB Ready" : "Enable USB"}
         </Text>
-        <View style={[styles.statusDot, focused && !disabled ? styles.statusDotReady : styles.statusDotIdle]} />
+        <View style={[styles.statusDot, { backgroundColor: focused && !disabled ? theme.accent : theme.muted }]} />
       </TouchableOpacity>
     </View>
   );
