@@ -11,10 +11,10 @@ import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { requirePermission } from "@/lib/services/authorization.service";
 
-function createReceiptNumber() {
+function createReceiptNumber(prefix: string = "R") {
   const time = Date.now().toString(36).toUpperCase().slice(-7);
   const random = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, "0");
-  return `R${time}${random}`;
+  return `${prefix}${time}${random}`;
 }
 
 export const SaleService = {
@@ -24,11 +24,12 @@ export const SaleService = {
       const business = BusinessConfigurationService.current();
       const saleId = uuid();
       const now = new Date().toISOString();
-      const receiptNumber = createReceiptNumber();
+      const receiptNumber = input.receiptNumber ?? createReceiptNumber();
       const businessDate = now.split("T")[0];
 
       let subtotal = 0;
       let totalTax = 0;
+      const discount = Math.max(0, input.discount ?? 0);
       const itemCount = input.items.reduce((sum, i) => sum + i.quantity, 0);
 
       const saleItems = input.items.map((item) => {
@@ -113,13 +114,13 @@ export const SaleService = {
         }
       }
 
-      const total = subtotal + totalTax;
+      const total = Math.max(0, subtotal - discount + totalTax);
       const paidAmount = input.paidAmount ?? total;
       const changeAmount = Math.max(0, paidAmount - total);
 
       await execute(
         `INSERT INTO Sale (id, receiptNumber, cashierId, cashierName, customerName, itemCount, subtotal, discount, tax, total, paidAmount, changeAmount, paymentMethod, status, businessDate, shiftId, deviceId, branchId, businessId, originMode, synced, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, 0, ?)`,
         [
           saleId,
           receiptNumber,
@@ -128,6 +129,7 @@ export const SaleService = {
           input.customerName ?? null,
           itemCount,
           subtotal,
+          discount,
           totalTax,
           total,
           paidAmount,

@@ -280,6 +280,13 @@ export const SaleRepository = {
     );
   },
 
+  async updateStatus(id: string, status: string): Promise<void> {
+    await execute(
+      "UPDATE Sale SET status = ? WHERE id = ?",
+      [status, id]
+    );
+  },
+
   async findUnsynced(limit: number = 50): Promise<SaleDTO[]> {
     const sales = await query<SaleDTO>(
       `SELECT s.* FROM Sale s

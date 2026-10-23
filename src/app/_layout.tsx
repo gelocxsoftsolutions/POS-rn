@@ -11,6 +11,7 @@ import { initApiConfig } from "@/lib/api/http";
 import { AuthenticationService } from "@/lib/services/authentication.service";
 import { startNetworkListener } from "@/lib/services/network.service";
 import { startBackgroundSync } from "@/lib/services/sync-worker";
+import { startAutoBackupScheduler } from "@/lib/services/auto-backup.service";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
@@ -55,6 +56,7 @@ export default function RootLayout() {
         await AuthenticationService.init();
         startNetworkListener();
         startBackgroundSync();
+        startAutoBackupScheduler();
       } catch (e: any) {
         if (mounted) setError(e?.message ?? "Failed to initialize");
       } finally {

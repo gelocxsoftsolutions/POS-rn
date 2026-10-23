@@ -70,6 +70,8 @@ export default function ProductsScreen() {
   const [variationGroup, setVariationGroup] = useState<ProductDTO[] | null>(null);
   const [stockProduct, setStockProduct] = useState<ProductDTO | null>(null);
   const [printingBarcode, setPrintingBarcode] = useState<string | null>(null);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const productListRef = useRef<FlatList<ProductDTO[]> | null>(null);
   const barcodeTap = useRef<{ value: string; time: number } | null>(null);
   const pageSize = useUiStore((state) => state.pageSizes?.products ?? 20);
   const setPageSize = useUiStore((state) => state.setPageSize);
@@ -83,6 +85,7 @@ export default function ProductsScreen() {
   const gridCardWidth = (width - 32 - (gridColumns - 1) * 12) / gridColumns;
   const gridImageSize = Math.min(160, gridCardWidth - 24);
   const detailImageSize = Math.min(320, width * 0.32, height * 0.34);
+  const backToTopThreshold = Math.max(260, height * 0.4);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -206,6 +209,15 @@ export default function ProductsScreen() {
       ]
     );
   }, [printVariationBarcode]);
+
+  const handleProductListScroll = useCallback((event: any) => {
+    const shouldShow = event.nativeEvent.contentOffset.y >= backToTopThreshold;
+    setShowBackToTop((visible) => visible === shouldShow ? visible : shouldShow);
+  }, [backToTopThreshold]);
+
+  const scrollProductsToTop = useCallback(() => {
+    productListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
 
   const stockBadge = (product: ProductDTO) => {
     const qty = (product as any).availableQty ?? 0;
@@ -434,20 +446,25 @@ export default function ProductsScreen() {
     );
   };
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.pageHeader}>
-        <View>
-          <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
-          <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
-        </View>
-        {operatingMode === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
-          <TouchableOpacity style={{ minHeight: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 7 }} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
+  const stickyHeader = (
+    <View style={[styles.pageHeader, styles.stickyPageHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
+      <View>
+        <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
+        <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
+      </View>
+      {operatingMode === "INDEPENDENT" && permissions.has("POS_PRODUCTS") ? (
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={[styles.addProductButton, { backgroundColor: theme.primary }]} onPress={() => router.push("/(pos)/independent-catalog" as any)}>
             <Ionicons name="add-circle-outline" size={18} color={theme.onPrimary} />
             <Text style={{ color: theme.onPrimary, fontSize: 12, fontWeight: "800" }}>Add Product to Inventory</Text>
           </TouchableOpacity>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const catalogControls = (
+    <View style={styles.catalogHeader}>
       <View style={styles.summaryRow}>
         {[
           { label: "Products", value: inventorySummary.totalProducts, icon: "cube-outline", color: "#2563eb" },
@@ -562,13 +579,23 @@ export default function ProductsScreen() {
           keyExtractor={(item) => item}
         />
       </View>
+    </View>
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {stickyHeader}
 
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.accent} />
-        </View>
+        <ScrollView contentContainerStyle={styles.loadingScrollContent}>
+          {catalogControls}
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.accent} />
+          </View>
+        </ScrollView>
       ) : viewMode === "grid" ? (
         <FlatList
+          ref={productListRef}
           key={`grid-${gridColumns}`}
           data={pagedGroups}
           renderItem={renderGridGroup}
@@ -576,6 +603,11 @@ export default function ProductsScreen() {
           numColumns={gridColumns}
           contentContainerStyle={styles.gridList}
           columnWrapperStyle={styles.gridRow}
+          ListHeaderComponent={catalogControls}
+          ListHeaderComponentStyle={styles.listHeader}
+          removeClippedSubviews={false}
+          onScroll={handleProductListScroll}
+          scrollEventThrottle={16}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
@@ -585,12 +617,18 @@ export default function ProductsScreen() {
         />
       ) : (
         <FlatList
+          ref={productListRef}
           key="list"
           data={pagedGroups}
           renderItem={renderListGroup}
           keyExtractor={(item: ProductDTO[]) => item[0].id}
           numColumns={1}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={catalogControls}
+          ListHeaderComponentStyle={styles.listHeader}
+          removeClippedSubviews={false}
+          onScroll={handleProductListScroll}
+          scrollEventThrottle={16}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="cube-outline" size={48} color="#d1d9e6" />
@@ -611,6 +649,16 @@ export default function ProductsScreen() {
         }}
         dark={dark}
       />
+
+      {showBackToTop && !loading ? (
+        <TouchableOpacity
+          style={[styles.backToTopButton, { backgroundColor: theme.primary, borderColor: theme.surface }]}
+          onPress={scrollProductsToTop}
+          accessibilityLabel="Back to top of products"
+        >
+          <Ionicons name="arrow-up" size={22} color={theme.onPrimary} />
+        </TouchableOpacity>
+      ) : null}
 
       <Modal visible={!!variationGroup} transparent animationType="fade" onRequestClose={() => setVariationGroup(null)}>
         <View style={styles.variationModalOverlay}>
@@ -851,6 +899,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fbff",
   },
+  catalogHeader: {
+    zIndex: 20,
+  },
+  listHeader: {
+    zIndex: 20,
+  },
   pageHeader: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -858,6 +912,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 4,
+  },
+  stickyPageHeader: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    elevation: 5,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    zIndex: 30,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  addProductButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
   },
   pageTitle: {
     fontSize: 24,
@@ -868,9 +944,29 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   loadingContainer: {
-    flex: 1,
+    minHeight: 320,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadingScrollContent: {
+    flexGrow: 1,
+  },
+  backToTopButton: {
+    position: "absolute",
+    right: 20,
+    bottom: 78,
+    minWidth: 56,
+    minHeight: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 10,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 7,
+    zIndex: 40,
   },
   emptyContainer: {
     alignItems: "center",

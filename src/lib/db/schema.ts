@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS Device (
@@ -524,6 +524,78 @@ export const CREATE_TABLES = [
     createdAt TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (localProductId) REFERENCES Product(id),
     UNIQUE (businessId, omsVariationId)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnRequest (
+    id TEXT PRIMARY KEY,
+    returnNumber TEXT UNIQUE NOT NULL,
+    saleId TEXT NOT NULL,
+    receiptNumber TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+    reason TEXT,
+    returnedTotal REAL DEFAULT 0,
+    replacementTotal REAL DEFAULT 0,
+    priceDifference REAL DEFAULT 0,
+    customerAcceptedShortfall INTEGER DEFAULT 0,
+    approvalCodeHash TEXT,
+    codeExpiresAt TEXT,
+    codeUsedAt TEXT,
+    codeGeneratedById TEXT,
+    codeGeneratedByName TEXT,
+    approvedById TEXT,
+    approvedByName TEXT,
+    approvedAt TEXT,
+    rejectedById TEXT,
+    rejectedByName TEXT,
+    rejectedAt TEXT,
+    rejectionReason TEXT,
+    exchangeSaleId TEXT,
+    topUpMethod TEXT,
+    requestedById TEXT,
+    requestedByName TEXT,
+    businessDate TEXT,
+    deviceId TEXT,
+    branchId INTEGER,
+    businessId TEXT DEFAULT 'nct-default',
+    originMode TEXT DEFAULT 'NCT_DEPENDENT',
+    synced INTEGER DEFAULT 0,
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (saleId) REFERENCES Sale(id),
+    FOREIGN KEY (exchangeSaleId) REFERENCES Sale(id)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnRequestItem (
+    id TEXT PRIMARY KEY,
+    returnRequestId TEXT NOT NULL,
+    saleItemId TEXT,
+    productId TEXT,
+    productName TEXT,
+    sku TEXT,
+    barcode TEXT,
+    quantity INTEGER DEFAULT 1,
+    unitPrice REAL DEFAULT 0,
+    lineTotal REAL DEFAULT 0,
+    condition TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (returnRequestId) REFERENCES ReturnRequest(id) ON DELETE CASCADE,
+    FOREIGN KEY (saleItemId) REFERENCES SaleItem(id)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ReturnExchangeItem (
+    id TEXT PRIMARY KEY,
+    returnRequestId TEXT NOT NULL,
+    productId TEXT,
+    productName TEXT,
+    sku TEXT,
+    barcode TEXT,
+    quantity INTEGER DEFAULT 1,
+    unitPrice REAL DEFAULT 0,
+    lineTotal REAL DEFAULT 0,
+    unit TEXT,
+    weight REAL DEFAULT NULL,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (returnRequestId) REFERENCES ReturnRequest(id) ON DELETE CASCADE
   )`,
 
 ];

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -35,7 +35,7 @@ import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
-import { CashierService } from "@/lib/services/cashier.service";
+import { CashierService, SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
 import { PERMISSION_CATEGORIES, PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
@@ -43,12 +43,24 @@ import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.service";
+import { useBackupListStore } from "@/lib/stores/backup-list-store";
+import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
+import { runAutoBackupNow } from "@/lib/services/auto-backup.service";
 import {
   BluetoothPrinter,
   type BluetoothPrinterDevice,
 } from "@/lib/printers/bluetooth-printer";
 
 const CURRENCY_OPTIONS = ["USD", "PHP", "CAD", "EUR", "GBP", "AUD", "JPY"] as const;
+
+const formatFileSize = (bytes: number) => {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const AUTO_BACKUP_INTERVAL_PRESETS = [1, 6, 12, 24, 48, 72, 168] as const;
+const formatBackupIntervalLabel = (hours: number) => (hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`);
 
 export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
 type SettingsSectionDefinition = {
@@ -77,7 +89,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   { id: "theme", title: "Theme & Colors", description: "Light, dark, and custom colors throughout the POS.", icon: "color-palette-outline", keywords: "theme appearance light dark auto system color palette primary accent background navigation text border" },
   { id: "sounds", title: "Sounds", description: "Checkout, transfer, connection sounds, and volume.", icon: "volume-high-outline", keywords: "sounds audio volume mute notifications feedback checkout transfer connected failed" },
   { id: "display", title: "Application Size", description: "Scale text, images, controls, and navigation.", icon: "resize-outline", keywords: "application size zoom scale text images controls accessibility display" },
-  { id: "database", title: "Database & Recovery", description: "Export a verified backup or import a backup into a fresh installation.", icon: "server-outline", keywords: "database backup export import recovery restore checksum schema sqlite file data", adminOnly: true },
+  { id: "database", title: "Database & Recovery", description: "List, restore, or delete backups and configure automatic backups.", icon: "server-outline", keywords: "database backup export import recovery restore checksum schema sqlite file data auto automatic schedule interval hours list delete remove local files", adminOnly: true },
   { id: "device", title: "Device & Session", description: "Registration status, sign out, and device reset.", icon: "tablet-portrait-outline", keywords: "device session sign out logout reset registration terminal" },
 ];
 
@@ -283,6 +295,32 @@ export default function SettingsScreen() {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
   const [selectedBackup, setSelectedBackup] = useState<{ file: File; envelope: BackupEnvelope } | null>(null);
+  const [busyBackupUri, setBusyBackupUri] = useState<string | null>(null);
+  const [restorePinVisible, setRestorePinVisible] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<{ uri: string; label: string } | null>(null);
+  const [restorePin, setRestorePin] = useState("");
+  const [restorePinError, setRestorePinError] = useState<string | null>(null);
+  const [restorePinBusy, setRestorePinBusy] = useState(false);
+  const restoreLockRef = useRef(false);
+  const [backupIntervalInput, setBackupIntervalInput] = useState(() => String(useBackupSettingsStore.getState().autoBackupIntervalHours));
+  const backupItems = useBackupListStore((state) => state.items);
+  const backupListLoading = useBackupListStore((state) => state.loading);
+  const refreshBackupList = useBackupListStore((state) => state.refresh);
+  const autoBackupEnabled = useBackupSettingsStore((state) => state.autoBackupEnabled);
+  const autoBackupIntervalHours = useBackupSettingsStore((state) => state.autoBackupIntervalHours);
+  const lastAutoBackupAt = useBackupSettingsStore((state) => state.lastAutoBackupAt);
+  const setAutoBackupEnabled = useBackupSettingsStore((state) => state.setAutoBackupEnabled);
+  const setAutoBackupIntervalHours = useBackupSettingsStore((state) => state.setAutoBackupIntervalHours);
+  const nextAutoBackupLabel = useMemo(() => {
+    if (!autoBackupEnabled) return "";
+    const nowMs = Date.now();
+    const baseMs = lastAutoBackupAt ? new Date(lastAutoBackupAt).valueOf() : nowMs;
+    const diffHours = Math.max(0, (baseMs + autoBackupIntervalHours * 3_600_000 - nowMs) / 3_600_000);
+    if (!lastAutoBackupAt) return "right away on the next check";
+    if (diffHours < 1) return `in ${Math.max(1, Math.round(diffHours * 60))} min`;
+    if (diffHours < 48) return `in ${Math.max(1, Math.round(diffHours))} hours`;
+    return `in ${Math.max(1, Math.round(diffHours / 24))} days`;
+  }, [autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt]);
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -343,6 +381,11 @@ export default function SettingsScreen() {
   const canManageUsers = isSuperAdmin || roleAccess.has("POS_USERS");
   const canViewAudit = isSuperAdmin || roleAccess.has("POS_AUDIT");
   const canManageBackups = isSuperAdmin || roleAccess.has("POS_BACKUP");
+  const isBuiltInSuperAdmin = session?.cashierId === SUPER_ADMIN_ID;
+
+  useFocusEffect(useCallback(() => {
+    if (canManageBackups) void refreshBackupList();
+  }, [canManageBackups, refreshBackupList]));
 
   useEffect(() => {
     const normalizedScale = Math.min(1.5, Math.max(0.5, Math.round(uiScale * 10) / 10));
@@ -743,16 +786,6 @@ export default function SettingsScreen() {
     );
   };
 
-  const handleCreateLocalBackup = async () => {
-    setBackupBusy("export");
-    try {
-      const { file, envelope } = await RecoveryService.createBackup();
-      Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.\n\n${file.uri}`);
-    } catch (error: any) {
-      Alert.alert("Create backup", error?.message ?? "Unable to create the database backup.");
-    } finally { setBackupBusy(null); }
-  };
-
   const handleSelectBackup = async () => {
     setBackupBusy("import");
     try {
@@ -766,27 +799,118 @@ export default function SettingsScreen() {
     } finally { setBackupBusy(null); }
   };
 
-  const handleRestoreBackup = () => {
-    if (!selectedBackup) return;
+  const handleCreateLocalBackup = async () => {
+    setBackupBusy("export");
+    try {
+      const { envelope } = await RecoveryService.createBackup();
+      await refreshBackupList();
+      Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.`);
+    } catch (error: any) {
+      Alert.alert("Create backup", error?.message ?? "Unable to create the database backup.");
+    } finally { setBackupBusy(null); }
+  };
+
+  const handleDeleteBackup = (uri: string, name: string) => {
     Alert.alert(
-      "Restore this database?",
-      "Restore is allowed only on a fresh installation with no products, transfers, or sales. The checksum, schema, business identity, and totals will be verified before anything changes.",
+      "Delete backup",
+      `Are you sure you want to delete ${name}? This cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Restore verified backup", style: "destructive", onPress: () => void (async () => {
-          setBackupBusy("import");
+        { text: "Delete", style: "destructive", onPress: () => void (async () => {
+          setBusyBackupUri(uri);
           try {
-            await RecoveryService.restoreFreshInstallation(selectedBackup.file.uri);
-            setSelectedBackup(null);
-            Alert.alert("Database restored", "The database and branding assets were restored and verified. Return to sign-in before continuing.", [
-              { text: "Continue", onPress: () => router.replace("/(auth)") },
-            ]);
+            await RecoveryService.deleteBackup(uri);
+            await refreshBackupList();
           } catch (error: any) {
-            Alert.alert("Restore database", error?.message ?? "The backup could not be restored.");
-          } finally { setBackupBusy(null); }
-        })() },
+            Alert.alert("Delete backup", error?.message ?? "Unable to delete the backup file.");
+          } finally {
+            setBusyBackupUri(null);
+          }
+        })() }
       ]
     );
+  };
+
+  const handleRunAutoBackup = async () => {
+    setBackupBusy("export");
+    try {
+      await runAutoBackupNow();
+      await refreshBackupList();
+      Alert.alert("Auto backup created", "A checksum-verified local backup was created.");
+    } catch (error: any) {
+      Alert.alert("Auto backup", error?.message ?? "Unable to create the auto backup.");
+    } finally {
+      setBackupBusy(null);
+    }
+  };
+
+  const handleApplyBackupInterval = () => {
+    const parsed = Number(backupIntervalInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      Alert.alert("Auto backup", "Enter a valid number of hours (at least 1).");
+      setBackupIntervalInput(String(autoBackupIntervalHours));
+      return;
+    }
+    const value = Math.min(168, Math.max(1, Math.round(parsed)));
+    setAutoBackupIntervalHours(value);
+    setBackupIntervalInput(String(value));
+  };
+
+  const handleBackupIntervalPreset = (hours: number) => {
+    const value = Math.min(168, Math.max(1, Math.round(hours)));
+    setAutoBackupIntervalHours(value);
+    setBackupIntervalInput(String(value));
+  };
+
+  const requestRestore = (uri: string, label: string) => {
+    setRestoreTarget({ uri, label });
+    setRestorePin("");
+    setRestorePinError(null);
+    setRestorePinVisible(true);
+  };
+
+  const handleRestoreBackup = (uri?: string, label?: string) => {
+    const target = uri ?? selectedBackup?.file.uri;
+    if (!target) return;
+    requestRestore(target, label ?? selectedBackup?.file.name ?? "");
+  };
+
+  const confirmRestoreWithPin = () => {
+    if (!restoreTarget || restoreLockRef.current) return;
+    if (!restorePin.trim()) {
+      setRestorePinError("Enter your PIN to continue.");
+      return;
+    }
+    restoreLockRef.current = true;
+    setRestorePinBusy(true);
+    (async () => {
+      try {
+        const verification = await CashierService.verifyCurrentUserPin(restorePin.trim());
+        if (!verification.success) {
+          setRestorePinError(verification.error ?? "Incorrect PIN.");
+          return;
+        }
+        const target = restoreTarget.uri;
+        setRestorePinVisible(false);
+        setRestoreTarget(null);
+        setBackupBusy("import");
+        try {
+          await RecoveryService.restoreBackup(target);
+          setSelectedBackup(null);
+          await refreshBackupList();
+          Alert.alert("Database restored", "The database and branding assets were restored and verified. Return to sign-in before continuing.", [
+            { text: "Continue", onPress: () => router.replace("/(auth)") },
+          ]);
+        } catch (error: any) {
+          Alert.alert("Restore database", error?.message ?? "The backup could not be restored.");
+        } finally { setBackupBusy(null); }
+      } catch (error: any) {
+        setRestorePinError(error?.message ?? "Unable to verify your PIN.");
+      } finally {
+        restoreLockRef.current = false;
+        setRestorePinBusy(false);
+      }
+    })().catch(() => { restoreLockRef.current = false; setRestorePinBusy(false); });
   };
 
   const loadPairedPrinters = async () => {
@@ -1997,10 +2121,66 @@ export default function SettingsScreen() {
         <ApplicationSizeButtons value={uiScale} onChange={setUiScale} dark={dark} />
       </Card>
 
-      {canManageBackups && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore") && styles.hidden]}>
+      {canManageBackups && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("database backup export import recovery restore auto automatic schedule interval hours list delete remove local files") && styles.hidden]}>
         <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Database & Recovery</Text>
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the complete local database, branding assets, theme palettes, and device UI preferences, or validate and restore a compatible backup.</Text>
-        <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Safe restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Import validates the format, schema version, checksum, business identity, and totals. Restoration is blocked when the installation already contains products, transfers, or sales.</Text></View></View>
+        <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Restore can be performed at any time. The format, schema version, checksum, business identity, and totals are always validated, and you must enter your POS login {isBuiltInSuperAdmin ? "password" : "PIN"} to confirm. Restoring replaces the current database, so create a backup first if the existing data matters.</Text></View></View>
+
+        <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+          <View style={styles.autoBackupHeading}>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={{ color: posTheme.text, fontWeight: "900" }}>Auto backup</Text>
+              <Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Create a checksum-verified local backup automatically on a schedule.</Text>
+            </View>
+            <Switch
+              value={autoBackupEnabled}
+              onValueChange={setAutoBackupEnabled}
+              trackColor={{ false: posTheme.border, true: posTheme.accent }}
+              thumbColor={autoBackupEnabled ? posTheme.primary : posTheme.surface}
+            />
+          </View>
+          <View style={styles.autoBackupControls}>
+            <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 13 }}>Back up every</Text>
+            <TextInput
+              style={[styles.autoBackupInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
+              value={backupIntervalInput}
+              onChangeText={(value) => setBackupIntervalInput(value.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+              maxLength={3}
+              accessibilityLabel="Auto backup interval in hours"
+            />
+            <Text style={{ color: posTheme.muted, fontSize: 12 }}>hours</Text>
+            <TouchableOpacity style={[styles.autoBackupApply, { backgroundColor: posTheme.primary }]} onPress={handleApplyBackupInterval}>
+              <Ionicons name="checkmark" size={16} color={posTheme.onPrimary} />
+              <Text style={{ color: posTheme.onPrimary, fontWeight: "800", fontSize: 12 }}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.autoBackupPresets}>
+            {AUTO_BACKUP_INTERVAL_PRESETS.map((hours) => {
+              const active = autoBackupIntervalHours === hours;
+              return (
+                <TouchableOpacity
+                  key={hours}
+                  style={[styles.autoBackupPreset, { borderColor: active ? posTheme.primary : posTheme.border, backgroundColor: active ? posTheme.primary : "transparent" }]}
+                  onPress={() => handleBackupIntervalPreset(hours)}
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={{ color: active ? posTheme.onPrimary : posTheme.muted, fontWeight: "800", fontSize: 11 }}>{formatBackupIntervalLabel(hours)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.autoBackupStatus}>
+            <Ionicons name="time-outline" size={15} color={posTheme.muted} />
+            <Text style={{ color: posTheme.muted, fontSize: 12, flex: 1 }}>
+              {autoBackupEnabled
+                ? `Every ${formatBackupIntervalLabel(autoBackupIntervalHours)} · Last: ${lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString() : "never"} · Next: ${nextAutoBackupLabel}`
+                : "Auto backup is off. Turn it on to keep a scheduled recovery copy."}
+            </Text>
+          </View>
+          <Button title={backupBusy === "export" ? "Backing up..." : "Back Up Now"} icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
+        </View>
+
         <View style={styles.backupActions}>
           <Button title={backupBusy === "export" ? "Exporting backup..." : "Export Backup Locally"} icon="download-outline" onPress={() => void handleCreateLocalBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
           <Button title={backupBusy === "import" ? "Reading backup..." : "Select Backup File"} icon="folder-open-outline" variant="secondary" onPress={() => void handleSelectBackup()} loading={backupBusy === "import" && !selectedBackup} disabled={backupBusy !== null} style={styles.backupButton} />
@@ -2009,8 +2189,50 @@ export default function SettingsScreen() {
           <View style={styles.backupManifestTitle}><Ionicons name="checkmark-circle" size={21} color="#16a34a" /><Text style={{ color: posTheme.text, fontWeight: "900" }}>Verified backup selected</Text></View>
           <Text style={[styles.backupFileName, { color: posTheme.text }]} numberOfLines={2}>{selectedBackup.file.name}</Text>
           <View style={styles.backupTotals}><Text style={{ color: posTheme.muted }}>Created</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{new Date(selectedBackup.envelope.createdAt).toLocaleString()}</Text><Text style={{ color: posTheme.muted }}>Schema</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>v{selectedBackup.envelope.schemaVersion}</Text><Text style={{ color: posTheme.muted }}>Business ID</Text><Text selectable style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.businessId}</Text><Text style={{ color: posTheme.muted }}>Theme & UI preferences</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.uiPreferences ? "Included" : "Legacy backup — database only"}</Text><Text style={{ color: posTheme.muted }}>Records</Text><Text style={{ color: posTheme.text, fontWeight: "700" }}>{selectedBackup.envelope.totals.sales} sales · {selectedBackup.envelope.totals.products} products · {selectedBackup.envelope.totals.inventoryQuantity} stock</Text></View>
-          <View style={styles.backupActions}><Button title="Choose Another" variant="secondary" icon="folder-open-outline" onPress={() => void handleSelectBackup()} disabled={backupBusy !== null} style={styles.backupButton} /><Button title="Restore Backup" variant="danger" icon="refresh-outline" onPress={handleRestoreBackup} loading={backupBusy === "import"} disabled={backupBusy !== null} style={styles.backupButton} /></View>
+          <View style={styles.backupActions}><Button title="Choose Another" variant="secondary" icon="folder-open-outline" onPress={() => void handleSelectBackup()} disabled={backupBusy !== null} style={styles.backupButton} /><Button title="Restore Backup" variant="danger" icon="refresh-outline" onPress={() => handleRestoreBackup()} loading={backupBusy === "import"} disabled={backupBusy !== null} style={styles.backupButton} /></View>
         </View> : null}
+
+        <View style={styles.backupListHeader}>
+          <Text style={{ color: sectionTitleColor, fontWeight: "900", fontSize: 15 }}>Local backups</Text>
+          <View style={styles.backupListMeta}>
+            <Text style={{ color: sectionDescColor, fontSize: 12 }}>{backupItems.length} {backupItems.length === 1 ? "file" : "files"}</Text>
+            <TouchableOpacity style={[styles.backupRefreshButton, { borderColor: posTheme.border }]} onPress={() => void refreshBackupList()} disabled={backupListLoading} accessibilityLabel="Refresh backup list">
+              <Ionicons name="refresh-outline" size={16} color={posTheme.accent} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        {backupListLoading && backupItems.length === 0 ? (
+          <View style={styles.backupListEmpty}><ActivityIndicator size="small" color={posTheme.accent} /></View>
+        ) : backupItems.length === 0 ? (
+          <View style={[styles.backupListEmpty, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+            <Ionicons name="folder-open-outline" size={22} color={posTheme.muted} />
+            <Text style={{ color: posTheme.muted, fontSize: 12, textAlign: "center" }}>No local backups yet. Export a backup or turn on auto backup to create one.</Text>
+          </View>
+        ) : (
+          <View style={styles.backupList}>
+            {backupItems.map((backup) => (
+              <View key={backup.uri} style={[styles.backupFileRow, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+                <Ionicons name="document-text-outline" size={19} color={posTheme.accent} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>{backup.name}</Text>
+                  <Text style={{ color: posTheme.muted, fontSize: 11, marginTop: 3 }}>{new Date(backup.createdAt).toLocaleString()} · {formatFileSize(backup.size)}</Text>
+                </View>
+                <View style={styles.backupFileActions}>
+                  {busyBackupUri === backup.uri ? <ActivityIndicator size="small" color={posTheme.accent} /> : <>
+                    <TouchableOpacity style={[styles.backupFileAction, { borderColor: posTheme.primary }]} onPress={() => handleRestoreBackup(backup.uri, backup.name)} disabled={backupBusy !== null} accessibilityLabel={`Restore ${backup.name}`}>
+                      <Ionicons name="refresh-outline" size={15} color={posTheme.primary} />
+                      <Text style={{ color: posTheme.primary, fontWeight: "800", fontSize: 11 }}>Restore</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.backupFileAction, { borderColor: "#dc3545" }]} onPress={() => handleDeleteBackup(backup.uri, backup.name)} disabled={backupBusy !== null} accessibilityLabel={`Delete ${backup.name}`}>
+                      <Ionicons name="trash-outline" size={15} color="#dc3545" />
+                      <Text style={{ color: "#dc3545", fontWeight: "800", fontSize: 11 }}>Delete</Text>
+                    </TouchableOpacity>
+                  </>}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
       </Card>}
 
       {/* Device Card */}
@@ -2117,6 +2339,41 @@ export default function SettingsScreen() {
             ))}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Restore PIN Confirmation Modal */}
+      <Modal visible={restorePinVisible} transparent animationType="fade" onRequestClose={() => { if (!restorePinBusy) { setRestorePinVisible(false); setRestoreTarget(null); } }}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.restorePinModal, { backgroundColor: posTheme.surface, borderColor: posTheme.border }]}>
+            <View style={styles.backupManifestTitle}><Ionicons name="lock-closed-outline" size={20} color={posTheme.primary} /><Text style={{ color: posTheme.text, fontWeight: "900", fontSize: 16 }}>Confirm restore</Text></View>
+            <Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18 }}>Restoring replaces the entire local database with the selected backup. This cannot be undone.</Text>
+            {restoreTarget?.label ? <Text style={[styles.backupFileName, { color: posTheme.text, marginTop: 10, marginBottom: 0 }]} numberOfLines={2}>{restoreTarget.label}</Text> : null}
+            <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12, marginTop: 12, marginBottom: 6 }}>{isBuiltInSuperAdmin ? "Enter your password" : "Enter your PIN"} to continue</Text>
+            <TextInput
+              style={[styles.restorePinInput, { backgroundColor: inputBg, borderColor: restorePinError ? "#dc3545" : inputBorder, color: inputColor }]}
+              value={restorePin}
+              onChangeText={(value) => { setRestorePin(isBuiltInSuperAdmin ? value : value.replace(/[^0-9]/g, "")); if (restorePinError) setRestorePinError(null); }}
+              secureTextEntry
+              autoFocus
+              keyboardType={isBuiltInSuperAdmin ? "default" : "number-pad"}
+              maxLength={isBuiltInSuperAdmin ? 64 : 6}
+              placeholder={isBuiltInSuperAdmin ? "Password" : "6-digit PIN"}
+              placeholderTextColor={posTheme.muted}
+              editable={!restorePinBusy}
+              onSubmitEditing={confirmRestoreWithPin}
+            />
+            {restorePinError ? <Text style={{ color: "#dc3545", fontSize: 12, marginTop: 8 }}>{restorePinError}</Text> : null}
+            <View style={styles.restorePinActions}>
+              <TouchableOpacity style={[styles.restorePinCancel, { borderColor: posTheme.border }]} onPress={() => { if (!restorePinBusy) { setRestorePinVisible(false); setRestoreTarget(null); } }} disabled={restorePinBusy}>
+                <Text style={{ color: posTheme.muted, fontWeight: "800", fontSize: 13 }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.restorePinConfirm, { backgroundColor: "#dc3545" }]} onPress={confirmRestoreWithPin} disabled={restorePinBusy}>
+                {restorePinBusy ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="refresh-outline" size={16} color="#ffffff" />}
+                <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 13 }}>{backupBusy === "import" ? "Restoring..." : "Restore database"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* QR Scanner Modal */}
@@ -2245,6 +2502,22 @@ const styles = StyleSheet.create({
   backupManifestTitle: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
   backupFileName: { fontFamily: "monospace", fontSize: 12, marginBottom: 12 },
   backupTotals: { gap: 4, marginBottom: 14 },
+  backupAutoPanel: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 15, gap: 12 },
+  autoBackupHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14 },
+  autoBackupControls: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  autoBackupInput: { width: 74, minHeight: 40, borderWidth: 1, borderRadius: 7, paddingHorizontal: 12, fontSize: 14, fontWeight: "700", textAlign: "center" },
+  autoBackupApply: { minHeight: 40, borderRadius: 7, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  autoBackupPresets: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  autoBackupPreset: { minHeight: 34, borderWidth: 1, borderRadius: 7, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  autoBackupStatus: { flexDirection: "row", alignItems: "flex-start", gap: 7 },
+  backupListHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 18, marginBottom: 10 },
+  backupListMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backupRefreshButton: { width: 32, height: 32, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  backupList: { gap: 10 },
+  backupListEmpty: { borderWidth: 1, borderRadius: 10, padding: 18, alignItems: "center", justifyContent: "center", gap: 8 },
+  backupFileRow: { borderWidth: 1, borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  backupFileActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backupFileAction: { minHeight: 32, borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
   sectionHeadingRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -3144,6 +3417,11 @@ const styles = StyleSheet.create({
     color: "#1a202c",
     marginBottom: 12,
   },
+  restorePinModal: { width: "90%", maxWidth: 420, borderWidth: 1, borderRadius: 16, padding: 20 },
+  restorePinInput: { minHeight: 46, borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, fontSize: 16, fontWeight: "700", letterSpacing: 2 },
+  restorePinActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  restorePinCancel: { flex: 1, minHeight: 44, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  restorePinConfirm: { flex: 1.4, minHeight: 44, borderRadius: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   modalOption: {
     flexDirection: "row",
     justifyContent: "space-between",

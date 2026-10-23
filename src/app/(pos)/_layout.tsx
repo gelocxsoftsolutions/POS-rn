@@ -63,6 +63,14 @@ const navItems = [
     requiredPermission: "POS_RECEIPTS",
   },
   {
+    name: "returns",
+    label: "Returns",
+    icon: "arrow-undo-outline" as const,
+    activeIcon: "arrow-undo" as const,
+    href: "/(pos)/returns",
+    requiredPermission: "POS_RETURNS",
+  },
+  {
     name: "products",
     label: "Products",
     icon: "cube-outline" as const,

@@ -50,6 +50,20 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 const paymentLabel = (method: string) => method === "DIGITAL" ? "GCash/QRPh" : method;
+const withAlpha = (color: string, alpha: number) => {
+  const hex = color.trim();
+  const short = /^#([0-9a-f]{3})$/i.exec(hex);
+  const long = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (short) {
+    const [r, g, b] = short[1].split("").map((c) => parseInt(c + c, 16));
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (long) {
+    const value = parseInt(long[1], 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  }
+  return color;
+};
 
 function TrendChart({ points, dark }: { points: SalesTrendPoint[]; dark: boolean }) {
   const theme = usePosTheme();
@@ -122,12 +136,17 @@ function DateRangeCalendar({
     setSelecting(initialTarget === "end" ? "end" : "start");
   }, [endDate, initialTarget, startDate, visible]);
 
+  const today = dayjs().startOf("day");
   const leading = month.day();
   const daysInMonth = month.daysInMonth();
-  const cells = Array.from({ length: 42 }, (_, index) => {
+  const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+  const cells = Array.from({ length: totalCells }, (_, index) => {
     const dayNumber = index - leading + 1;
     return dayNumber > 0 && dayNumber <= daysInMonth ? month.date(dayNumber) : null;
   });
+  const rangeSpan = draftEnd.diff(draftStart, "day") + 1;
+  const isSameDay = draftStart.valueOf() === draftEnd.valueOf();
+  const rangeAlpha = withAlpha(theme.primary, theme.dark ? 0.32 : 0.15);
 
   const choose = (day: Dayjs) => {
     const selected = day.startOf("day");
@@ -140,35 +159,83 @@ function DateRangeCalendar({
     if (selected.valueOf() < draftStart.valueOf()) {
       setDraftStart(selected);
       setDraftEnd(selected);
+      setSelecting("end");
     } else {
       setDraftEnd(selected);
     }
+  };
+
+  const applyQuick = (start: Dayjs, end: Dayjs) => {
+    setDraftStart(start);
+    setDraftEnd(end);
+    setMonth(start.startOf("month"));
+    setSelecting("end");
   };
 
   return <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
     <View style={styles.calendarBackdrop}>
       <View style={[styles.calendarModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <View style={styles.calendarTopRow}>
-          <View><Text style={[styles.calendarTitle, { color: theme.text }]}>Select report range</Text><Text style={[styles.calendarSubtitle, { color: theme.muted }]}>Choose a start date, then an end date</Text></View>
-          <TouchableOpacity style={[styles.calendarClose, { backgroundColor: theme.surfaceAlt }]} onPress={onClose}><Ionicons name="close" size={20} color={theme.text} /></TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.calendarTitle, { color: theme.text }]}>Select report range</Text>
+            <Text style={[styles.calendarSubtitle, { color: theme.muted }]}>Choose a start date, then an end date</Text>
+          </View>
+          <TouchableOpacity style={[styles.calendarClose, { backgroundColor: theme.surfaceAlt }]} onPress={onClose} accessibilityLabel="Close calendar"><Ionicons name="close" size={20} color={theme.text} /></TouchableOpacity>
         </View>
         <View style={styles.rangeSummaryRow}>
-          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "start" ? theme.primary : theme.border, backgroundColor: theme.surfaceAlt }]} onPress={() => setSelecting("start")}><Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>FROM</Text><Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftStart.format("MMM D, YYYY")}</Text></TouchableOpacity>
-          <Ionicons name="arrow-forward" size={18} color={theme.muted} />
-          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "end" ? theme.primary : theme.border, backgroundColor: theme.surfaceAlt }]} onPress={() => setSelecting("end")}><Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>TO</Text><Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftEnd.format("MMM D, YYYY")}</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "start" ? theme.primary : theme.border, backgroundColor: selecting === "start" ? withAlpha(theme.primary, theme.dark ? 0.24 : 0.08) : theme.surfaceAlt }]} onPress={() => setSelecting("start")}>
+            <Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>FROM</Text>
+            <Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftStart.format("MMM D, YYYY")}</Text>
+          </TouchableOpacity>
+          <View style={styles.rangeSummaryDivider}>
+            <Ionicons name="arrow-forward" size={16} color={theme.muted} />
+            <Text style={[styles.rangeSummarySpan, { color: theme.accent }]}>{isSameDay ? "1 day" : `${rangeSpan} days`}</Text>
+          </View>
+          <TouchableOpacity style={[styles.rangeSummary, { borderColor: selecting === "end" ? theme.primary : theme.border, backgroundColor: selecting === "end" ? withAlpha(theme.primary, theme.dark ? 0.24 : 0.08) : theme.surfaceAlt }]} onPress={() => setSelecting("end")}>
+            <Text style={[styles.rangeSummaryLabel, { color: theme.muted }]}>TO</Text>
+            <Text style={[styles.rangeSummaryValue, { color: theme.text }]}>{draftEnd.format("MMM D, YYYY")}</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.calendarMonthRow}><TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.subtract(1, "month"))}><Ionicons name="chevron-back" size={20} color={theme.accent} /></TouchableOpacity><Text style={[styles.calendarMonth, { color: theme.text }]}>{month.format("MMMM YYYY")}</Text><TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.add(1, "month"))}><Ionicons name="chevron-forward" size={20} color={theme.accent} /></TouchableOpacity></View>
-        <View style={styles.calendarWeek}>{["S", "M", "T", "W", "T", "F", "S"].map((label, index) => <Text key={`${label}-${index}`} style={[styles.calendarWeekday, { color: theme.muted }]}>{label}</Text>)}</View>
+        <View style={styles.calendarMonthRow}>
+          <TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.subtract(1, "month"))} accessibilityLabel="Previous month"><Ionicons name="chevron-back" size={20} color={theme.accent} /></TouchableOpacity>
+          <Text style={[styles.calendarMonth, { color: theme.text }]}>{month.format("MMMM YYYY")}</Text>
+          <TouchableOpacity style={[styles.calendarNav, { borderColor: theme.border }]} onPress={() => setMonth((current) => current.add(1, "month"))} accessibilityLabel="Next month"><Ionicons name="chevron-forward" size={20} color={theme.accent} /></TouchableOpacity>
+        </View>
+        <View style={styles.calendarWeek}>{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, index) => <Text key={label} style={[styles.calendarWeekday, { color: index === 0 || index === 6 ? theme.accent : theme.muted }]}>{label}</Text>)}</View>
         <View style={styles.calendarGrid}>{cells.map((day, index) => {
-          if (!day) return <View key={`blank-${index}`} style={styles.calendarDay} />;
+          if (!day) return <View key={`blank-${index}`} style={styles.calendarDayWrap} />;
           const value = day.valueOf();
           const isStart = value === draftStart.valueOf();
           const isEnd = value === draftEnd.valueOf();
           const inRange = value > draftStart.valueOf() && value < draftEnd.valueOf();
+          const isToday = value === today.valueOf();
           const selected = isStart || isEnd;
-          return <TouchableOpacity key={day.format("YYYY-MM-DD")} style={[styles.calendarDay, inRange && { backgroundColor: theme.surfaceAlt }, selected && { backgroundColor: theme.primary }]} onPress={() => choose(day)}><Text style={[styles.calendarDayText, { color: selected ? theme.onPrimary : theme.text }]}>{day.date()}</Text></TouchableOpacity>;
+          const showRange = !isSameDay && (inRange || isStart || isEnd);
+          const rangeEdges = {
+            borderTopLeftRadius: (isStart || (isSameDay && selected)) ? 999 : 0,
+            borderBottomLeftRadius: (isStart || (isSameDay && selected)) ? 999 : 0,
+            borderTopRightRadius: (isEnd || (isSameDay && selected)) ? 999 : 0,
+            borderBottomRightRadius: (isEnd || (isSameDay && selected)) ? 999 : 0,
+          } as const;
+          return <TouchableOpacity key={day.format("YYYY-MM-DD")} style={styles.calendarDayWrap} activeOpacity={0.7} onPress={() => choose(day)} accessibilityLabel={day.format("MMMM D, YYYY")}>
+            <View style={[styles.calendarDayTrack, showRange && { backgroundColor: rangeAlpha, ...rangeEdges }]}>
+              <View style={[styles.calendarDayDot, selected && { backgroundColor: theme.primary }, !selected && isToday && { borderWidth: 1.5, borderColor: theme.accent }]}>
+                <Text style={[styles.calendarDayText, { color: selected ? theme.onPrimary : isToday ? theme.accent : theme.text }]}>{day.date()}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>;
         })}</View>
-        <View style={styles.calendarQuickRow}><TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => { const today = dayjs().startOf("day"); setDraftStart(today); setDraftEnd(today); }}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Today</Text></TouchableOpacity><TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => { const today = dayjs().startOf("day"); setDraftStart(today.subtract(6, "day")); setDraftEnd(today); }}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 7 days</Text></TouchableOpacity><TouchableOpacity style={[styles.calendarApply, { backgroundColor: theme.primary }]} onPress={() => onApply(draftStart.toDate(), draftEnd.toDate())}><Text style={{ color: theme.onPrimary, fontWeight: "900", fontSize: 12 }}>Apply range</Text></TouchableOpacity></View>
+        <View style={styles.calendarLegend}>
+          <View style={styles.calendarLegendItem}><View style={[styles.calendarLegendDot, { backgroundColor: theme.primary }]} /><Text style={[styles.calendarLegendText, { color: theme.muted }]}>Selected</Text></View>
+          <View style={styles.calendarLegendItem}><View style={[styles.calendarLegendDot, { borderWidth: 1.5, borderColor: theme.accent }]} /><Text style={[styles.calendarLegendText, { color: theme.muted }]}>Today</Text></View>
+        </View>
+        <View style={styles.calendarQuickRow}>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today, today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Today</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.subtract(6, "day"), today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 7 days</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.subtract(29, "day"), today)}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>Last 30 days</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarQuick, { borderColor: theme.border }]} onPress={() => applyQuick(today.startOf("month"), today.endOf("month").startOf("day"))}><Text style={{ color: theme.text, fontWeight: "800", fontSize: 11 }}>This month</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.calendarApply, { backgroundColor: theme.primary }]} onPress={() => onApply(draftStart.toDate(), draftEnd.toDate())}><Ionicons name="checkmark" size={16} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "900", fontSize: 12 }}>Apply range</Text></TouchableOpacity>
+        </View>
       </View>
     </View>
   </Modal>;
@@ -718,18 +785,26 @@ const styles = StyleSheet.create({
   calendarSubtitle: { fontSize: 11, marginTop: 3 },
   calendarClose: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   rangeSummaryRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16 },
-  rangeSummary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  rangeSummaryLabel: { fontSize: 9, fontWeight: "900" },
-  rangeSummaryValue: { fontSize: 12, fontWeight: "800", marginTop: 2 },
-  calendarMonthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 18, marginBottom: 10 },
-  calendarMonth: { fontSize: 15, fontWeight: "900" },
-  calendarNav: { width: 36, height: 36, borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  calendarWeek: { flexDirection: "row" },
-  calendarWeekday: { width: "14.2857%", textAlign: "center", fontSize: 10, fontWeight: "900", paddingVertical: 7 },
+  rangeSummary: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  rangeSummaryLabel: { fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
+  rangeSummaryValue: { fontSize: 13, fontWeight: "800", marginTop: 2 },
+  rangeSummaryDivider: { alignItems: "center", gap: 2, paddingHorizontal: 2 },
+  rangeSummarySpan: { fontSize: 9, fontWeight: "900" },
+  calendarMonthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 18, marginBottom: 8 },
+  calendarMonth: { fontSize: 16, fontWeight: "900" },
+  calendarNav: { width: 38, height: 38, borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  calendarWeek: { flexDirection: "row", marginBottom: 2 },
+  calendarWeekday: { width: "14.2857%", textAlign: "center", fontSize: 10, fontWeight: "900", paddingVertical: 7, textTransform: "uppercase" },
   calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
-  calendarDay: { width: "14.2857%", aspectRatio: 1.15, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  calendarDayText: { fontSize: 12, fontWeight: "700" },
+  calendarDayWrap: { width: "14.2857%", aspectRatio: 1, padding: 1.5 },
+  calendarDayTrack: { flex: 1, alignItems: "center", justifyContent: "center" },
+  calendarDayDot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  calendarDayText: { fontSize: 12.5, fontWeight: "800" },
+  calendarLegend: { flexDirection: "row", gap: 16, marginTop: 8, marginBottom: 2 },
+  calendarLegendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  calendarLegendDot: { width: 12, height: 12, borderRadius: 6 },
+  calendarLegendText: { fontSize: 10, fontWeight: "700" },
   calendarQuickRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 14 },
   calendarQuick: { minHeight: 38, borderWidth: 1, borderRadius: 9, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  calendarApply: { minHeight: 40, borderRadius: 9, paddingHorizontal: 18, alignItems: "center", justifyContent: "center", marginLeft: "auto" },
+  calendarApply: { minHeight: 40, borderRadius: 9, paddingHorizontal: 18, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", marginLeft: "auto" },
 });

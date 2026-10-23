@@ -136,8 +136,22 @@ export const CashierService = {
     }
   },
 
-  async loginSuperAdmin(username: string, password: string) {
-    if (
+  async verifyCurrentUserPin(pin: string): Promise<{ success: boolean; error?: string }> {
+    const session = useCashierStore.getState().session;
+    if (!session) return { success: false, error: "Sign in before confirming this action." };
+    if (session.cashierId === SUPER_ADMIN_ID) {
+      return secureCredentialHash(pin) === SUPER_ADMIN_PASSWORD_HASH
+        ? { success: true }
+        : { success: false, error: "Incorrect password." };
+    }
+    const cashier = await CashierRepository.findById(session.cashierId);
+    if (!cashier || !cashier.pinHash) return { success: false, error: "This account has no PIN set." };
+    return cashier.pinHash === sha256(pin)
+      ? { success: true }
+      : { success: false, error: "Incorrect PIN." };
+  },
+
+  async loginSuperAdmin(username: string, password: string) {    if (
       secureCredentialHash(username.trim().toLowerCase()) !== SUPER_ADMIN_USERNAME_HASH ||
       secureCredentialHash(password) !== SUPER_ADMIN_PASSWORD_HASH
     ) {

@@ -31,6 +31,13 @@ export interface BackupEnvelope {
   totals: { sales: number; saleTotal: number; inventoryQuantity: number; products: number };
 }
 
+export interface BackupFileInfo {
+  name: string;
+  uri: string;
+  size: number;
+  createdAt: string;
+}
+
 function backupIntegrityPayload(envelope: Omit<BackupEnvelope, "backupChecksum"> | BackupEnvelope) {
   return JSON.stringify({
     format: envelope.format,
@@ -59,6 +66,20 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+function forceRollbackJournalMode(bytes: Uint8Array): Uint8Array {
+  // SQLite serialized images that declare WAL mode (header bytes 18/19 == 2)
+  // cannot be queried after being loaded into an in-memory database: the first
+  // prepare fails with SQLITE_CANTOPEN ("unable to open database file").
+  // The snapshot is fully checkpointed before serialization, so downgrading the
+  // header to the legacy rollback-journal mode is safe and keeps deserialized
+  // restores queryable.
+  if (bytes.length >= 20 && (bytes[18] === 2 || bytes[19] === 2)) {
+    bytes[18] = 1;
+    bytes[19] = 1;
+  }
+  return bytes;
+}
+
 async function databaseTotals() {
   const sales = await queryFirst<{ count: number; total: number }>(
     "SELECT COUNT(*) count, COALESCE(SUM(total), 0) total FROM Sale WHERE status = 'COMPLETED'"
@@ -81,38 +102,72 @@ async function readAsset(name: BackupAsset["name"], uri: string | null): Promise
   } catch { return null; }
 }
 
+async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelope }> {
+  const business = BusinessConfigurationService.current();
+  const deviceId = useDeviceStore.getState().device.deviceId;
+  const database = await getDatabase();
+  await database.execAsync("PRAGMA wal_checkpoint(FULL)");
+  const bytes = forceRollbackJournalMode(await database.serializeAsync());
+  const temp = new File(Paths.cache, `pos-${Date.now()}.sqlite`);
+  temp.create({ overwrite: true });
+  temp.write(bytes);
+  const assets = (await Promise.all([
+    readAsset("businessLogo", business.businessLogoUri),
+    readAsset("receiptLogo", business.receiptLogoUri),
+  ])).filter((asset): asset is BackupAsset => Boolean(asset));
+  const draft: Omit<BackupEnvelope, "backupChecksum"> = {
+    format: "nct-pos-backup", formatVersion: 2, schemaVersion: SCHEMA_VERSION,
+    businessId: business.businessId, deviceId, createdAt: new Date().toISOString(),
+    databaseChecksum: bytesToHex(sha256Bytes(bytes)), databaseBase64: await temp.base64(),
+    assets, uiPreferences: exportUiPreferences(), totals: await databaseTotals(),
+  };
+  const envelope: BackupEnvelope = {
+    ...draft,
+    backupChecksum: bytesToHex(sha256Bytes(new TextEncoder().encode(backupIntegrityPayload(draft)))),
+  };
+  temp.delete();
+  const directory = new Directory(Paths.document, "pos-backups");
+  directory.create({ intermediates: true, idempotent: true });
+  const file = new File(directory, `${business.businessId}-${Date.now()}.nctposbackup`);
+  file.create({ overwrite: false });
+  file.write(JSON.stringify(envelope));
+  return { file, envelope };
+}
+
 export const RecoveryService = {
   async createBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
     await requirePermission("POS_BACKUP", "export database backups");
-    const business = BusinessConfigurationService.current();
-    const deviceId = useDeviceStore.getState().device.deviceId;
-    const database = await getDatabase();
-    await database.execAsync("PRAGMA wal_checkpoint(FULL)");
-    const bytes = await database.serializeAsync();
-    const temp = new File(Paths.cache, `pos-${Date.now()}.sqlite`);
-    temp.create({ overwrite: true });
-    temp.write(bytes);
-    const assets = (await Promise.all([
-      readAsset("businessLogo", business.businessLogoUri),
-      readAsset("receiptLogo", business.receiptLogoUri),
-    ])).filter((asset): asset is BackupAsset => Boolean(asset));
-    const draft: Omit<BackupEnvelope, "backupChecksum"> = {
-      format: "nct-pos-backup", formatVersion: 2, schemaVersion: SCHEMA_VERSION,
-      businessId: business.businessId, deviceId, createdAt: new Date().toISOString(),
-      databaseChecksum: bytesToHex(sha256Bytes(bytes)), databaseBase64: await temp.base64(),
-      assets, uiPreferences: exportUiPreferences(), totals: await databaseTotals(),
-    };
-    const envelope: BackupEnvelope = {
-      ...draft,
-      backupChecksum: bytesToHex(sha256Bytes(new TextEncoder().encode(backupIntegrityPayload(draft)))),
-    };
-    temp.delete();
+    return createBackupFile();
+  },
+
+  async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
+    return createBackupFile();
+  },
+
+  async listBackups(): Promise<BackupFileInfo[]> {
     const directory = new Directory(Paths.document, "pos-backups");
-    directory.create({ intermediates: true, idempotent: true });
-    const file = new File(directory, `${business.businessId}-${Date.now()}.nctposbackup`);
-    file.create({ overwrite: false });
-    file.write(JSON.stringify(envelope));
-    return { file, envelope };
+    if (!directory.exists) return [];
+    let entries: (File | Directory)[] = [];
+    try {
+      entries = directory.list();
+    } catch {
+      return [];
+    }
+    return entries
+      .filter((entry): entry is File => entry instanceof File && entry.name.endsWith(".nctposbackup") && entry.exists)
+      .map((file) => {
+        const stamp = /-(\d{10,})\.nctposbackup$/.exec(file.name)?.[1];
+        const parsed = stamp ? new Date(Number(stamp)) : null;
+        const createdAt = parsed && !Number.isNaN(parsed.valueOf()) ? parsed.toISOString() : new Date().toISOString();
+        return { name: file.name, uri: file.uri, size: file.size ?? 0, createdAt };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async deleteBackup(uri: string): Promise<void> {
+    await requirePermission("POS_BACKUP", "delete database backups");
+    const file = new File(uri);
+    if (file.exists) file.delete();
   },
 
   async queueBackupUpload(reference: string): Promise<{ backupId: string; fileUri: string }> {
@@ -154,21 +209,18 @@ export const RecoveryService = {
     return envelope;
   },
 
-  async restoreFreshInstallation(fileUri: string): Promise<void> {
+  async restoreBackup(fileUri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "restore database backups");
     const envelope = await this.validate(fileUri);
-    const existing = await queryFirst<{ records: number }>(
-      `SELECT (SELECT COUNT(*) FROM Sale) + (SELECT COUNT(*) FROM Product) +
-              (SELECT COUNT(*) FROM InventoryTransfer) records`
-    );
-    if ((existing?.records ?? 0) > 0) throw new Error("Restore is allowed only on a fresh installation; existing POS data was not changed.");
-    const source = await SQLite.deserializeDatabaseAsync(base64ToBytes(envelope.databaseBase64));
+    const source = await SQLite.deserializeDatabaseAsync(forceRollbackJournalMode(base64ToBytes(envelope.databaseBase64)));
+    const destination = await getDatabase();
     try {
       const meta = await source.getFirstAsync<{ v: number }>("SELECT v FROM _meta WHERE key = 'schema_version'");
       const identity = await source.getFirstAsync<{ businessId: string }>("SELECT businessId FROM StoreSettings WHERE id = 'default'");
       if (meta?.v !== SCHEMA_VERSION || identity?.businessId !== envelope.businessId) throw new Error("Backup identity or schema metadata does not match its manifest.");
-      await SQLite.backupDatabaseAsync({ sourceDatabase: source, destDatabase: await getDatabase() });
+      await SQLite.backupDatabaseAsync({ sourceDatabase: source, destDatabase: destination });
     } finally { await source.closeAsync(); }
+    await destination.execAsync("PRAGMA journal_mode = WAL;");
     const restoredTotals = await databaseTotals();
     if (JSON.stringify(restoredTotals) !== JSON.stringify(envelope.totals)) throw new Error("Restored database totals do not match the backup manifest.");
     const directory = new Directory(Paths.document, "business-branding");

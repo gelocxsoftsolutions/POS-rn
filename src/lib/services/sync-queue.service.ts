@@ -69,6 +69,10 @@ export const SyncQueueService = {
               endpoint = "/api/pos/transfers";
               method = "PUT";
               break;
+            case "Return":
+              endpoint = "/api/pos/returns";
+              method = "POST";
+              break;
             case "EndOfDay":
               endpoint = "/api/pos/dealership/end-of-day";
               method = "POST";

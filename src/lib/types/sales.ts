@@ -69,6 +69,8 @@ export interface CreateSaleInput {
     weight?: number | null;
   }>;
   discountCode?: string;
+  discount?: number;
+  receiptNumber?: string;
   paidAmount?: number;
   shiftId?: string;
   deviceId?: string;
