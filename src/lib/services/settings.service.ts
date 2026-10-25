@@ -43,7 +43,7 @@ export const SettingsService = {
         address: "",
         receiptFooter: "",
         businessId: "nct-default",
-        operatingMode: "NCT_DEPENDENT",
+        operatingMode: "INDEPENDENT",
         posSystemName: "NCT Seafoods POS",
         headerName: "NCT Seafoods",
         businessLogoUri: null,

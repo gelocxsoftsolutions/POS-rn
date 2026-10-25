@@ -314,6 +314,9 @@ export default function SignInScreen() {
           <Text style={[styles.unregisteredSubtitle, { color: secondaryTextColor }]}>
             This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
+          <TouchableOpacity style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={() => router.push("/(auth)/dealership-cloud" as any)}>
+            <Text style={[styles.registerButtonText, { color: theme.onPrimary }]}>Set Up Dealership</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
             onPress={() => router.push("/(auth)/register")}

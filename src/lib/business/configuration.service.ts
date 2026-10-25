@@ -36,9 +36,7 @@ function fromRow(row: Awaited<ReturnType<typeof SettingsRepository.get>>): Busin
   const template = safeTemplate(row.receiptTemplateJson, row.receiptFooter);
   return {
     businessId: row.businessId || DEFAULT_BUSINESS_CONFIGURATION.businessId,
-    // POS-rn is OMS-dependent only. A legacy stored mode is never allowed to
-    // enable a different operating model on this application.
-    operatingMode: "NCT_DEPENDENT",
+    operatingMode: row.operatingMode === "INDEPENDENT" ? "INDEPENDENT" : "NCT_DEPENDENT",
     businessName: row.storeName || DEFAULT_BUSINESS_CONFIGURATION.businessName,
     posSystemName: row.posSystemName || DEFAULT_BUSINESS_CONFIGURATION.posSystemName,
     headerName: row.headerName || row.storeName || DEFAULT_BUSINESS_CONFIGURATION.headerName,
@@ -56,9 +54,6 @@ function fromRow(row: Awaited<ReturnType<typeof SettingsRepository.get>>): Busin
 export const BusinessConfigurationService = {
   async load(): Promise<BusinessConfiguration> {
     const row = await SettingsRepository.get();
-    if (row.operatingMode !== "NCT_DEPENDENT") {
-      await SettingsRepository.upsert({ operatingMode: "NCT_DEPENDENT" });
-    }
     const configuration = fromRow(row);
     useBusinessConfigStore.getState().setConfiguration(configuration);
     return configuration;
@@ -90,15 +85,18 @@ export const BusinessConfigurationService = {
         throw new Error("This installation already contains business data. Provisioning a different business ID was blocked.");
       }
     }
+    const nextMode = input.operatingMode ?? current.operatingMode;
+    if (nextMode !== current.operatingMode) {
+      const data = await queryFirst<{ records: number }>("SELECT (SELECT COUNT(*) FROM Product) + (SELECT COUNT(*) FROM Sale) records");
+      if ((data?.records ?? 0) > 0) throw new Error("Operating mode cannot change on a device containing products or sales. Use a fresh dealership installation.");
+    }
     await SettingsRepository.upsert({
       businessId: requestedId || current.businessId,
       storeName: input.businessName?.trim() || current.businessName,
       headerName: input.businessName?.trim() || current.headerName,
       posSystemName: input.posSystemName?.trim() || current.posSystemName,
+      operatingMode: nextMode,
     });
-    // OMS provisions this POS as dependent. Ignore a mode supplied by older
-    // servers rather than allowing a device registration to change it.
-    await SettingsRepository.upsert({ operatingMode: "NCT_DEPENDENT" });
     return this.load();
   },
 
@@ -141,6 +139,6 @@ export const BusinessConfigurationService = {
     stockResolution?: string;
   }): Promise<BusinessConfiguration> {
     void input;
-    throw new Error("This POS is permanently configured for NCT OMS-dependent operation.");
+    throw new Error("Operating mode is assigned by OMS Dealership enrollment. Reconnect using the dealership connection to apply it.");
   },
 };

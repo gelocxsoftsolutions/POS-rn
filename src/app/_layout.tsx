@@ -5,7 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { MD3DarkTheme, MD3LightTheme, PaperProvider } from "react-native-paper";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { getDatabase } from "@/lib/db/connection";
+import { getDatabase, execute } from "@/lib/db/connection";
 import { SeedService } from "@/lib/services/seed.service";
 import { initApiConfig } from "@/lib/api/http";
 import { AuthenticationService } from "@/lib/services/authentication.service";
@@ -15,6 +15,7 @@ import { startAutoBackupScheduler } from "@/lib/services/auto-backup.service";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { loadCloudConnection } from "@/lib/services/dealership-cloud.service";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -53,6 +54,8 @@ export default function RootLayout() {
         await BusinessConfigurationService.load();
         await SeedService.run();
         await initApiConfig();
+        await loadCloudConnection();
+        await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType='DatabaseBackup' AND status='PROCESSING'");
         await AuthenticationService.init();
         startNetworkListener();
         startBackgroundSync();
