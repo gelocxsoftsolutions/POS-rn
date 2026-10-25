@@ -4,6 +4,8 @@ import { File } from "expo-file-system";
 import { uploadCloudBackup } from "@/lib/services/dealership-cloud.service";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 
+let inFlight: Promise<{ processed: number; failed: number }> | null = null;
+
 export const SyncQueueService = {
   async enqueue(
     entityType: string,
@@ -26,6 +28,18 @@ export const SyncQueueService = {
   },
 
   async processPending(): Promise<{ processed: number; failed: number }> {
+    if (inFlight) return inFlight;
+    inFlight = processBackups();
+    try { return await inFlight; } finally { inFlight = null; }
+  },
+
+  async getStats(): Promise<SyncStats> {
+    try { return await SyncQueueRepository.getStats(); }
+    catch { return { total: 0, pending: 0, processing: 0, synced: 0, failed: 0 }; }
+  },
+};
+
+async function processBackups(): Promise<{ processed: number; failed: number }> {
     let processed = 0, failed = 0;
     const pending = await SyncQueueRepository.getPending(50);
     for (const item of pending) {
@@ -53,13 +67,4 @@ export const SyncQueueService = {
       }
     }
     return { processed, failed };
-  },
-
-  async getStats(): Promise<SyncStats> {
-    try {
-      return await SyncQueueRepository.getStats();
-    } catch {
-      return { total: 0, pending: 0, processing: 0, synced: 0, failed: 0 };
-    }
-  },
-};
+}

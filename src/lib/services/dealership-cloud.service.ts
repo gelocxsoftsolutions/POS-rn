@@ -69,3 +69,11 @@ export async function uploadCloudBackup(body: unknown) {
   if (!response.ok) throw Object.assign(new Error(data.error ?? `Cloud backup failed (${response.status})`), { status: response.status });
   return data as { backupId: string; checksum: string; byteSize: number };
 }
+
+export async function reportBackupStatus(status: unknown) {
+  if (!connection) return;
+  const response = await timedFetch(`${connection.serverUrl}/api/pos/dealership/connection`, {
+    method: "PUT", headers: { "Content-Type": "application/json", "x-dealership-key": connection.deviceKey }, body: JSON.stringify(status),
+  }, 15000);
+  if (!response.ok) throw new Error(`Unable to report backup status (${response.status})`);
+}

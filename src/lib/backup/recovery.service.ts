@@ -27,6 +27,7 @@ export interface BackupEnvelope {
   createdAt: string;
   databaseChecksum: string;
   backupChecksum?: string;
+  source?: "MANUAL" | "AUTOMATIC";
   databaseBase64: string;
   assets: BackupAsset[];
   uiPreferences?: PersistedUiPreferences;
@@ -38,6 +39,7 @@ export interface BackupFileInfo {
   uri: string;
   size: number;
   createdAt: string;
+  source: "MANUAL" | "AUTOMATIC" | "LEGACY";
 }
 
 function backupIntegrityPayload(envelope: Omit<BackupEnvelope, "backupChecksum"> | BackupEnvelope) {
@@ -52,6 +54,7 @@ function backupIntegrityPayload(envelope: Omit<BackupEnvelope, "backupChecksum">
     assets: envelope.assets,
     uiPreferences: envelope.uiPreferences ?? null,
     totals: envelope.totals,
+    ...(envelope.source !== undefined ? { source: envelope.source } : {}),
   });
 }
 
@@ -104,13 +107,13 @@ async function readAsset(name: BackupAsset["name"], uri: string | null): Promise
   } catch { return null; }
 }
 
-async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelope }> {
+async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file: File; envelope: BackupEnvelope }> {
   const business = BusinessConfigurationService.current();
   const deviceId = getCloudConnection()?.deviceId ?? useDeviceStore.getState().device.deviceId;
   const database = await getDatabase();
   await database.execAsync("PRAGMA wal_checkpoint(FULL)");
   const bytes = forceRollbackJournalMode(await database.serializeAsync());
-  const temp = new File(Paths.cache, `pos-${Date.now()}.sqlite`);
+  const temp = new File(Paths.cache, `pos-${uuid()}.sqlite`);
   temp.create({ overwrite: true });
   temp.write(bytes);
   const assets = (await Promise.all([
@@ -122,6 +125,7 @@ async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelop
     businessId: business.businessId, deviceId, createdAt: new Date().toISOString(),
     databaseChecksum: bytesToHex(sha256Bytes(bytes)), databaseBase64: await temp.base64(),
     assets, uiPreferences: exportUiPreferences(), totals: await databaseTotals(),
+    source,
   };
   const envelope: BackupEnvelope = {
     ...draft,
@@ -130,20 +134,22 @@ async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelop
   temp.delete();
   const directory = new Directory(Paths.document, "pos-backups");
   directory.create({ intermediates: true, idempotent: true });
-  const file = new File(directory, `${business.businessId}-${Date.now()}.nctposbackup`);
+  const file = new File(directory, `${business.businessId}-${source.toLowerCase()}-${uuid()}-${Date.now()}.nctposbackup`);
   file.create({ overwrite: false });
   file.write(JSON.stringify(envelope));
   return { file, envelope };
 }
 
 export const RecoveryService = {
-  async createBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
+  async createBackup(options: { upload?: boolean } = {}): Promise<{ file: File; envelope: BackupEnvelope }> {
     await requirePermission("POS_BACKUP", "export database backups");
-    return createBackupFile();
+    const backup = await createBackupFile("MANUAL");
+    if (options.upload !== false && getCloudConnection()) await queueCreatedBackup(backup.file, backup.envelope, `manual:${backup.envelope.createdAt}`);
+    return backup;
   },
 
   async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
-    const backup = await createBackupFile();
+    const backup = await createBackupFile("AUTOMATIC");
     if (getCloudConnection()) {
       try {
         await queueCreatedBackup(backup.file, backup.envelope, `auto:${backup.envelope.createdAt}`);
@@ -172,7 +178,8 @@ export const RecoveryService = {
         const stamp = /-(\d{10,})\.nctposbackup$/.exec(file.name)?.[1];
         const parsed = stamp ? new Date(Number(stamp)) : null;
         const createdAt = parsed && !Number.isNaN(parsed.valueOf()) ? parsed.toISOString() : new Date().toISOString();
-        return { name: file.name, uri: file.uri, size: file.size ?? 0, createdAt };
+        const source: BackupFileInfo["source"] = file.name.includes("-automatic-") ? "AUTOMATIC" : file.name.includes("-manual-") ? "MANUAL" : "LEGACY";
+        return { name: file.name, uri: file.uri, size: file.size ?? 0, createdAt, source };
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
@@ -196,7 +203,8 @@ export const RecoveryService = {
        ORDER BY createdAt DESC LIMIT 1`, [idempotencyKey]
     );
     if (existing) return { backupId: existing.entityId, fileUri: "Stored in the durable upload queue" };
-    const { file, envelope } = await this.createBackup();
+    await requirePermission("POS_BACKUP", "upload database backups");
+    const { file, envelope } = await createBackupFile("MANUAL");
     const backupId = await queueCreatedBackup(file, envelope, reference);
     return { backupId, fileUri: file.uri };
   },
@@ -256,6 +264,7 @@ async function queueCreatedBackup(file: File, envelope: BackupEnvelope, referenc
     idempotencyKey, businessId: envelope.businessId, deviceId: envelope.deviceId,
     schemaVersion: envelope.schemaVersion, checksum: envelope.databaseChecksum,
     createdAt: envelope.createdAt, fileUri: file.uri,
+    source: envelope.source ?? "LEGACY",
   }, idempotencyKey);
   if (!queued) throw new Error("Local backup saved, but cloud upload could not be queued. Please retry.");
   return backupId;

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { verifyCloudConnection, saveCloudConnection, getCloudConnection } from "@/lib/services/dealership-cloud.service";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
@@ -14,12 +14,26 @@ import { sha256 } from "@/lib/crypto/ed25519";
 import { RecoveryService } from "@/lib/backup/recovery.service";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { nextBackupAt } from "@/lib/backup/schedule";
+import { runSyncCycle } from "@/lib/services/sync-worker";
 
 export default function DealershipCloudScreen() {
   const theme = usePosTheme();
   const router = useRouter();
   const session = useCashierStore(state => state.session);
   const cloudError = useBackupSettingsStore(state => state.lastCloudError);
+  const settings = useBackupSettingsStore();
+  const [dailyTime, setDailyTime] = useState(settings.dailyTime);
+  const [hours, setHours] = useState(String(settings.autoBackupIntervalHours));
+  const saveSchedule = () => {
+    if (!session?.isSuperAdmin) return;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyTime) || !Number.isInteger(Number(hours)) || Number(hours) < 1 || Number(hours) > 168) {
+      Alert.alert("Backup schedule", "Enter a time as HH:mm (24-hour clock) and an interval from 1 to 168 hours."); return;
+    }
+    settings.setDailyTime(dailyTime); settings.setAutoBackupIntervalHours(Number(hours));
+    void runSyncCycle().catch(() => {});
+    Alert.alert("Schedule saved", "Your schedule uses this device's local time. Backups run while the app is open and signed in; missed backups are caught up when it resumes.");
+  };
   const [connectionText, setConnectionText] = useState("");
   const [serverUrl, setServerUrl] = useState(getCloudConnection()?.serverUrl ?? "https://staging.nctseafoods.store");
   const [scanning, setScanning] = useState(false);
@@ -64,6 +78,7 @@ export default function DealershipCloudScreen() {
     try {
       await RecoveryService.queueBackupUpload(`manual:${Date.now()}`);
       const result = await SyncQueueService.processPending();
+      void runSyncCycle().catch(() => {});
       setStatus(result.failed ? "Backup retained locally. Cloud upload failed; use Retry uploads when the connection is available." : result.processed ? "Database backup saved to cloud and verified." : "Backup queued for cloud upload. Keep the app open while it completes.");
     } catch (error: any) { Alert.alert("Cloud backup", error?.message ?? "Backup failed"); }
     finally { setBusy(false); }
@@ -98,6 +113,15 @@ export default function DealershipCloudScreen() {
       {!session && <><Text style={{ color: theme.text, fontWeight: "700" }}>Owner account (new installations only)</Text><TextInput style={field} placeholder="Owner name" placeholderTextColor={theme.muted} value={ownerName} onChangeText={setOwnerName} /><TextInput style={field} placeholder="Six-digit owner PIN" placeholderTextColor={theme.muted} value={pin} onChangeText={setPin} maxLength={6} keyboardType="number-pad" secureTextEntry /><TextInput style={field} placeholder="Confirm PIN" placeholderTextColor={theme.muted} value={confirmPin} onChangeText={setConfirmPin} maxLength={6} keyboardType="number-pad" secureTextEntry /></>}
       <TouchableOpacity disabled={busy} onPress={() => void connect()} style={{ backgroundColor: theme.primary, padding: 15, borderRadius: 8, opacity: busy ? 0.5 : 1 }}><Text style={{ color: theme.onPrimary, fontWeight: "700", textAlign: "center" }}>{busy ? "Working..." : "Connect Dealership"}</Text></TouchableOpacity>
       {session?.isSuperAdmin && <><TouchableOpacity disabled={busy} onPress={() => void upload()} style={field}><Text style={{ color: theme.text }}>Back Up to Cloud Now</Text></TouchableOpacity><TouchableOpacity disabled={busy} onPress={() => void retry()} style={field}><Text style={{ color: theme.text }}>Retry Uploads</Text></TouchableOpacity></>}
+      {session?.isSuperAdmin && <View style={{ ...field, gap: 12 }}>
+        <Text style={{ color: theme.text, fontWeight: "800", fontSize: 18 }}>Automatic backup schedule</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><Text style={{ color: theme.text }}>Enable automatic backups</Text><Switch value={settings.autoBackupEnabled} onValueChange={settings.setAutoBackupEnabled} /></View>
+        <View style={{ flexDirection: "row", gap: 12 }}>{(["INTERVAL", "DAILY"] as const).map(mode => <TouchableOpacity key={mode} onPress={() => settings.setScheduleMode(mode)} style={{ padding: 12, borderRadius: 10, backgroundColor: settings.scheduleMode === mode ? theme.primary : theme.surfaceAlt }}><Text style={{ color: settings.scheduleMode === mode ? theme.onPrimary : theme.text }}>{mode === "DAILY" ? "At a daily time" : "Every few hours"}</Text></TouchableOpacity>)}</View>
+        {settings.scheduleMode === "DAILY" ? <TextInput accessibilityLabel="Daily backup time" value={dailyTime} onChangeText={setDailyTime} placeholder="22:00" maxLength={5} keyboardType="numbers-and-punctuation" style={field} /> : <TextInput accessibilityLabel="Backup interval hours" value={hours} onChangeText={setHours} keyboardType="number-pad" maxLength={3} style={field} />}
+        <Text style={{ color: theme.muted }}>Device time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Next: {nextBackupAt(settings)?.toLocaleString() ?? "Paused"}</Text>
+        <TouchableOpacity onPress={saveSchedule} style={{ backgroundColor: theme.primary, borderRadius: 10, padding: 14 }}><Text style={{ color: theme.onPrimary, textAlign: "center", fontWeight: "700" }}>Save schedule</Text></TouchableOpacity>
+        <Text style={{ color: theme.muted, fontSize: 12 }}>Manual backups and automatic backups are labeled separately in OMS. Uploads retry after connectivity returns.</Text>
+      </View>}
       <Text style={{ color: theme.muted, fontSize: 12 }}>The cloud connection does not replace your local database. Offline backups remain queued. Maximum cloud backup size: 32 MiB. Keep the app open for automatic uploads.</Text>
     </View>
   </ScrollView>;

@@ -4,7 +4,9 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useNetworkStore } from "@/lib/services/network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
-import { getCloudConnection } from "@/lib/services/dealership-cloud.service";
+import { getCloudConnection, reportBackupStatus } from "@/lib/services/dealership-cloud.service";
+import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
+import { nextBackupAt } from "@/lib/backup/schedule";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -14,6 +16,14 @@ export async function runSyncCycle(): Promise<void> {
   useSyncStore.getState().setIsSyncing(true);
   try {
     await SyncQueueService.processPending();
+    const backup = useBackupSettingsStore.getState();
+    const stats = await SyncQueueService.getStats();
+    if (backup.hydrated) await reportBackupStatus({
+      enabled: backup.autoBackupEnabled, mode: backup.scheduleMode, intervalHours: backup.autoBackupIntervalHours,
+      dailyTime: backup.dailyTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Device local time",
+      nextBackupAt: nextBackupAt(backup)?.toISOString() ?? null, lastBackupAt: backup.lastAutoBackupAt,
+      pending: stats.pending + stats.processing, failed: stats.failed, error: backup.lastCloudError?.slice(0, 1000) ?? null,
+    }).catch(() => {});
     if (BusinessConfigurationService.capabilities().importNctCatalog) {
       const device = useDeviceStore.getState().device;
       if (device.deviceId) {

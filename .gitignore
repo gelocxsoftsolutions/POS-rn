@@ -18,3 +18,4 @@ ios/
 # Dealership validation artifacts
 .dealership-export/
 dealership-*.log
+.dealership-export.log
