@@ -23,7 +23,7 @@ async function timedFetch(url: string, options: RequestInit, milliseconds: numbe
 }
 export function getCloudConnection() { return connection; }
 function configureOms(value: CloudConnection) {
-  setApiConfig({ baseUrl: value.oms ? value.serverUrl : "", apiKey: value.oms?.apiKey, accessToken: undefined });
+  setApiConfig({ baseUrl: value.oms ? value.serverUrl : "", apiKey: value.oms?.apiKey, accessToken: undefined, dealership: true });
 }
 export async function loadCloudConnection() {
   const raw = Platform.OS === "web" ? await AsyncStorage.getItem(STORAGE_KEY) : await SecureStore.getItemAsync(STORAGE_KEY);
