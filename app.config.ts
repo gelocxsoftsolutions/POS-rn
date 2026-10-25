@@ -13,8 +13,8 @@ const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV ?? "staging";
 
 /** @type {AppExpoConfig} */
 const config = {
-  name: "NCT POS",
-  slug: "nct-pos",
+  name: "Dealership POS",
+  slug: "dealership-pos",
   version: "1.0.0",
   owner: "gelo3102s-team",
   orientation: "default",
@@ -24,21 +24,18 @@ const config = {
     resizeMode: "contain",
     backgroundColor: "#ffffff",
   },
-  scheme: "nctpos",
+  scheme: "dealershippos",
   userInterfaceStyle: "automatic",
   extra: {
     omsUrl: OMS_URL,
     appEnv: APP_ENV,
-    eas: {
-      projectId: "fc088a57-1134-4fac-954a-e495c1c263f4",
-    },
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.nctseafoods.pos",
+    bundleIdentifier: "com.nctseafoods.dealership",
   },
   android: {
-    package: "com.nctseafoods.pos",
+    package: "com.nctseafoods.dealership",
     adaptiveIcon: {
       backgroundColor: "#17386b",
       foregroundImage: "./assets/nct-seafoods-logo.png",

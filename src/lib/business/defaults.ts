@@ -17,9 +17,9 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
 
 export const DEFAULT_BUSINESS_CONFIGURATION: BusinessConfiguration = {
   businessId: "nct-default",
-  operatingMode: "NCT_DEPENDENT",
+  operatingMode: "INDEPENDENT",
   businessName: "NCT Seafoods",
-  posSystemName: "NCT Seafoods POS",
+  posSystemName: "Dealership POS",
   headerName: "NCT Seafoods",
   businessLogoUri: null,
   receiptLogoUri: null,

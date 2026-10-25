@@ -1273,6 +1273,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
             <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
+            <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />
             <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
           </View>
         </Card>

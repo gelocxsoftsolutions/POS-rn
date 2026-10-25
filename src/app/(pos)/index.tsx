@@ -122,8 +122,8 @@ export default function Dashboard() {
     { label: "Low-stock products", value: data.lowStockCount, icon: "alert-circle-outline" as const, color: data.lowStockCount > 0 ? "#d97706" : "#16a34a", href: "/(pos)/products" },
     ...(isIndependent ? [] : [
       { label: "Incoming transfers", value: data.incomingTransfers, icon: "archive-outline" as const, color: data.incomingTransfers > 0 ? "#2563eb" : "#16a34a", href: "/(pos)/transfers" },
-      { label: "Waiting to sync", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(pos)/settings" },
     ]),
+    { label: "Backups waiting to upload", value: pendingSync, icon: "cloud-upload-outline" as const, color: pendingSync > 0 ? "#dc2626" : "#16a34a", href: "/(auth)/dealership-cloud" },
   ];
 
   if (loading) {

@@ -262,7 +262,7 @@ export default function ReportsScreen() {
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
-  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
+  const showOmsSyncStatus = false; // Both dealership modes retain sales locally and in cloud backups.
 
   const colors = useMemo(() => ({
     background: theme.background, panel: theme.surface, panelAlt: theme.surfaceAlt,
@@ -504,7 +504,7 @@ export default function ReportsScreen() {
       const result = await EndOfDayService.closeAndQueue({
         businessDate: dayjs(startDate).format("YYYY-MM-DD"),
       });
-      Alert.alert("End of day saved", `The report and recoverable backup are stored locally for OMS upload.\n\nBackup: ${result.backup.fileUri}`);
+      Alert.alert("End of day saved", `The database backup is saved locally and queued for cloud saving.\n\nBackup: ${result.backup.fileUri}`);
       setEodVisible(false);
     } catch (error: any) {
       Alert.alert("End of day", error?.message ?? "Unable to create the recoverable EOD package.");

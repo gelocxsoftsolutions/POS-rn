@@ -2,6 +2,8 @@ import * as SQLite from "expo-sqlite";
 import { Directory, File, Paths } from "expo-file-system";
 import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
 import { v4 as uuid } from "uuid";
+import { getCloudConnection } from "@/lib/services/dealership-cloud.service";
+import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { SCHEMA_VERSION } from "@/lib/db/schema";
 import { execute, getDatabase, queryFirst } from "@/lib/db/connection";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
@@ -104,7 +106,7 @@ async function readAsset(name: BackupAsset["name"], uri: string | null): Promise
 
 async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelope }> {
   const business = BusinessConfigurationService.current();
-  const deviceId = useDeviceStore.getState().device.deviceId;
+  const deviceId = getCloudConnection()?.deviceId ?? useDeviceStore.getState().device.deviceId;
   const database = await getDatabase();
   await database.execAsync("PRAGMA wal_checkpoint(FULL)");
   const bytes = forceRollbackJournalMode(await database.serializeAsync());
@@ -141,7 +143,18 @@ export const RecoveryService = {
   },
 
   async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
-    return createBackupFile();
+    const backup = await createBackupFile();
+    if (getCloudConnection()) {
+      try {
+        await queueCreatedBackup(backup.file, backup.envelope, `auto:${backup.envelope.createdAt}`);
+        useBackupSettingsStore.getState().setCloudError(null);
+      } catch (error) {
+        // Preserve a successful local snapshot and its normal schedule, rather
+        // than generating another oversized/unqueuable file every minute.
+        useBackupSettingsStore.getState().setCloudError(error instanceof Error ? error.message : "Local backup saved, but cloud queue failed.");
+      }
+    }
+    return backup;
   },
 
   async listBackups(): Promise<BackupFileInfo[]> {
@@ -166,13 +179,16 @@ export const RecoveryService = {
 
   async deleteBackup(uri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "delete database backups");
+    const pending = await queryFirst<{ count: number }>("SELECT COUNT(*) count FROM SyncQueue WHERE entityType = 'DatabaseBackup' AND status IN ('PENDING','PROCESSING','FAILED') AND json_extract(payload, '$.fileUri') = ?", [uri]);
+    if (pending?.count) throw new Error("This backup is waiting for cloud upload. Upload it before deleting the local file.");
     const file = new File(uri);
     if (file.exists) file.delete();
   },
 
   async queueBackupUpload(reference: string): Promise<{ backupId: string; fileUri: string }> {
     const currentBusiness = BusinessConfigurationService.current();
-    const currentDeviceId = useDeviceStore.getState().device.deviceId;
+    const currentDeviceId = getCloudConnection()?.deviceId;
+    if (!currentDeviceId) throw new Error("Connect dealership cloud backups first.");
     const idempotencyKey = `${currentBusiness.businessId}:${currentDeviceId ?? "device"}:${reference}:backup`;
     const existing = await queryFirst<{ entityId: string }>(
       `SELECT entityId FROM SyncQueue
@@ -181,18 +197,7 @@ export const RecoveryService = {
     );
     if (existing) return { backupId: existing.entityId, fileUri: "Stored in the durable upload queue" };
     const { file, envelope } = await this.createBackup();
-    const backupId = uuid();
-    await execute(
-      `INSERT INTO BackupManifest
-       (id, businessId, deviceId, schemaVersion, databaseChecksum, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
-      [backupId, envelope.businessId, envelope.deviceId, envelope.schemaVersion, envelope.databaseChecksum, envelope.createdAt]
-    );
-    await SyncQueueService.enqueue("DatabaseBackup", backupId, "UPLOAD", {
-      idempotencyKey, businessId: envelope.businessId, deviceId: envelope.deviceId,
-      schemaVersion: envelope.schemaVersion, checksum: envelope.databaseChecksum,
-      createdAt: envelope.createdAt, contentBase64: await file.base64(),
-    }, idempotencyKey);
+    const backupId = await queueCreatedBackup(file, envelope, reference);
     return { backupId, fileUri: file.uri };
   },
 
@@ -212,6 +217,10 @@ export const RecoveryService = {
   async restoreBackup(fileUri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "restore database backups");
     const envelope = await this.validate(fileUri);
+    const cloud = getCloudConnection();
+    if (cloud && (envelope.businessId !== cloud.businessId || envelope.deviceId !== cloud.deviceId)) {
+      throw new Error("This backup belongs to another dealership or device. Reconnect using the matching device connection before restoring it.");
+    }
     const source = await SQLite.deserializeDatabaseAsync(forceRollbackJournalMode(base64ToBytes(envelope.databaseBase64)));
     const destination = await getDatabase();
     try {
@@ -234,3 +243,20 @@ export const RecoveryService = {
     restoreUiPreferences(envelope.uiPreferences);
   },
 };
+
+async function queueCreatedBackup(file: File, envelope: BackupEnvelope, reference: string) {
+  if (!getCloudConnection()) throw new Error("Connect dealership cloud backups first.");
+  const backupId = uuid();
+  const idempotencyKey = `${envelope.businessId}:${envelope.deviceId}:${reference}:backup`;
+  if (file.size > 32 * 1024 * 1024) throw new Error("Backup exceeds the 32 MiB cloud upload limit. Your local backup is retained.");
+  await execute("INSERT INTO BackupManifest (id,businessId,deviceId,schemaVersion,databaseChecksum,status,createdAt) VALUES (?,?,?,?,?,'PENDING',?)", [backupId,envelope.businessId,envelope.deviceId,envelope.schemaVersion,envelope.databaseChecksum,envelope.createdAt]);
+  // Keep bytes in the local backup file. Embedding snapshots in SyncQueue
+  // would recursively inflate every later database backup.
+  const queued = await SyncQueueService.enqueue("DatabaseBackup", backupId, "UPLOAD", {
+    idempotencyKey, businessId: envelope.businessId, deviceId: envelope.deviceId,
+    schemaVersion: envelope.schemaVersion, checksum: envelope.databaseChecksum,
+    createdAt: envelope.createdAt, fileUri: file.uri,
+  }, idempotencyKey);
+  if (!queued) throw new Error("Local backup saved, but cloud upload could not be queued. Please retry.");
+  return backupId;
+}
