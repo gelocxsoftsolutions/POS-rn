@@ -16,7 +16,7 @@ export const useBusinessConfigStore = create<BusinessConfigState>()(
     (set) => ({
       configuration: DEFAULT_BUSINESS_CONFIGURATION,
       hydrated: false,
-      setConfiguration: (configuration) => set({ configuration: { ...configuration, operatingMode: "NCT_DEPENDENT" } }),
+      setConfiguration: (configuration) => set({ configuration: { ...configuration } }),
       setHydrated: (hydrated) => set({ hydrated }),
     }),
     {
@@ -28,7 +28,7 @@ export const useBusinessConfigStore = create<BusinessConfigState>()(
         configuration: {
           ...current.configuration,
           ...(persisted as Partial<BusinessConfigState> | undefined)?.configuration,
-          operatingMode: "NCT_DEPENDENT",
+          operatingMode: (persisted as Partial<BusinessConfigState> | undefined)?.configuration?.operatingMode === "NCT_DEPENDENT" ? "NCT_DEPENDENT" : "INDEPENDENT",
         },
       }),
       onRehydrateStorage: () => () => {
