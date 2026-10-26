@@ -100,9 +100,8 @@ export default function BusinessSettingsScreen() {
     </View>
     <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
       <Text style={[styles.sectionTitle, { color: text }]}>Operating mode</Text>
-      <Text style={[styles.readOnly, { color: text }]}>{configuration.operatingMode === "INDEPENDENT" ? "Independent Dealership POS" : "OMS-dependent Dealership POS"}</Text>
-      <Text style={[styles.help, { color: muted }]}>{configuration.operatingMode === "INDEPENDENT" ? "Create your own products and inventory. OMS transfers are disabled. Cloud database backups remain available." : "Catalog and transfers come from OMS. Sales stay local and are included in cloud backups."}</Text>
-      <TouchableOpacity style={[styles.secondaryButton, { borderColor: border, marginTop: 12 }]} onPress={() => router.push("/(auth)/dealership-cloud" as any)}><Text style={{ color: text }}>Cloud Backup Connection</Text></TouchableOpacity>
+      <Text style={[styles.readOnly, { color: text }]}>NCT OMS-Dependent POS</Text>
+      <Text style={[styles.help, { color: muted }]}>Catalog and stock come from NCT OMS through synchronization and QR transfers. Checkout remains local-first.</Text>
     </View>
     <TouchableOpacity style={[styles.designerButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]} onPress={() => router.push("/(pos)/receipt-designer" as any)}><Ionicons name="receipt-outline" size={18} color={theme.accent} /><Text style={[styles.primaryText, { color: theme.text }]}>Open receipt designer</Text></TouchableOpacity>
     <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.primary }, saving && { opacity: 0.6 }]} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color={theme.onPrimary} /> : <Text style={[styles.primaryText, { color: theme.onPrimary }]}>Save business configuration</Text>}</TouchableOpacity>

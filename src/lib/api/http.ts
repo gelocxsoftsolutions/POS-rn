@@ -6,7 +6,6 @@ interface ApiConfig {
   baseUrl: string;
   apiKey?: string;
   accessToken?: string;
-  dealership?: boolean;
 }
 
 let config: ApiConfig = {
@@ -84,10 +83,7 @@ async function request<T>(
   if (!config.baseUrl) {
     return { ok: false, status: 0 };
   }
-  const scopedPath = config.dealership && path.startsWith("/api/pos/") && !path.startsWith("/api/pos/dealership/")
-    ? path.replace("/api/pos/", "/api/pos/dealership/") : path;
-  if (config.dealership && path.startsWith("/api/device/")) return { ok: false, status: 403, error: "Use Dealership cloud enrollment to manage this device." };
-  const url = `${config.baseUrl}${scopedPath}`;
+  const url = `${config.baseUrl}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
