@@ -51,10 +51,10 @@ function withBluetoothSources(config) {
 
 function withBluetoothPackageRegistration(config) {
   return withMainApplication(config, (result) => {
-    if (!result.modResults.contents.includes("add(BluetoothPrinterPackage())")) {
+    if (!result.modResults.contents.includes("add(com.nctseafoods.pos.BluetoothPrinterPackage())")) {
       result.modResults.contents = result.modResults.contents.replace(
         /PackageList\(this\)\.packages\.apply \{\s*/,
-        (match) => `${match}\n          add(BluetoothPrinterPackage())\n`
+        (match) => `${match}\n          add(com.nctseafoods.pos.BluetoothPrinterPackage())\n`
       );
     }
     return result;

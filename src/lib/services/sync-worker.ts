@@ -1,3 +1,4 @@
+import { deviceTransitionActive } from "@/lib/business/device-transition";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { useDeviceStore } from "@/lib/stores/device-store";
@@ -10,8 +11,15 @@ import { nextBackupAt } from "@/lib/backup/schedule";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let paused = false;
+export async function pauseSyncForModeSwitch() {
+  paused = true;
+  const start = Date.now();
+  while (running) { if (Date.now() - start > 60000) { paused = false; throw new Error("Synchronization is busy. Retry shortly."); } await new Promise(resolve => setTimeout(resolve, 100)); }
+  return () => { paused = false; };
+}
 export async function runSyncCycle(): Promise<void> {
-  if (running || !useNetworkStore.getState().isOnline || !getCloudConnection()) return;
+  if (running || paused || deviceTransitionActive() || !useNetworkStore.getState().isOnline || !getCloudConnection()) return;
   running = true;
   useSyncStore.getState().setIsSyncing(true);
   try {

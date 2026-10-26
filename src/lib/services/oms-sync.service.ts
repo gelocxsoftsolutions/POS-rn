@@ -258,12 +258,13 @@ async function upsertProductFromVariation(
     );
   } else {
     productId = uuid();
+    const localSku = await queryFirst<{ id: string }>("SELECT id FROM Product WHERE sku=?", [sku]) ? `NCT:${sku}:${productId}` : sku;
     await execute(
       `INSERT INTO Product (id, sku, productCode, name, description, categoryId, brandId, unitId, weight, taxGroupId, status, imageId, businessId, identitySource, omsVariationId, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, ?, 'NCT', ?, datetime('now'), datetime('now'))`,
       [
         productId,
-        sku,
+        localSku,
         productCode,
         name,
         variation.variationName || null,
@@ -290,33 +291,18 @@ async function upsertProductFromVariation(
   }
 
   if (variation.barcode) {
-    await BarcodeRepository.upsert({ productId, barcode: variation.barcode, type: "variation" });
+    const owner = await BarcodeRepository.findByBarcode(variation.barcode);
+    // Retain a local product's barcode when OMS uses the same value.
+    if (!owner || owner.productId === productId) {
+      await BarcodeRepository.upsert({ productId, barcode: variation.barcode, type: "variation" });
+    }
   }
 
   return { id: productId, sku };
 }
 
 async function deleteLegacyMockProducts(): Promise<void> {
-  const placeholders = LEGACY_MOCK_SKUS.map(() => "?").join(",");
-  const skus = LEGACY_MOCK_SKUS;
-  await execute(
-    `DELETE FROM PosInventory WHERE productId IN (SELECT id FROM Product WHERE sku IN (${placeholders}))`,
-    skus
-  );
-  await execute(
-    `DELETE FROM Barcode WHERE productId IN (SELECT id FROM Product WHERE sku IN (${placeholders}))`,
-    skus
-  );
-  await execute(
-    `DELETE FROM Product WHERE sku IN (${placeholders})`,
-    skus
-  );
-  const orphanCategories = await query<{ id: string }>(
-    "SELECT id FROM Category WHERE name IN ('Seafood','Meat','Produce','Dairy','Beverages') AND id NOT IN (SELECT DISTINCT categoryId FROM Product WHERE categoryId IS NOT NULL)"
-  );
-  for (const c of orphanCategories) {
-    await execute("DELETE FROM Category WHERE id = ?", [c.id]);
-  }
+  // A dealership can legitimately own these SKUs and categories. Never delete its catalog during sync.
   // Flag legacy/unmappable queued sales as FAILED (never silently mark them Synced)
   try {
     for (const sku of LEGACY_MOCK_SKUS) {
@@ -418,8 +404,8 @@ export const OmsSyncService = {
       // The inventory endpoint can omit zero-balance variations. Reset those
       // OMS-linked products so stale transfer/ledger quantities cannot be sold
       // locally and then rejected by the sales endpoint.
-      const localOmsProducts = await query<{ id: string; sku: string; pendingQty: number }>(
-        `SELECT p.id, p.sku,
+      const localOmsProducts = await query<{ id: string; sku: string; omsVariationId: string | null; pendingQty: number }>(
+        `SELECT p.id, p.sku, p.omsVariationId,
                 COALESCE((
                   SELECT SUM(si.quantity)
                   FROM SaleItem si
@@ -430,18 +416,16 @@ export const OmsSyncService = {
                 ), 0) as pendingQty
          FROM Product p
          INNER JOIN PosInventory pi ON pi.productId = p.id
-         WHERE p.sku IS NOT NULL
-           AND p.sku <> ''
-           AND p.sku NOT GLOB '*[^0-9]*'
+         WHERE p.identitySource = 'NCT' AND p.businessId = ?
            AND NOT EXISTS (
              SELECT 1
              FROM InventoryTransfer t
              INNER JOIN InventoryTransferItem iti ON iti.transferId = t.id
              WHERE t.status = 'IN_TRANSIT' AND iti.productId = p.id
-           )`
+           )`, [BusinessConfigurationService.current().businessId]
       );
       for (const product of localOmsProducts) {
-        if (syncedVariationSkus.has(String(product.sku))) continue;
+        if (syncedVariationSkus.has(String(product.omsVariationId ?? product.sku))) continue;
         await InventoryRepository.setQuantity(product.id, 0);
       }
 
@@ -567,7 +551,7 @@ export const OmsSyncService = {
             }
             if (!product) {
               product = await queryFirst<{ id: string }>(
-                "SELECT id FROM Product WHERE sku = ?", [String(it.variationId)]
+                "SELECT id FROM Product WHERE identitySource='NCT' AND businessId=? AND (omsVariationId=? OR sku=?)", [BusinessConfigurationService.current().businessId, String(it.variationId), String(it.variationId)]
               );
             }
             if (!product) continue;
@@ -629,7 +613,7 @@ export const OmsSyncService = {
         }
         if (!product) {
           product = await queryFirst<{ id: string }>(
-            "SELECT id FROM Product WHERE sku = ?", [String(log.variationId)]
+            "SELECT id FROM Product WHERE identitySource='NCT' AND businessId=? AND (omsVariationId=? OR sku=?)", [BusinessConfigurationService.current().businessId, String(log.variationId), String(log.variationId)]
           );
         }
         if (!product) continue;

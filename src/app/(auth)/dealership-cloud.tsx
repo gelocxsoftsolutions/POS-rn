@@ -1,3 +1,4 @@
+import { ModeSwitchPanel } from "@/components/ui/mode-switch-panel";
 import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import React, { useState } from "react";
 import { Alert, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
@@ -102,6 +103,7 @@ export default function DealershipCloudScreen() {
       <Text style={{ color: theme.muted }}>Paste the device connection from OMS → Dealership. Independent stores manage their own products. Dependent stores use the linked OMS catalog and transfers. Sales stay on the device and in its backups.</Text>
       <Text style={{ color: theme.accent }}>{status}</Text>
       {cloudError && <Text accessibilityRole="alert" style={{ color: "#dc2626" }}>Cloud backup needs attention: {cloudError}</Text>}
+      {getCloudConnection() && <ModeSwitchPanel disabled={busy} onBusyChange={setBusy} />}
       <Text style={{ color: theme.text, fontWeight: "700" }}>Connect your device</Text>
       <Text style={{ color: theme.muted }}>Scan the QR code shown in OMS, or enter the server and one-time pairing code. Codes expire after ten minutes.</Text>
       <TouchableOpacity disabled={busy} onPress={() => { void (async () => { const access = permission?.granted ? permission : await requestPermission(); if (access.granted) setScanning(true); else Alert.alert("Camera access", "Allow camera access to scan, or enter the code below."); })(); }} style={field}><Text style={{ color: theme.text, textAlign: "center", fontWeight: "700" }}>Scan connection QR code</Text></TouchableOpacity>

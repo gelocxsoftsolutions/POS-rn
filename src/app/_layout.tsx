@@ -1,3 +1,4 @@
+import { resumePendingModeSwitch } from "@/lib/services/dealership-mode-switch.service";
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Image, useWindowDimensions } from "react-native";
 import { Stack } from "expo-router";
@@ -55,6 +56,7 @@ export default function RootLayout() {
         await SeedService.run();
         await initApiConfig();
         await loadCloudConnection();
+        await resumePendingModeSwitch();
         await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType='DatabaseBackup' AND status='PROCESSING'");
         await AuthenticationService.init();
         startNetworkListener();

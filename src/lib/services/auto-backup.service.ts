@@ -1,3 +1,4 @@
+import { deviceTransitionActive } from "@/lib/business/device-transition";
 import { RecoveryService } from "@/lib/backup/recovery.service";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { useBackupListStore } from "@/lib/stores/backup-list-store";
@@ -12,7 +13,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
 async function tick(): Promise<void> {
-  if (running) return;
+  if (running || deviceTransitionActive()) return;
   const settings = useBackupSettingsStore.getState();
   const { autoBackupEnabled, markAutoBackup, hydrated } = settings;
   if (!hydrated || AppState.currentState !== "active") return;

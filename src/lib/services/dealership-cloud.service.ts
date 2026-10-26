@@ -11,6 +11,7 @@ export interface CloudConnection {
   businessId: string;
   businessName: string;
   operatingMode: "INDEPENDENT" | "NCT_DEPENDENT";
+  modeVersion?: number;
   oms: { deviceId: string; branchId: number; apiKey: string } | null;
 }
 const STORAGE_KEY = "dealership-cloud-connection";
@@ -76,4 +77,21 @@ export async function reportBackupStatus(status: unknown) {
     method: "PUT", headers: { "Content-Type": "application/json", "x-dealership-key": connection.deviceKey }, body: JSON.stringify(status),
   }, 15000);
   if (!response.ok) throw new Error(`Unable to report backup status (${response.status})`);
+}
+
+const MODE_INTENT_KEY = "dealership-mode-switch-intent";
+export async function readModeSwitchIntent(): Promise<{ code: string; actor: { id: string; name: string } } | null> {
+  const raw = Platform.OS === "web" ? await AsyncStorage.getItem(MODE_INTENT_KEY) : await SecureStore.getItemAsync(MODE_INTENT_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+export async function saveModeSwitchIntent(value: unknown) {
+  if (Platform.OS === "web") { if (value) await AsyncStorage.setItem(MODE_INTENT_KEY, JSON.stringify(value)); else await AsyncStorage.removeItem(MODE_INTENT_KEY); }
+  else { if (value) await SecureStore.setItemAsync(MODE_INTENT_KEY, JSON.stringify(value)); else await SecureStore.deleteItemAsync(MODE_INTENT_KEY); }
+}
+export async function modeSwitchRequest(code: string, action: "preview" | "apply" | "confirm") {
+  if (!connection) throw new Error("Connect dealership cloud backups first");
+  const response = await timedFetch(connection.serverUrl + "/api/pos/dealership/mode-switch", { method: "POST", headers: { "Content-Type": "application/json", "x-dealership-key": connection.deviceKey }, body: JSON.stringify({ code, action }) }, 30000);
+  const value = await response.json();
+  if (!response.ok) throw new Error(value.error ?? "Mode switch failed. Retry the same key to resume.");
+  return value as { requestId: string; previousMode: string; nextMode: string; applied: boolean; connection: CloudConnection | null };
 }

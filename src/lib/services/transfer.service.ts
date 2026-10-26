@@ -124,7 +124,7 @@ export const TransferService = {
           if (direct?.id) {
             resolvedProductId = direct.id;
           } else {
-            const bySku = await queryFirst<{ id: string }>(`SELECT id FROM Product WHERE sku = ?`, [String(item.productId)]);
+            const bySku = await queryFirst<{ id: string }>(`SELECT id FROM Product WHERE identitySource='NCT' AND businessId=? AND (omsVariationId=? OR sku=?)`, [BusinessConfigurationService.current().businessId, String(item.productId), String(item.productId)]);
             if (bySku?.id) {
               resolvedProductId = bySku.id;
               // Fix the transfer item to point to the real Product.id for future receives
@@ -132,10 +132,10 @@ export const TransferService = {
             } else {
               // Create placeholder product so FK constraints pass and inventory can be created
               const placeholderId = uuid();
-              const placeholderSku = String(item.productId);
+              const placeholderSku = `NCT:${String(item.productId)}:${placeholderId}`;
               const placeholderName = item.productName ?? `Product ${placeholderSku}`;
               try {
-                await execute(`INSERT INTO Product (id, sku, productCode, name, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))`, [placeholderId, placeholderSku, placeholderSku, placeholderName]);
+                await execute(`INSERT INTO Product (id, sku, productCode, name, businessId, identitySource, omsVariationId, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 'NCT', ?, 'ACTIVE', datetime('now'), datetime('now'))`, [placeholderId, placeholderSku, String(item.productId), placeholderName, BusinessConfigurationService.current().businessId, String(item.productId)]);
                 resolvedProductId = placeholderId;
                 await execute(`UPDATE InventoryTransferItem SET productId = ? WHERE id = ?`, [resolvedProductId, item.id]);
               } catch (e) { console.warn("[Transfer] placeholder product create failed", e); }

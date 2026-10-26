@@ -139,6 +139,6 @@ export const BusinessConfigurationService = {
     stockResolution?: string;
   }): Promise<BusinessConfiguration> {
     void input;
-    throw new Error("Operating mode is assigned by OMS Dealership enrollment. Reconnect using the dealership connection to apply it.");
+    throw new Error("Generate a mode switch key for this device in OMS, then use Cloud Backup > Change device mode.");
   },
 };
