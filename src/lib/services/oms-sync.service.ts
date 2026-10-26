@@ -497,7 +497,39 @@ export const OmsSyncService = {
     deviceId?: string | null;
     branchId?: number | null;
   }): Promise<SalePushResult> {
-    return { success: false, status: 403, retryable: false, error: "Dealership sales remain local and are included in cloud database backups." };
+    try {
+      // Canonical OMS schema: items[{variationId, qty}], paymentMethod, cashierUserId, plus the
+      // fields the OMS needs to attribute and cross-reference the sale (device/branch/receipt).
+      const body: any = {
+        items: sale.items,
+        paymentMethod: sale.paymentMethod ?? sale.payments?.[0]?.method,
+        cashierUserId: sale.cashierUserId ?? sale.cashierId,
+        cashierName: sale.cashierName,
+        receiptNumber: sale.receiptNumber,
+        total: sale.total,
+        payments: sale.payments,
+        deviceId: sale.deviceId ?? undefined,
+        branchId: sale.branchId ?? undefined,
+      };
+      const res = await api.post("/api/pos/sales", body);
+      if (res.ok) {
+        const data = (res.data as any)?.data;
+        return {
+          success: true,
+          status: res.status,
+          retryable: false,
+          saleId: data?.saleId,
+          receiptNumber: data?.receiptNumber ?? sale.receiptNumber,
+        };
+      }
+      const error = String(
+        (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`
+      );
+      const retryable = res.status === 0 || res.status === 408 || res.status === 429 || res.status >= 500;
+      return { success: false, status: res.status, error, retryable };
+    } catch (error: any) {
+      return { success: false, status: 0, error: error?.message ?? "Network error", retryable: true };
+    }
   },
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {

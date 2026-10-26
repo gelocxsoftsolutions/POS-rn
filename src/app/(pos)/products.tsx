@@ -14,8 +14,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { useFocusEffect } from "expo-router";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code128Barcode } from "@/components/ui/code128-barcode";
@@ -42,8 +41,6 @@ const STOCK_FILTERS = ["All", "In Stock", "Low", "Out of Stock"];
 type ViewMode = "grid" | "list";
 
 export default function ProductsScreen() {
-  const router = useRouter();
-  const operatingMode = useBusinessConfigStore(state => state.configuration.operatingMode);
   const [search, setSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState("All");
@@ -446,7 +443,6 @@ export default function ProductsScreen() {
     <View style={[styles.pageHeader, styles.stickyPageHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
       <View>
         <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
-        {operatingMode === "INDEPENDENT" && <TouchableOpacity onPress={() => router.push("/(pos)/add-local-product" as any)} style={{ padding: 10, backgroundColor: theme.primary, borderRadius: 8 }}><Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Add Product</Text></TouchableOpacity>}
         <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
       </View>
     </View>
