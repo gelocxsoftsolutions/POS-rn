@@ -758,7 +758,9 @@ export default function POSLayout() {
   // Refresh pending sync count on mount
   useEffect(() => {
     useSyncStore.getState().refreshPendingCount();
-    checkOmsConnection();
+    void checkOmsConnection();
+    const connectionTimer = setInterval(() => { void checkOmsConnection(); }, 30000);
+    return () => clearInterval(connectionTimer);
   }, [checkOmsConnection]);
 
   const isWide =

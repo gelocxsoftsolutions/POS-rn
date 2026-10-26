@@ -1,5 +1,6 @@
 import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import { nextBackupAt } from "@/lib/backup/schedule";
+import { getCloudConnection } from "@/lib/services/dealership-cloud.service";
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   View,
@@ -417,11 +418,12 @@ export default function SettingsScreen() {
   }, []);
 
   const verifyLiveConnection = useCallback(async (url: string, key: string) => {
-    if (!url) { setLiveStatus("idle"); return; }
+    if (!url && !getCloudConnection()) { setLiveStatus("idle"); return; }
     await checkOmsConnection(url, key);
   }, [checkOmsConnection, setLiveStatus]);
 
   const loadOmsSettings = useCallback(async () => {
+    if (getCloudConnection()) { await checkOmsConnection(); return; }
     try {
       const raw = await AsyncStorage.getItem(OMS_STORAGE_KEY);
       if (raw) {
@@ -1262,7 +1264,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
             <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
-            <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />
+            {isSuperAdmin && <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />}
             <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
           </View>
         </Card>

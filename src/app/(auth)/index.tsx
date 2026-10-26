@@ -170,7 +170,7 @@ export default function SignInScreen() {
         ? await CashierService.loginSuperAdmin(username, password)
         : await CashierService.loginPassword(username.trim(), password);
       if (result.success && result.session) {
-        router.replace("/(pos)");
+        router.replace(selectedUser?.id === SUPER_ADMIN_ID && device.registrationState === "unregistered" ? "/(auth)/dealership-cloud" : "/(pos)");
       } else {
         setError(result.error ?? "Invalid credentials");
       }
@@ -179,7 +179,7 @@ export default function SignInScreen() {
     } finally {
       setLoading(false);
     }
-  }, [username, password, router, selectedUser]);
+  }, [username, password, router, selectedUser, device.registrationState]);
 
   const chooseUser = useCallback((user: LoginUser) => {
     setSelectedUser(user);
@@ -278,7 +278,7 @@ export default function SignInScreen() {
     </TouchableOpacity>
   );
 
-  if (device.registrationState === "unregistered") {
+  if (device.registrationState === "unregistered" && selectedUser?.id !== SUPER_ADMIN_ID) {
     return (
       <View style={[
         styles.unregisteredBg,
@@ -314,9 +314,7 @@ export default function SignInScreen() {
           <Text style={[styles.unregisteredSubtitle, { color: secondaryTextColor }]}>
             This terminal hasn't been provisioned yet. Register it to start using POS.
           </Text>
-          <TouchableOpacity style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={() => router.push("/(auth)/dealership-cloud" as any)}>
-            <Text style={[styles.registerButtonText, { color: theme.onPrimary }]}>Set Up Dealership</Text>
-          </TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" onPress={() => { setSelectedUser({ id: SUPER_ADMIN_ID, displayName: "Super User", username: null, accountLocked: 0 });setMode("password"); }} style={[styles.registerButton, { backgroundColor: theme.primary }]}><Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Super User Setup</Text></TouchableOpacity>
           <TouchableOpacity
             style={[styles.registerButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
             onPress={() => router.push("/(auth)/register")}

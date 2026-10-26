@@ -443,12 +443,12 @@ export default function ProductsScreen() {
   };
 
   const stickyHeader = (
-    <View style={[styles.pageHeader, styles.stickyPageHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-      <View>
+    <View style={[styles.pageHeader, styles.stickyPageHeader, { backgroundColor: theme.background, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center", gap: 12 }]}>
+      <View style={{ flex: 1 }}>
         <Text style={[styles.pageTitle, { color: theme.text }]}>Products</Text>
-        {operatingMode === "INDEPENDENT" && <TouchableOpacity onPress={() => router.push("/(pos)/add-local-product" as any)} style={{ padding: 10, backgroundColor: theme.primary, borderRadius: 8 }}><Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Add Product</Text></TouchableOpacity>}
         <Text style={[styles.pageSubtitle, { color: theme.muted }]}>Browse pricing, availability, and product details</Text>
       </View>
+      {operatingMode === "INDEPENDENT" && <TouchableOpacity accessibilityRole="button" onPress={() => router.push("/(pos)/add-local-product" as any)} style={{ marginLeft: "auto", padding: 12, backgroundColor: theme.primary, borderRadius: 8 }}><Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Add Product</Text></TouchableOpacity>}
     </View>
   );
 
@@ -748,6 +748,7 @@ export default function ProductsScreen() {
                 </View>
 
                 <Text style={[styles.detailProductName, { color: theme.text }]}>{detailProduct.name}</Text>
+                {operatingMode === "INDEPENDENT" && <TouchableOpacity accessibilityRole="button" onPress={() => { const id = detailProduct.id;setDetailProduct(null);router.push({ pathname: "/(pos)/add-local-product", params: { productId: id } } as any); }} style={{ padding: 12, borderRadius: 10, backgroundColor: theme.primary }}><Text style={{ color: theme.onPrimary, textAlign: "center", fontWeight: "700" }}>Edit Product</Text></TouchableOpacity>}
                 <View style={[styles.detailBarcodeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                   <View style={styles.barcodeFooterHeading}>
                     <Ionicons name="barcode-outline" size={20} color={theme.accent} />

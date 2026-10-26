@@ -1,18 +1,19 @@
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useOmsConnectionStore } from "@/lib/stores/oms-connection-store";
 import { ModeSwitchPanel } from "@/components/ui/mode-switch-panel";
 import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Alert, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, Redirect } from "expo-router";
 import { verifyCloudConnection, saveCloudConnection, getCloudConnection } from "@/lib/services/dealership-cloud.service";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
-import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { execute, queryFirst } from "@/lib/db/connection";
-import { sha256 } from "@/lib/crypto/ed25519";
 import { RecoveryService } from "@/lib/backup/recovery.service";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -23,6 +24,9 @@ export default function DealershipCloudScreen() {
   const theme = usePosTheme();
   const router = useRouter();
   const session = useCashierStore(state => state.session);
+  const hydrated = useCashierStore(state => state.hydrated);
+  const connectionStatus = useOmsConnectionStore(state => state.status);
+  useEffect(() => { if (session?.isSuperAdmin) void useOmsConnectionStore.getState().checkConnection(); }, [session?.isSuperAdmin]);
   const cloudError = useBackupSettingsStore(state => state.lastCloudError);
   const settings = useBackupSettingsStore();
   const [dailyTime, setDailyTime] = useState(settings.dailyTime);
@@ -40,17 +44,12 @@ export default function DealershipCloudScreen() {
   const [serverUrl, setServerUrl] = useState(getCloudConnection()?.serverUrl ?? "https://staging.nctseafoods.store");
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [ownerName, setOwnerName] = useState("");
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(getCloudConnection() ? "Cloud connection saved. Automatic backups use your configured schedule." : "Not connected");
   const connect = async () => {
+    if (!useCashierStore.getState().session?.isSuperAdmin) return;
     setBusy(true);
     try {
-      const users = await queryFirst<{ count: number }>("SELECT COUNT(*) count FROM Cashier");
-      if ((users?.count ?? 0) > 0 && !session?.isSuperAdmin) throw new Error("Sign in as the dealership administrator before changing cloud connections.");
-      if (!users?.count && (!ownerName.trim() || !/^\d{6}$/.test(pin) || pin !== confirmPin)) throw new Error("For a new installation, enter the owner's name and a matching six-digit PIN.");
       const value = await verifyCloudConnection(connectionText, serverUrl);
       const current = getCloudConnection();
       if (current && current.deviceId !== value.deviceId) throw new Error("This installation is enrolled to another device. Use a fresh installation for a different dealership device.");
@@ -59,23 +58,20 @@ export default function DealershipCloudScreen() {
       let device = await queryFirst<{ id: string }>("SELECT id FROM Device WHERE id = ?", [localDeviceId]);
       if (!device) device = await DeviceRepository.create({ id: localDeviceId, deviceName: value.deviceName, status: "REGISTERED", branchId: value.oms?.branchId });
       useDeviceStore.getState().setDevice({ deviceId: localDeviceId, deviceName: value.deviceName, branchId: value.oms?.branchId ?? null, registrationState: "registered", posApiKey: value.oms?.apiKey ?? null, registeredAt: new Date().toISOString() });
-      if (!users?.count) {
-        const role = await queryFirst<{ id: string }>("SELECT id FROM Role WHERE lower(name) = 'admin'");
-        if (!role) throw new Error("Administrator role is not initialized. Restart and retry setup.");
-        await CashierRepository.create({ displayName: ownerName.trim(), username: "owner", pinHash: sha256(pin), roleId: role.id });
-      }
       await saveCloudConnection(value);
+      await useOmsConnectionStore.getState().checkConnection();
       useBackupSettingsStore.getState().setAutoBackupEnabled(true);
       // Recover uploads interrupted by application shutdown; retries retain the same manifest and idempotency key.
       await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType='DatabaseBackup' AND status='PROCESSING'");
-      setPin(""); setConfirmPin(""); setConnectionText("");
+      setConnectionText("");
       setStatus(`${value.businessName} · ${value.operatingMode === "INDEPENDENT" ? "Independent" : "OMS-dependent"} · Cloud backups enabled`);
-      Alert.alert("Dealership connected", "Cloud saving is ready. Sign in with your owner PIN. Automatic backups run while the POS app is open and signed in.");
-      if (!session) router.replace("/(auth)" as any);
+      Alert.alert("Dealership connected", "Cloud saving is ready. Add cashier accounts in Settings. Automatic backups run while the POS app is open and signed in.");
+      if (useDeviceStore.getState().device.registrationState === "registered") router.replace("/(pos)" as any);
     } catch (error: any) { Alert.alert("Cloud connection", error?.message ?? "Connection failed"); }
     finally { setBusy(false); }
   };
   const upload = async () => {
+    if (!useCashierStore.getState().session?.isSuperAdmin) return;
     setBusy(true);
     try {
       await RecoveryService.queueBackupUpload(`manual:${Date.now()}`);
@@ -96,9 +92,15 @@ export default function DealershipCloudScreen() {
     finally { setBusy(false); }
   };
   const field = { color: theme.text, backgroundColor: theme.surfaceAlt, borderColor: theme.border, borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 10 };
-  return <ScrollView style={{ flex: 1, backgroundColor: theme.background }} contentContainerStyle={{ padding: 24, alignItems: "center" }} keyboardShouldPersistTaps="handled">
-    <View style={{ width: "100%", maxWidth: 640, gap: 12 }}>
-      <TouchableOpacity onPress={() => router.back()}><Text style={{ color: theme.accent }}>← Back</Text></TouchableOpacity>
+  if (!hydrated) return null;
+  if (!session?.isSuperAdmin) return <Redirect href={session ? "/(pos)" : "/(auth)"} />;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+    <View style={{ paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.border, flexDirection: "row", alignItems: "center", gap: 16 }}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back from Cloud Backup" onPress={() => router.canGoBack() ? router.back() : router.replace("/(pos)" as any)} style={{ minHeight: 48, paddingHorizontal: 18, borderRadius: 12, backgroundColor: theme.primary, flexDirection: "row", alignItems: "center", gap: 8 }}><Ionicons name="arrow-back" size={22} color={theme.onPrimary} /><Text style={{ color: theme.onPrimary, fontWeight: "800", fontSize: 16 }}>Back</Text></TouchableOpacity>
+      <Text style={{ color: connectionStatus === "connected" ? "#16a34a" : theme.muted, fontWeight: "700" }}>{connectionStatus === "connected" ? "Cloud connected" : connectionStatus === "connecting" ? "Checking connection..." : "Cloud disconnected"}</Text>
+    </View>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+    <View style={{ width: "100%", gap: 16 }}>
       <Text style={{ fontSize: 26, fontWeight: "800", color: theme.text }}>Dealership Cloud Backup</Text>
       <Text style={{ color: theme.muted }}>Paste the device connection from OMS → Dealership. Independent stores manage their own products. Dependent stores use the linked OMS catalog and transfers. Sales stay on the device and in its backups.</Text>
       <Text style={{ color: theme.accent }}>{status}</Text>
@@ -117,7 +119,6 @@ export default function DealershipCloudScreen() {
       }} /><TouchableOpacity onPress={() => setScanning(false)}><Text style={{ color: theme.accent }}>Cancel scanning</Text></TouchableOpacity></View>}
       <TextInput accessibilityLabel="OMS server URL" style={field} placeholder="https://your-oms-server" placeholderTextColor={theme.muted} value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
       <TextInput accessibilityLabel="Device connection" style={field} placeholder="XXXX-XXXX-XXXX-XXXX" placeholderTextColor={theme.muted} value={connectionText.startsWith("{") ? "QR connection ready" : connectionText} onChangeText={setConnectionText} autoCapitalize="characters" autoCorrect={false} />
-      {!session && <><Text style={{ color: theme.text, fontWeight: "700" }}>Owner account (new installations only)</Text><TextInput style={field} placeholder="Owner name" placeholderTextColor={theme.muted} value={ownerName} onChangeText={setOwnerName} /><TextInput style={field} placeholder="Six-digit owner PIN" placeholderTextColor={theme.muted} value={pin} onChangeText={setPin} maxLength={6} keyboardType="number-pad" secureTextEntry /><TextInput style={field} placeholder="Confirm PIN" placeholderTextColor={theme.muted} value={confirmPin} onChangeText={setConfirmPin} maxLength={6} keyboardType="number-pad" secureTextEntry /></>}
       <TouchableOpacity disabled={busy} onPress={() => void connect()} style={{ backgroundColor: theme.primary, padding: 15, borderRadius: 8, opacity: busy ? 0.5 : 1 }}><Text style={{ color: theme.onPrimary, fontWeight: "700", textAlign: "center" }}>{busy ? "Working..." : "Connect Dealership"}</Text></TouchableOpacity>
       {session?.isSuperAdmin && <><TouchableOpacity disabled={busy} onPress={() => void upload()} style={field}><Text style={{ color: theme.text }}>Back Up to Cloud Now</Text></TouchableOpacity><TouchableOpacity disabled={busy} onPress={() => void retry()} style={field}><Text style={{ color: theme.text }}>Retry Uploads</Text></TouchableOpacity></>}
       {session?.isSuperAdmin && <View style={{ ...field, gap: 12 }}>
@@ -131,5 +132,5 @@ export default function DealershipCloudScreen() {
       </View>}
       <Text style={{ color: theme.muted, fontSize: 12 }}>The cloud connection does not replace your local database. Offline backups remain queued. Maximum cloud backup size: 32 MiB. Keep the app open for automatic uploads.</Text>
     </View>
-  </ScrollView>;
+  </ScrollView></SafeAreaView>;
 }
