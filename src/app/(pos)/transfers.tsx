@@ -1,3 +1,4 @@
+import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -309,22 +310,7 @@ export default function TransfersScreen() {
       Alert.alert("Notes required", `Please add a reason for ${missingNotes[0].productName} (expected ${missingNotes[0].expected}, received ${missingNotes[0].actual}).`);
       return;
     }
-    let hasPermission = permission?.granted ?? false;
-    if (!hasPermission) {
-      const result = await requestPermission();
-      hasPermission = result.granted;
-      if (!hasPermission) {
-        if (!result.canAskAgain) {
-          Alert.alert("Camera Permission Required", "Camera access is permanently denied. Please enable it in Settings to scan the OMS Transfer QR.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => Linking.openSettings() },
-          ]);
-        } else {
-          Alert.alert("Camera Required", "Camera permission is needed to scan the OMS Transfer QR code.");
-        }
-        return;
-      }
-    }
+    if (!permission?.granted) await requestPermission();
     // Hide checklist to avoid Android double-Modal black screen — CameraView inside second Modal mounts black if first Modal still animating
     setConfirmScanning(false);
     setShowReceiveChecklist(false);
@@ -425,22 +411,7 @@ export default function TransfersScreen() {
   }, [transfers, loadTransfers, openReceiveChecklist]);
 
   const openScanner = useCallback(async () => {
-    let hasPermission = permission?.granted ?? false;
-    if (!hasPermission) {
-      const result = await requestPermission();
-      hasPermission = result.granted;
-      if (!hasPermission) {
-        if (!result.canAskAgain) {
-          Alert.alert("Camera Permission Required", "Camera access is permanently denied. Please enable it in Settings.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => Linking.openSettings() },
-          ]);
-        } else {
-          Alert.alert("Camera Required", "Camera permission is needed to scan QR codes.");
-        }
-        return;
-      }
-    }
+    if (!permission?.granted) await requestPermission();
     setScanning(false);
     setShowScanner(true);
   }, [permission, requestPermission]);
@@ -744,6 +715,7 @@ export default function TransfersScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+              <UploadQrImageButton onScan={handleConfirmQrScan} disabled={confirmScanning} style={{ marginVertical: 16 }} />
               <Text style={styles.qrTitle}>Scan OMS Transfer QR</Text>
               <Text style={styles.qrSubtitleCenter}>Point camera at {receiveTransferNumber} QR from OMS to finalize</Text>
               <TouchableOpacity
@@ -898,15 +870,16 @@ export default function TransfersScreen() {
 
       <Modal visible={showScanner} animationType="slide" onRequestClose={() => { setScanning(false); setShowScanner(false); }} statusBarTranslucent>
         <View style={styles.scannerContainer}>
-          <CameraView
+          {permission?.granted && <CameraView
             facing="back"
             style={StyleSheet.absoluteFill}
             onBarcodeScanned={scanning ? undefined : ({ data }: { data: string }) => handleScanQr(data)}
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-          />
+          />}
           <TouchableOpacity style={styles.scannerClose} onPress={() => { setScanning(false); setShowScanner(false); }}>
             <Ionicons name="close-circle" size={36} color="#fff" />
           </TouchableOpacity>
+          <UploadQrImageButton onScan={handleScanQr} disabled={scanning} style={{ position: "absolute", bottom: 104, left: 24, right: 24 }} />
           <Text style={styles.scannerHint}>Point camera at transfer QR code</Text>
         </View>
       </Modal>

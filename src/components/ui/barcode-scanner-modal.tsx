@@ -1,3 +1,4 @@
+import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -98,7 +99,7 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
               <CameraView
                 key={visible ? "barcode-camera-mounted" : "barcode-camera-unmounted"}
                 style={StyleSheet.absoluteFill}
-                barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "code128", "code39", "code93", "itf14", "codabar", "upc_a", "upc_e"] }}
+                barcodeScannerSettings={{ barcodeTypes: ["qr", "ean13", "ean8", "code128", "code39", "code93", "itf14", "codabar", "upc_a", "upc_e"] }}
                 onBarcodeScanned={scanning ? undefined : ({ data }: { data: string }) => handleScan(data)}
                 onMountError={(event) => console.warn("[Camera] barcode mount error", event)}
               />
@@ -120,6 +121,7 @@ export function BarcodeScannerModal({ visible, dark, onClose, onScan }: Props) {
             </View>
           )}
 
+          <UploadQrImageButton onScan={handleScan} disabled={scanning} style={{ marginTop: 16 }} />
           <Text style={[styles.title, { color: theme.text }]}>Scan product barcode</Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>Center the barcode inside the guide.</Text>
         </View>

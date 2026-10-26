@@ -1,3 +1,4 @@
+import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -126,7 +127,7 @@ export function ReceiptQrScannerModal({
               <View style={[styles.permissionIconWrap, { backgroundColor: theme.surfaceAlt }]}>
                 <Ionicons name="qr-code-outline" size={48} color={theme.accent} />
               </View>
-              <Text style={[styles.title, { color: theme.text }]}>{subtitle}</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{subtitle}</Text>
               <Text style={[styles.subtitle, { color: theme.muted }]}>{description}</Text>
               <TouchableOpacity style={[styles.permissionButton, { backgroundColor: theme.primary }]} onPress={handlePermission}>
                 <Ionicons name="camera" size={17} color={theme.onPrimary} />
@@ -135,6 +136,7 @@ export function ReceiptQrScannerModal({
             </View>
           )}
 
+          <UploadQrImageButton onScan={handleScan} disabled={scanning} style={{ marginTop: 16 }} />
           <View style={styles.hintBox}>
             <Ionicons name="information-circle-outline" size={16} color={theme.accent} />
             <Text style={[styles.hintText, { color: theme.muted }]}>{hintText}</Text>

@@ -1,3 +1,4 @@
+import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import React, { useState } from "react";
 import { Alert, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -104,6 +105,10 @@ export default function DealershipCloudScreen() {
       <Text style={{ color: theme.text, fontWeight: "700" }}>Connect your device</Text>
       <Text style={{ color: theme.muted }}>Scan the QR code shown in OMS, or enter the server and one-time pairing code. Codes expire after ten minutes.</Text>
       <TouchableOpacity disabled={busy} onPress={() => { void (async () => { const access = permission?.granted ? permission : await requestPermission(); if (access.granted) setScanning(true); else Alert.alert("Camera access", "Allow camera access to scan, or enter the code below."); })(); }} style={field}><Text style={{ color: theme.text, textAlign: "center", fontWeight: "700" }}>Scan connection QR code</Text></TouchableOpacity>
+      <UploadQrImageButton disabled={busy} onScan={(data) => {
+        try { const value = JSON.parse(data); if (!value.serverUrl || (!value.pairingCode && !value.deviceKey)) throw new Error(); setServerUrl(value.serverUrl); setConnectionText(value.pairingCode ?? data); setScanning(false); setStatus("QR image read. Check the server address, then tap Connect Dealership."); }
+        catch { Alert.alert("Invalid QR code", "Choose the connection QR image from OMS Dealership."); }
+      }} />
       {scanning && <View style={{ gap: 8 }}><CameraView style={{ height: 280, borderRadius: 12 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={({ data }) => {
         try { const value = JSON.parse(data); if (!value.serverUrl || (!value.pairingCode && !value.deviceKey)) throw new Error(); setServerUrl(value.serverUrl); setConnectionText(value.pairingCode ?? data); setScanning(false); setStatus("QR code scanned. Check the server address, then tap Connect Dealership."); }
         catch { setScanning(false); Alert.alert("Invalid QR code", "Scan the connection QR code from OMS Dealership."); }

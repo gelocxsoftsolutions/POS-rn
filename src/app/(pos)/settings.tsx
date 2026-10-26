@@ -1,3 +1,4 @@
+import { UploadQrImageButton } from "@/components/ui/upload-qr-image-button";
 import { nextBackupAt } from "@/lib/backup/schedule";
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -662,13 +663,7 @@ export default function SettingsScreen() {
   };
 
   const openQrScanner = useCallback(async () => {
-    if (!cameraPermission?.granted) {
-      const p = await requestCameraPermission();
-      if (!p.granted) {
-        Alert.alert("Camera Required", "Camera permission is needed to scan QR codes.");
-        return;
-      }
-    }
+    if (!cameraPermission?.granted) await requestCameraPermission();
     setShowQrScanner(true);
   }, [cameraPermission, requestCameraPermission]);
 
@@ -2375,17 +2370,18 @@ export default function SettingsScreen() {
       {/* QR Scanner Modal */}
       <Modal visible={showQrScanner} animationType="slide" onRequestClose={() => setShowQrScanner(false)}>
         <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <CameraView
+          {cameraPermission?.granted && <CameraView
             style={StyleSheet.absoluteFill}
             onBarcodeScanned={qrScanning ? undefined : ({ data }: { data: string }) => handleScanQr(data)}
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-          />
+          />}
           <TouchableOpacity
             style={{ position: "absolute", top: 48, right: 16, zIndex: 10 }}
             onPress={() => setShowQrScanner(false)}
           >
             <Ionicons name="close-circle" size={36} color="#fff" />
           </TouchableOpacity>
+          <UploadQrImageButton onScan={handleScanQr} disabled={qrScanning} style={{ position: "absolute", bottom: 104, left: 24, right: 24 }} />
           <Text style={{ position: "absolute", bottom: 48, left: 0, right: 0, textAlign: "center", color: "#fff", fontSize: 16, fontWeight: "500", backgroundColor: "rgba(0,0,0,0.5)", paddingVertical: 8 }}>
             Point camera at OMS connection QR code
           </Text>
