@@ -23,6 +23,7 @@ import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
+import { isNctPos } from "@/lib/services/nct-scope";
 
 const PIN_LENGTH = 6;
 const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
@@ -549,7 +550,7 @@ export default function SignInScreen() {
                   {selectedUser?.id === user.id && <Ionicons name="checkmark-circle" size={20} color="#2563a6" />}
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity
+              {!isNctPos() && <TouchableOpacity
                 style={[styles.userPickerRow, { borderBottomColor: "transparent" }]}
                 onPress={() => chooseUser({ id: SUPER_ADMIN_ID, displayName: "Super Admin", username: null, accountLocked: 0 })}
               >
@@ -559,7 +560,7 @@ export default function SignInScreen() {
                   <Text style={[styles.userPickerMeta, { color: secondaryTextColor }]}>Administrative access</Text>
                 </View>
                 {selectedUser?.id === SUPER_ADMIN_ID && <Ionicons name="checkmark-circle" size={20} color="#2563a6" />}
-              </TouchableOpacity>
+              </TouchableOpacity>}
             </ScrollView>
           </View>
         </TouchableOpacity>

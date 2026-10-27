@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { TransferRepository } from "@/lib/repositories/transfer.repository";
 import { TransferItemRepository } from "@/lib/repositories/transfer-item.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
@@ -34,7 +35,7 @@ const RECEIVE_FINAL_STATUSES = ["RECEIVED", "REJECTED", "CANCELLED", "COMPLETED"
 // same time (e.g. the QR scanner firing twice before state updates).
 const receiveInFlight = new Set<string>();
 
-export const TransferService = {
+export const TransferService = withNctActionAudit("Transfer", {
   async list(filters: TransferFilter): Promise<PaginatedResult<InventoryTransferDTO>> {
     requireNctTransfers();
     try {
@@ -405,4 +406,4 @@ export const TransferService = {
       return { synced: 0 };
     }
   },
-};
+});

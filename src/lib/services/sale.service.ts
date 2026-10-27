@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { SaleRepository, CreateSaleInput } from "@/lib/repositories/sale.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
@@ -17,7 +18,7 @@ function createReceiptNumber(prefix: string = "R") {
   return `${prefix}${time}${random}`;
 }
 
-export const SaleService = {
+export const SaleService = withNctActionAudit("Sale", {
   async create(input: SaleInput) {
     try {
       await requirePermission("POS_SALES", "complete sales");
@@ -281,4 +282,4 @@ export const SaleService = {
       return { date: new Date().toISOString().split("T")[0], totalSales: 0, transactionCount: 0, averageBasket: 0 };
     }
   },
-};
+});

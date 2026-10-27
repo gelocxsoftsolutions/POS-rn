@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { isAuthorizedPOS } from "~/lib/pos-auth";
 import { db } from "~/server/db";
 import { saleContract } from "~/server/pos/sale-contract";
+import { employeeAccessReady } from "~/server/pos/employee-directory";
 
 class SaleError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   if (sale.deviceId !== auth.deviceId) return NextResponse.json({ error: "Sale belongs to another device" }, { status: 403 });
 
   const [schema] = await db.$queryRaw<Array<{ ready: boolean }>>`SELECT to_regclass('pos.sale_sync_receipts') IS NOT NULL AS ready`;
-  if (!schema?.ready) return NextResponse.json({ error: "NCT sales synchronization is awaiting approved database setup. The sale remains on the POS." }, { status: 503 });
+  if (!schema?.ready || !await employeeAccessReady()) return NextResponse.json({ error: "NCT sales synchronization is awaiting approved database setup. The sale remains on the POS." }, { status: 503 });
 
   const hash = createHash("sha256").update(JSON.stringify(sale)).digest("hex");
   try {
@@ -38,6 +39,8 @@ export async function POST(request: Request) {
       }
       const device = await tx.posDevice.findUnique({ where: { id: auth.deviceId! }, select: { branchId: true } });
       if (!device || Number(device.branchId) !== sale.branchId) throw new SaleError("Sale branch does not match the registered device", 409);
+      const [employee] = await tx.$queryRaw<Array<{ id: number }>>`SELECT employee_id AS id FROM pos.employee_pos_access WHERE pos_user_id = ${sale.cashierId}`;
+      if (!employee) throw new SaleError("Sale cashier is not linked to OMS Employees", 422);
       const variations = await tx.productVariation.findMany({ where: { id: { in: sale.items.map((i) => i.variationId) } }, select: { id: true, stockGroupId: true } });
       const byId = new Map(variations.map((v) => [v.id, v]));
       const lines = sale.items.map((item) => {
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
         if (updated.count !== 1) throw new SaleError(`Insufficient stock for ${groupKey}; sale preserved for reconciliation`, 409);
       }
       const created = await tx.posSale.create({ data: {
-        created_at: new Date(sale.createdAt), cashierUserId: null,
+        created_at: new Date(sale.createdAt), cashierUserId: employee.id,
         total_amount: new Prisma.Decimal(sale.total), payment_method: sale.paymentMethod,
         items: { create: lines.map((line) => ({ variationId: line.variationId, groupKey: line.groupKey, qty: line.qty,
           unit_price: new Prisma.Decimal(line.unitPrice), subtotal: new Prisma.Decimal(line.unitPrice).mul(line.qty) })) },

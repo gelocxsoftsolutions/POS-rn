@@ -9,16 +9,18 @@ import { BranchInventorySubTab } from "./branch-inventory-sub-tab";
 import { BranchDevicesSubTab } from "./branch-devices-sub-tab";
 import { TransferMonitoringTab } from "./transfer-monitoring-tab";
 import { PosSummaryReport } from "./pos-summary-report";
+import { PosUsersDevicesTab } from "./pos-users-devices-tab";
 import { usePosScope, usePosPermission } from "./pos-scope";
 import { PERMISSIONS } from "~/lib/permissions";
 
-type SubTab = "inventory" | "devices" | "transfers" | "sales";
+type SubTab = "inventory" | "devices" | "transfers" | "sales" | "users";
 
 const SUB_TABS: { key: SubTab; label: string; icon: typeof Boxes }[] = [
   { key: "inventory", label: "Branch Inventory", icon: Boxes },
   { key: "devices", label: "Devices", icon: Monitor },
   { key: "transfers", label: "Product Transfer", icon: ArrowRightLeft },
   { key: "sales", label: "Branch Sales", icon: Boxes },
+  { key: "users", label: "Users & Roles", icon: Monitor },
 ];
 
 interface BranchDetailViewProps {
@@ -63,7 +65,7 @@ export function BranchDetailView({ branch, onBack }: BranchDetailViewProps) {
         </div>
 
         <div className="flex gap-1">
-          {SUB_TABS.filter((t) => t.key !== "sales" || (scope === "pos" && can(PERMISSIONS.VIEW_POS_SALES_HISTORY))).map((t) => {
+          {SUB_TABS.filter((t) => t.key === "users" ? scope === "pos" && (can(PERMISSIONS.MANAGE_POS_USERS) || can(PERMISSIONS.MANAGE_POS_ROLES)) : t.key !== "sales" || (scope === "pos" && can(PERMISSIONS.VIEW_POS_SALES_HISTORY))).map((t) => {
             const Icon = t.icon;
             return (
               <button
@@ -85,6 +87,7 @@ export function BranchDetailView({ branch, onBack }: BranchDetailViewProps) {
       </CardHeader>
 
       <CardContent className="p-0">
+        {subTab === "users" && scope === "pos" && <PosUsersDevicesTab branchId={branch.id} />}
         {subTab === "sales" && scope === "pos" && can(PERMISSIONS.VIEW_POS_SALES_HISTORY) && <PosSummaryReport branchId={branch.id} />}
         {subTab === "inventory" && (
           <BranchInventorySubTab branchId={branch.id} branchName={branch.name} />

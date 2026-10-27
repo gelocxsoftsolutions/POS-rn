@@ -14,7 +14,7 @@ foreach ($entry in $manifest) {
   $patch = Join-Path $sourceRoot $entry.path
   if ((Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash -ne $entry.patchHash) { throw "Patch changed: $($entry.path)" }
   $currentHash = if (Test-Path -LiteralPath $target) { (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash } else { $null }
-  if ($currentHash -ne $entry.originalHash -and $currentHash -ne $entry.patchHash) { throw "OMS source changed independently: $($entry.path). Review before applying." }
+  if ($currentHash -ne $entry.originalHash -and $currentHash -ne $entry.patchHash -and $currentHash -notin @($entry.previousPatchHashes)) { throw "OMS source changed independently: $($entry.path). Review before applying." }
 }
 foreach ($entry in $manifest) {
   $target = Join-Path $targetRoot $entry.path

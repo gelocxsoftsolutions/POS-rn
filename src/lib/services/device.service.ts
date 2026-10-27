@@ -6,6 +6,8 @@ import { query, queryFirst, execute } from "@/lib/db/connection";
 import type { RegisterDeviceInput } from "@/lib/types/pos";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import type { OperatingMode } from "@/lib/business/types";
+import { EmployeeSyncService } from "./employee-sync.service";
+import { isNctPos } from "./nct-scope";
 
 export const DeviceService = {
   async register(input: RegisterDeviceInput) {
@@ -114,7 +116,8 @@ export const DeviceService = {
             }));
           } catch { /* non-blocking */ }
 
-          if (d.initialCashiers && d.initialCashiers.length > 0) {
+          if (isNctPos()) await EmployeeSyncService.refresh();
+          if (!isNctPos() && d.initialCashiers && d.initialCashiers.length > 0) {
             // Upsert provisioned users without erasing local dealership users.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];

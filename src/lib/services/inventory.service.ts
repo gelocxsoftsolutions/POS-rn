@@ -1,8 +1,9 @@
+import { withNctActionAudit } from "./action-audit";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
 import type { InventoryDTO } from "@/lib/types/inventory";
 
-export const InventoryService = {
+export const InventoryService = withNctActionAudit("Inventory", {
   async get(productId: string): Promise<InventoryDTO | null> {
     try {
       return await InventoryRepository.findByProduct(productId);
@@ -61,4 +62,4 @@ export const InventoryService = {
       return null;
     }
   },
-};
+});

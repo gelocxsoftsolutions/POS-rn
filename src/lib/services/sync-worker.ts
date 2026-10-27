@@ -10,6 +10,8 @@ import { nextBackupAt } from "@/lib/backup/schedule";
 import { getApiConfig } from "@/lib/api/http";
 import { query } from "@/lib/db/connection";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
+import { EmployeeSyncService } from "./employee-sync.service";
+import { syncNctAuditLogs } from "./audit-sync.service";
 
 async function pushNctSales() {
   const pending = await query<{ id: string }>(
@@ -29,7 +31,11 @@ export async function runSyncCycle(): Promise<void> {
   running = true;
   useSyncStore.getState().setIsSyncing(true);
   try {
-    if (nct) await pushNctSales();
+    if (nct) {
+      await pushNctSales();
+      await syncNctAuditLogs();
+      await EmployeeSyncService.refresh();
+    }
     await SyncQueueService.processPending();
     const backup = useBackupSettingsStore.getState();
     const stats = await SyncQueueService.getStats();

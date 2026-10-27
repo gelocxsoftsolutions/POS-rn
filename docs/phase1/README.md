@@ -36,3 +36,24 @@ Prerequisites: explicitly authorize writes to staging before these tests; approv
 10. Verify Dealership/Independent sales remain local and the existing backup behavior is unchanged.
 
 Open: required schema is unapplied; live acceptance checks are unverified; historical branch/cashier attribution cannot be reconstructed reliably from the existing sale rows. Finance exposes POS revenue separately; FIFO COGS/profit posting needs an explicit accounting rule if desired.
+
+## Task 2 — Employees and audit logs
+
+Files: employee/scope/action-audit/audit-sync services, cashier authentication/authorization, employee cache, root navigation, service operation wrappers; OMS user creation modal/router, branch Users & Roles, device-scoped user/auth/audit endpoints, employee directory helper. Dealership directory behavior is preserved separately.
+
+NCT identities come from the actual Employees screen's `LegacyUser` (`public.users`). Existing `pos_users` stores only branch-specific POS access/role/PIN settings linked to that employee. Names/usernames are derived from Employees. New users must be selected from active Employees. The device caches assigned employees and permissions for offline use; local user creation/profile credential changes and the separate built-in administrator are unavailable for NCT. OMS SHA-256 PIN verifiers are used for NCT, preserving Dealership's existing authentication behavior. Offline employee revocation takes effect after the next successful directory refresh.
+
+Auditing covers business service operations, login/logout/failed attempts and screen navigation. It records actor, action, target where available, original UTC time and branch/device. Raw arguments, PINs and passwords are excluded. Durable local events are retried with their UUIDs; OMS stores them in the existing `pos.pos_audit_logs` and deduplicates UUIDs. Action audit capture is currently best-effort after the operation; a process kill between an operation and its audit write is a known gap, so this is not a tamper-proof compliance log or a claim of exhaustive individual UI click capture.
+
+SQL: `sql/002_nct_employee_access.proposed.sql` creates stable employee/access links; NOT APPLIED. Existing POS accounts need explicit reviewed mappings, not guessed name matching. `sql/003_nct_audit_logs.proposed.sql` documents the existing audit layout and optional investigation indexes; NOT APPLIED. Audit ingestion itself does not require these optional indexes.
+
+### Human acceptance checks (not executed)
+
+1. After approving/applying the employee-access SQL, explicitly link existing POS accounts to the correct Employees. Add a new employee's branch POS access through the selector; verify arbitrary identities cannot be created via UI or direct API.
+2. Assign that employee to a device in the same branch. Refresh the POS directory and sign in with the OMS-configured 6-digit PIN/password. Verify directory permissions and canonical employee name.
+3. Verify a device cannot fetch another branch's users, unassigned employees, held/inactive employees or unrestricted OMS login password hashes.
+4. Verify NCT local-account creation/profile credential changes and the built-in administrator cannot bypass Employees. Check Dealership login remains unchanged.
+5. Disconnect, sign in using the cached employee, perform sales/settings/transfer operations and navigate screens. Reconnect and inspect audit records in OMS Users & Roles > Audit Logs. Compare actor, target, branch/device and original occurrence time; search using existing API filters or read-only SQL.
+6. Simulate a lost audit-upload response and retry: one stored event per client UUID. Confirm no PIN/password or raw credential payload appears in local/OMS audit details.
+7. Disable/hold or unassign an employee in OMS, reconnect and refresh; verify cached access is revoked. Rename the Employee and confirm POS displays the canonical new name without creating a second user.
+8. Confirm required setup missing/HTTP errors preserve the last complete offline cache, rather than replacing it with an empty or partial failed response.

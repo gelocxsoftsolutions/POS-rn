@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { SettingsRepository } from "@/lib/repositories/settings.repository";
 import type { StoreSettingsRow, UpsertSettingsInput } from "@/lib/repositories/settings.repository";
 import { DEFAULT_RECEIPT_TEMPLATE } from "@/lib/business/defaults";
@@ -23,7 +24,7 @@ function resolve(row: StoreSettingsRow): ResolvedSettings {
   };
 }
 
-export const SettingsService = {
+export const SettingsService = withNctActionAudit("Settings", {
   async get(): Promise<ResolvedSettings> {
     try {
       const settings = await SettingsRepository.get();
@@ -65,4 +66,4 @@ export const SettingsService = {
       throw new Error(e.message ?? "Failed to update settings");
     }
   },
-};
+});
