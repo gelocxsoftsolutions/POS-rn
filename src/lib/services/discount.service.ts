@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { DiscountRepository } from "@/lib/repositories/discount.repository";
 import { execute } from "@/lib/db/connection";
 
@@ -8,7 +9,7 @@ export interface ValidateDiscountResult {
   error?: string;
 }
 
-export const DiscountService = {
+export const DiscountService = withNctActionAudit("Discount", {
   async validate(
     code: string,
     purchaseAmount: number
@@ -81,4 +82,4 @@ export const DiscountService = {
       throw new Error(e.message ?? "Failed to create discount");
     }
   },
-};
+});

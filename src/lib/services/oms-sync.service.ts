@@ -11,6 +11,10 @@ import { ProductPriceRepository } from "@/lib/repositories/product-price.reposit
 import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import type { nctSalePayload } from "@/lib/services/nct-sale-payload";
+import { isNctPos } from "./nct-scope";
+import { serializeLocalOperation } from "@/lib/db/local-operation";
+import { serializeNctSync } from "./nct-sync-coordinator";
 
 interface VariationDto {
   id: string;
@@ -362,21 +366,32 @@ async function deleteLegacyMockProducts(): Promise<void> {
 
 export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
+    return isNctPos() ? serializeNctSync(() => this.syncInventoryNow(deviceId)) : this.syncInventoryNow(deviceId);
+  },
+  async syncInventoryNow(deviceId: string): Promise<{ synced: number }> {
     if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
-      const res = await api.get<{ data: Array<{
+      const pending = isNctPos() ? await query<{ id: string }>("SELECT s.id FROM Sale s WHERE s.synced=0 AND s.status='COMPLETED' AND s.originMode='NCT_DEPENDENT' AND NOT EXISTS (SELECT 1 FROM SyncQueue q WHERE q.entityType='Sale' AND q.entityId=s.id AND q.status='FAILED') ORDER BY s.createdAt LIMIT 101") : [];
+      if (pending.length > 100) return { synced: 0 }; // Drain a large backlog before applying a snapshot.
+      const pendingQuery = pending.length ? `&pendingSaleIds=${encodeURIComponent(pending.map((s) => s.id).join(','))}` : "";
+      const res = await api.get<{ complete?: boolean; acknowledgedSaleIds?: string[]; data: Array<{
         groupKey: string;
         qty: number;
         deviceId: string;
         variation: VariationDto;
-      }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
+      }> }>(`/api/pos/inventory?deviceId=${deviceId}${pendingQuery}`);
 
       const inventoryPayload = res.data as any;
       const rows = Array.isArray(inventoryPayload)
         ? inventoryPayload
         : inventoryPayload?.data ?? inventoryPayload?.items ?? inventoryPayload?.inventory;
       if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
+      // An old/truncated response must never zero stock absent from its page.
+      if (isNctPos() && inventoryPayload?.complete !== true) return { synced: 0 };
+      const acknowledged = isNctPos() && Array.isArray(inventoryPayload?.acknowledgedSaleIds)
+        ? inventoryPayload.acknowledgedSaleIds.filter((id: unknown): id is string => typeof id === "string" && pending.some((s) => s.id === id)) : [];
 
+      const applySnapshot = async () => {
       let synced = 0;
       const syncedVariationSkus = new Set<string>();
       for (const item of rows) {
@@ -392,7 +407,7 @@ export const OmsSyncService = {
             `SELECT 1 as one FROM InventoryTransfer t JOIN InventoryTransferItem iti ON iti.transferId = t.id WHERE t.status = 'IN_TRANSIT' AND iti.productId = ? LIMIT 1`,
             [product.id]
           );
-          if (pending) continue;
+          if (pending && !isNctPos()) continue;
         } catch {}
 
         // OMS is the canonical stock baseline. Preserve only completed sales
@@ -403,8 +418,9 @@ export const OmsSyncService = {
            INNER JOIN Sale s ON s.id = si.saleId
            WHERE si.productId = ?
              AND s.status = 'COMPLETED'
-             AND s.synced = 0`,
-          [product.id]
+             AND s.synced = 0
+             ${acknowledged.length ? `AND s.id NOT IN (${acknowledged.map(() => '?').join(',')})` : ''}`,
+          [product.id, ...acknowledged]
         );
         const availableQty = Math.max(
           0,
@@ -449,6 +465,8 @@ export const OmsSyncService = {
       try { await deleteLegacyMockProducts(); } catch {}
 
       return { synced };
+      };
+      return isNctPos() ? await serializeLocalOperation(applySnapshot) : await applySnapshot();
     } catch {
       try { await deleteLegacyMockProducts(); } catch {}
       return { synced: 0 };
@@ -485,51 +503,21 @@ export const OmsSyncService = {
     }
   },
 
-  async pushSale(sale: {
-    receiptNumber?: string;
-    cashierId?: string;
-    cashierName?: string;
-    cashierUserId?: string;
-    paymentMethod?: string;
-    total?: number;
-    items: Array<{ variationId: number; qty: number }>;
-    payments?: Array<{ method: string; amount: number }>;
-    deviceId?: string | null;
-    branchId?: number | null;
-  }): Promise<SalePushResult> {
-    try {
-      // Canonical OMS schema: items[{variationId, qty}], paymentMethod, cashierUserId, plus the
-      // fields the OMS needs to attribute and cross-reference the sale (device/branch/receipt).
-      const body: any = {
-        items: sale.items,
-        paymentMethod: sale.paymentMethod ?? sale.payments?.[0]?.method,
-        cashierUserId: sale.cashierUserId ?? sale.cashierId,
-        cashierName: sale.cashierName,
-        receiptNumber: sale.receiptNumber,
-        total: sale.total,
-        payments: sale.payments,
-        deviceId: sale.deviceId ?? undefined,
-        branchId: sale.branchId ?? undefined,
-      };
-      const res = await api.post("/api/pos/sales", body);
-      if (res.ok) {
-        const data = (res.data as any)?.data;
-        return {
-          success: true,
-          status: res.status,
-          retryable: false,
-          saleId: data?.saleId,
-          receiptNumber: data?.receiptNumber ?? sale.receiptNumber,
-        };
-      }
-      const error = String(
-        (res.error as any)?.error ?? (res.error as any)?.message ?? `HTTP ${res.status}`
-      );
-      const retryable = res.status === 0 || res.status === 408 || res.status === 429 || res.status >= 500;
-      return { success: false, status: res.status, error, retryable };
-    } catch (error: any) {
-      return { success: false, status: 0, error: error?.message ?? "Network error", retryable: true };
+  async pushSale(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
+    return serializeNctSync(() => this.pushSaleNow(sale));
+  },
+  async pushSaleNow(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
+    if (!isNctPos()) {
+      return { success: false, status: 403, retryable: false, error: "Only NCT-dependent receipts can be synchronized." };
     }
+    const response = await api.post<{ data?: { saleId: number } }>("/api/pos/sales", sale);
+    const saleId = response.data?.data?.saleId;
+    if (response.ok && Number.isInteger(saleId) && Number(saleId) > 0) {
+      return { success: true, status: response.status, retryable: false, saleId };
+    }
+    return { success: false, status: response.status,
+      retryable: response.status === 0 || response.status === 408 || response.status === 429 || response.status >= 500,
+      error: typeof response.error === "string" ? response.error : response.error?.error ?? "OMS did not acknowledge this sale." };
   },
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {
@@ -548,7 +536,7 @@ export const OmsSyncService = {
       } catch {
         needsReconcile = true;
       }
-      if (needsReconcile) {
+      if (needsReconcile && !isNctPos()) {
         console.log("[OmsSync] transfer reconcile check", { deviceId });
         const reconciliation = await api.post<{
           success?: boolean;
@@ -608,7 +596,7 @@ export const OmsSyncService = {
           if (existing) {
             // Repair transfers received by older builds that updated local
             // stock before the OMS confirmation request completed.
-            if (existing.status === "RECEIVED" && !["RECEIVED", "COMPLETED"].includes(String(t.status).toUpperCase())) {
+            if (!isNctPos() && existing.status === "RECEIVED" && !["RECEIVED", "COMPLETED"].includes(String(t.status).toUpperCase())) {
               const confirmation = await api.post<{ success?: boolean }>(
                 "/api/pos/transfers/receive",
                 { transferId: t.id, deviceId }
@@ -712,7 +700,7 @@ export const OmsSyncService = {
       } catch { /* non-blocking */ }
 
       let inv = 0, prod = 0, tr = 0;
-      // NCT POS imports its operational catalog, stock, and transfers from OMS.
+      // Import only the registered NCT device's catalog, stock, and transfers.
       if (BusinessConfigurationService.capabilities().importNctCatalog) {
       let device = await DeviceRepository.find();
       // Remediation: local Device.id was previously random UUID, must match OMS deviceId (store deviceId)

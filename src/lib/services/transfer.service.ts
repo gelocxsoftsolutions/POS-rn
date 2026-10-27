@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { TransferRepository } from "@/lib/repositories/transfer.repository";
 import { TransferItemRepository } from "@/lib/repositories/transfer-item.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
@@ -11,6 +12,8 @@ import type { TransferFilter } from "@/lib/repositories/transfer.repository";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { requirePermission } from "@/lib/services/authorization.service";
 import { assertCapability } from "@/lib/business/capabilities";
+import { isNctPos } from "./nct-scope";
+import { receiveNctTransfer } from "./nct-transfer-receive.service";
 
 function requireNctTransfers() {
   assertCapability(
@@ -34,7 +37,7 @@ const RECEIVE_FINAL_STATUSES = ["RECEIVED", "REJECTED", "CANCELLED", "COMPLETED"
 // same time (e.g. the QR scanner firing twice before state updates).
 const receiveInFlight = new Set<string>();
 
-export const TransferService = {
+export const TransferService = withNctActionAudit("Transfer", {
   async list(filters: TransferFilter): Promise<PaginatedResult<InventoryTransferDTO>> {
     requireNctTransfers();
     try {
@@ -66,6 +69,7 @@ export const TransferService = {
   ): Promise<InventoryTransferDTO | null> {
     requireNctTransfers();
     await requirePermission("POS_TRANSFERS", "receive product transfers");
+    if (isNctPos()) return receiveNctTransfer(id,Array.isArray(itemsOrName)?itemsOrName:undefined,Array.isArray(itemsOrName)?maybeName??'Cashier':itemsOrName,omsTransferId);
     if (receiveInFlight.has(id)) {
       try {
         return await TransferRepository.findById(id);
@@ -405,4 +409,4 @@ export const TransferService = {
       return { synced: 0 };
     }
   },
-};
+});

@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { ProductRepository } from "@/lib/repositories/product.repository";
 import { CategoryRepository } from "@/lib/repositories/category.repository";
 import { BrandRepository } from "@/lib/repositories/brand.repository";
@@ -8,7 +9,7 @@ import { queryFirst } from "@/lib/db/connection";
 import type { ProductFilter, ProductDTO, PaginatedResult } from "@/lib/types/inventory";
 import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
 
-export const ProductService = {
+export const ProductService = withNctActionAudit("Product", {
   async search(filters: ProductFilter): Promise<PaginatedResult<ProductDTO>> {
     try {
       return await ProductRepository.search(filters);
@@ -93,4 +94,4 @@ export const ProductService = {
       return { totalProducts: 0, totalAvailable: 0, lowStock: 0, outOfStock: 0 };
     }
   },
-};
+});
