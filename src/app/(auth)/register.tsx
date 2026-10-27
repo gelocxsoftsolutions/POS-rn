@@ -150,7 +150,6 @@ export default function RegisterDevice() {
   const statusBar = (
     <StatusBar
       barStyle={isDark ? "light-content" : "dark-content"}
-      backgroundColor={palette.background}
     />
   );
   const header = (onBack: () => void, title?: string) => (

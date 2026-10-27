@@ -1,16 +1,33 @@
-import * as SQLite from "expo-sqlite";
+import type * as SQLite from "expo-sqlite";
+import { loadSqlite } from "./sqlite-runtime";
 import { DATABASE_NAME } from "@/lib/storage/identity";
 import { CREATE_TABLES, SCHEMA_VERSION } from "./schema";
 
 let db: SQLite.SQLiteDatabase | null = null;
+let initializing: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync(DATABASE_NAME);
-  await db.execAsync("PRAGMA journal_mode = WAL;");
-  await db.execAsync("PRAGMA foreign_keys = ON;");
-  await runMigrations(db);
-  return db;
+  if (initializing) return initializing;
+  initializing = (async () => {
+    const sqlite = await loadSqlite();
+    const database = await sqlite.openDatabaseAsync(DATABASE_NAME);
+    try {
+      await database.execAsync("PRAGMA journal_mode = WAL;");
+      await database.execAsync("PRAGMA foreign_keys = ON;");
+      await runMigrations(database);
+      db = database;
+      return database;
+    } catch (error) {
+      await database.closeAsync().catch(() => {});
+      throw error;
+    }
+  })();
+  try {
+    return await initializing;
+  } finally {
+    initializing = null;
+  }
 }
 
 async function runMigrations(database: SQLite.SQLiteDatabase) {

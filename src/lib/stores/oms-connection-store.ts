@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@/lib/storage/app-storage";
-import { api, getApiConfig, setApiConfig } from "@/lib/api/http";
+import { getApiConfig, setApiConfig } from "@/lib/api/http";
+import { checkOmsHealth } from "@/lib/api/oms-health";
 
 export type OmsConnectionStatus = "idle" | "connecting" | "connected" | "offline";
 
@@ -48,7 +49,7 @@ export const useOmsConnectionStore = create<OmsConnectionState>((set) => ({
     });
 
     try {
-      const response = await api.get("/api/pos/health");
+      const response = await checkOmsHealth();
       const status = response.ok ? "connected" : "offline";
       set({ status, lastCheckedAt: new Date().toISOString() });
       return status;

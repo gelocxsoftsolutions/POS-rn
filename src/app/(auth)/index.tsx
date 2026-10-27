@@ -287,7 +287,6 @@ export default function SignInScreen() {
       ]}>
         <StatusBar
           barStyle={dark ? "light-content" : "dark-content"}
-          backgroundColor={screenBackground}
         />
         <View style={[styles.unregBrand, isLandscape && styles.unregBrandLandscape]}>
           <Image
@@ -334,7 +333,6 @@ export default function SignInScreen() {
     >
       <StatusBar
         barStyle={dark ? "light-content" : "dark-content"}
-        backgroundColor={screenBackground}
       />
       <ScrollView
         contentContainerStyle={[

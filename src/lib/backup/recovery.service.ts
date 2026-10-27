@@ -1,4 +1,4 @@
-import * as SQLite from "expo-sqlite";
+import { loadSqlite } from "@/lib/db/sqlite-runtime";
 import { Directory, File, Paths } from "expo-file-system";
 import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
 import { SCHEMA_VERSION } from "@/lib/db/schema";
@@ -108,7 +108,7 @@ async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelop
   const bytes = forceRollbackJournalMode(await database.serializeAsync());
   const temp = new File(Paths.cache, `pos-${Date.now()}.sqlite`);
   temp.create({ overwrite: true });
-  temp.write(bytes);
+  temp.writeSync(bytes);
   const assets = (await Promise.all([
     readAsset("businessLogo", business.businessLogoUri),
     readAsset("receiptLogo", business.receiptLogoUri),
@@ -128,7 +128,7 @@ async function createBackupFile(): Promise<{ file: File; envelope: BackupEnvelop
   directory.create({ intermediates: true, idempotent: true });
   const file = new File(directory, `${business.businessId}-${Date.now()}.nctposbackup`);
   file.create({ overwrite: false });
-  file.write(JSON.stringify(envelope));
+  file.writeSync(JSON.stringify(envelope));
   return { file, envelope };
 }
 
@@ -184,6 +184,7 @@ export const RecoveryService = {
   async restoreBackup(fileUri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "restore database backups");
     const envelope = await this.validate(fileUri);
+    const SQLite = await loadSqlite();
     const source = await SQLite.deserializeDatabaseAsync(forceRollbackJournalMode(base64ToBytes(envelope.databaseBase64)));
     const destination = await getDatabase();
     try {
@@ -199,7 +200,7 @@ export const RecoveryService = {
     directory.create({ intermediates: true, idempotent: true });
     for (const asset of envelope.assets) {
       const file = new File(directory, `${envelope.businessId}-restored-${asset.name}${asset.extension}`);
-      file.create({ overwrite: true }); file.write(base64ToBytes(asset.base64));
+      file.create({ overwrite: true }); file.writeSync(base64ToBytes(asset.base64));
       await execute(`UPDATE StoreSettings SET ${asset.name === "businessLogo" ? "businessLogoUri" : "receiptLogoUri"} = ? WHERE id = 'default'`, [file.uri]);
     }
     await BusinessConfigurationService.load();

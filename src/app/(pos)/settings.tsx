@@ -246,7 +246,7 @@ export default function SettingsScreen() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("store");
   const settingsSectionRestoredRef = useRef(false);
   const detailAnimation = useRef(new Animated.Value(1)).current;
-  const detailScrollRef = useRef<ScrollView | null>(null);
+  const detailScrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
   const activeSectionDefinition = SETTINGS_SECTIONS.find((item) => item.id === activeSection) ?? null;
   const checkoutPreviewPlayer = useAudioPlayer(
     require("../../../assets/sounds/cash-register-sound.wav")

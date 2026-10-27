@@ -1,4 +1,5 @@
 import { api, setApiConfig, getApiConfig } from "@/lib/api/http";
+import { checkOmsHealth } from "@/lib/api/oms-health";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { ProductRepository } from "@/lib/repositories/product.repository";
 import { TransferRepository } from "@/lib/repositories/transfer.repository";
@@ -691,10 +692,10 @@ export const OmsSyncService = {
       console.log("[OmsSync] connect — apiKey:", effectiveApiKey ? "set" : "MISSING", "accessToken:", current.accessToken ? "set" : "MISSING");
       setApiConfig({ baseUrl: url, apiKey: effectiveApiKey, accessToken: current.accessToken });
 
-      // Use authenticated POS health — /api/health is always 200 and gives false positives
-      const health = await api.get<{ ok?: boolean; message?: string }>("/api/pos/health");
+      const health = await checkOmsHealth();
       if (!health.ok) {
-        const msg = (health.error as any)?.error ?? (health.error as any)?.message ?? `OMS auth failed (HTTP ${health.status})`;
+        const msg = (health.error as any)?.error ?? (health.error as any)?.message ??
+          (health.status === 404 ? "The OMS POS API endpoint was not found. Check the server URL and staging deployment." : `OMS connection failed (HTTP ${health.status})`);
         if (health.status === 401) return { success: false, error: "Invalid API key" };
         if (health.status === 0) return { success: false, error: "Server unreachable" };
         return { success: false, error: msg };

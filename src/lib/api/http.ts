@@ -44,23 +44,30 @@ export async function initApiConfig() {
           const devCode = devState?.deviceCode;
           if (pubId && devCode) {
             console.log("[API] apiKey MISSING — attempting recovery via /api/device/recover-key");
-            const res = await fetch(`${config.baseUrl}/api/device/recover-key`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ publicIdentifier: pubId, deviceCode: devCode }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.posApiKey) {
-                config.apiKey = data.posApiKey;
-                await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
-                  state: { serverUrl: config.baseUrl, apiKey: data.posApiKey, accessToken: config.accessToken },
-                  version: 0,
-                }));
-                console.log("[API] posApiKey recovered successfully");
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+            try {
+              const res = await fetch(`${config.baseUrl}/api/device/recover-key`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ publicIdentifier: pubId, deviceCode: devCode }),
+                signal: controller.signal,
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data.posApiKey) {
+                  config.apiKey = data.posApiKey;
+                  await AsyncStorage.setItem("nct-pos-oms", JSON.stringify({
+                    state: { serverUrl: config.baseUrl, apiKey: data.posApiKey, accessToken: config.accessToken },
+                    version: 0,
+                  }));
+                  console.log("[API] posApiKey recovered successfully");
+                }
+              } else {
+                console.warn("[API] recovery failed:", res.status);
               }
-            } else {
-              console.warn("[API] recovery failed:", res.status);
+            } finally {
+              clearTimeout(timeout);
             }
           }
         }

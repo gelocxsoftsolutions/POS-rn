@@ -15,7 +15,7 @@ const SCAN_SETTLE_MS = 500;
 
 export function UsbBarcodeScannerInput({ onScan, disabled = false, dark = false, compact = false }: Props) {
   const theme = usePosTheme();
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScanRef = useRef({ value: "", at: 0 });
   const [value, setValue] = useState("");
