@@ -19,7 +19,7 @@
         "path":  "src/app/api/device/register/route.ts",
         "originalHash":  "2EAE79E7F9A0C1E281A6CA14AB36B4D3C3EA36BEA239742B0EA40BB5786F26CC",
         "previousPatchHashes":  [
-
+                                    "3701757090FD869F4B409171734E2DD21D42F3F92FA5D80E1D68846CFDB3F1C2"
                                 ],
         "patchHash":  "3701757090FD869F4B409171734E2DD21D42F3F92FA5D80E1D68846CFDB3F1C2"
     },
@@ -40,10 +40,27 @@
         "patchHash":  "79C76458E4EFFAD76545C5A5FC57505EBF7E17C39C667D948392F394A2A0B7E3"
     },
     {
+        "path":  "src/app/api/pos/backups/route.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "34AC0D826B6DA86CFD08E0FED60A3CC264F8178F1BF3D7AE59C49CC617A1EB99"
+    },
+    {
+        "path":  "src/app/api/pos/backups/[id]/route.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "62AB94D11BBBBC3D7CDD757F6BDD878CCFBA175B35F49908F16270BAA2D91179"
+    },
+    {
         "path":  "src/app/api/pos/inventory/route.ts",
         "originalHash":  "03896FA8D32E6824D9CA8E720302E061B7366EB4CB2466E0DE9AF9975A88FAD9",
         "previousPatchHashes":  [
-                                    "2D5C6DEA273DC4D5C8B5C90E1A409F03E7C6F513073073D42D2E311C3FE8B62D"
+                                    "2D5C6DEA273DC4D5C8B5C90E1A409F03E7C6F513073073D42D2E311C3FE8B62D",
+                                    "D1F2C29EA9D14D44A24A8387EB8135CB8B2FF38CC77580947C2D131A384C0A58"
                                 ],
         "patchHash":  "D1F2C29EA9D14D44A24A8387EB8135CB8B2FF38CC77580947C2D131A384C0A58"
     },
@@ -79,7 +96,7 @@
                                     "05101CB7A6572171E7B59650E5A0ECFBAACB2ABCFDFA661ADD9FA325026C2CA3",
                                     "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34"
                                 ],
-        "patchHash":  "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34"
+        "patchHash":  "1A212DED49990E8C4D096B766CBAD87F9B57D18E915C154582DDEEF70590FD9A"
     },
     {
         "path":  "src/components/pos/branch-inventory-sub-tab.tsx",
@@ -96,6 +113,14 @@
                                     "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
                                 ],
         "patchHash":  "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
+    },
+    {
+        "path":  "src/components/pos/nct-backups-tab.tsx",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "AB6CF352FB3A0012A0F336DF8F68CB175D9B87B3D0190147F24EAD5BCF3D09ED"
     },
     {
         "path":  "src/components/pos/pos-summary-report.tsx",
@@ -125,7 +150,7 @@
         "path":  "src/server/api/routers/pos-device.ts",
         "originalHash":  "B79AB24A121CE64538FADC94FF2B2F8DD6B82D333A90D71D315177E7EABA5142",
         "previousPatchHashes":  [
-
+                                    "72B9E8EC94CF812F53FEEF796CB79990567D24CD65C651F9F891E977511A481B"
                                 ],
         "patchHash":  "72B9E8EC94CF812F53FEEF796CB79990567D24CD65C651F9F891E977511A481B"
     },
@@ -163,6 +188,14 @@
         "patchHash":  "F3FFFF354079BC83D18581BB985A6553D6A3D92270ED29B2D324DD064DB27C16"
     },
     {
+        "path":  "src/server/pos/nct-backups.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "F166D76E3F4D5BC460088CCE346B3F17BC6DC38F5BF5D6F4B935BB2C6510E82A"
+    },
+    {
         "path":  "src/server/pos/sale-contract.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
@@ -182,7 +215,7 @@
         "path":  "src/server/services/device-registration.service.ts",
         "originalHash":  "7C5E04121E0E7D2DD85A4B844602E3D5D0519F1729AEDEE2A0129C87EC97E6CB",
         "previousPatchHashes":  [
-
+                                    "D2B97505A6F933CEFC2EB8BC5C964895379AFA6FF3E8DFF45B7356D1303BEEF3"
                                 ],
         "patchHash":  "D2B97505A6F933CEFC2EB8BC5C964895379AFA6FF3E8DFF45B7356D1303BEEF3"
     }

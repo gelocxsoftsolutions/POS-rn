@@ -11,6 +11,9 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { exportUiPreferences, restoreUiPreferences, type PersistedUiPreferences } from "@/lib/stores/ui-store";
 import { requirePermission } from "@/lib/services/authorization.service";
+import { isNctPos } from "@/lib/services/nct-scope";
+import { nctBackupReference } from "./nct-schedule";
+import { serializeLocalOperation } from "@/lib/db/local-operation";
 
 interface BackupAsset {
   name: "businessLogo" | "receiptLogo";
@@ -143,12 +146,27 @@ async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file:
 export const RecoveryService = {
   async createBackup(options: { upload?: boolean } = {}): Promise<{ file: File; envelope: BackupEnvelope }> {
     await requirePermission("POS_BACKUP", "export database backups");
-    const backup = await createBackupFile("MANUAL");
-    if (options.upload !== false && getCloudConnection()) await queueCreatedBackup(backup.file, backup.envelope, `manual:${backup.envelope.createdAt}`);
+    const backup = isNctPos() ? await serializeLocalOperation(() => createBackupFile("MANUAL")) : await createBackupFile("MANUAL");
+    if (options.upload !== false && (isNctPos() || getCloudConnection())) await queueCreatedBackup(backup.file, backup.envelope, `manual:${backup.envelope.createdAt}`);
     return backup;
   },
 
   async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
+    if (isNctPos()) {
+      const deviceId = useDeviceStore.getState().device.deviceId;
+      const businessId = BusinessConfigurationService.current().businessId;
+      const reference = nctBackupReference();
+      const key = `${businessId}:${deviceId}:${reference}:backup`;
+      const existing = await queryFirst<{ payload: string }>("SELECT payload FROM SyncQueue WHERE dedupeKey=? ORDER BY createdAt DESC LIMIT 1", [key]);
+      if (existing) {
+        const file = new File(JSON.parse(existing.payload).fileUri);
+        if (!file.exists) throw new Error("The scheduled backup file is missing. Review its queue entry before retrying.");
+        return { file, envelope: await this.validate(file.uri) };
+      }
+      const backup = await serializeLocalOperation(() => createBackupFile("AUTOMATIC"));
+      await queueCreatedBackup(backup.file, backup.envelope, reference);
+      return backup;
+    }
     const backup = await createBackupFile("AUTOMATIC");
     if (getCloudConnection()) {
       try {
@@ -194,7 +212,7 @@ export const RecoveryService = {
 
   async queueBackupUpload(reference: string): Promise<{ backupId: string; fileUri: string }> {
     const currentBusiness = BusinessConfigurationService.current();
-    const currentDeviceId = getCloudConnection()?.deviceId;
+    const currentDeviceId = isNctPos() ? useDeviceStore.getState().device.deviceId : getCloudConnection()?.deviceId;
     if (!currentDeviceId) throw new Error("Connect dealership cloud backups first.");
     const idempotencyKey = `${currentBusiness.businessId}:${currentDeviceId ?? "device"}:${reference}:backup`;
     const existing = await queryFirst<{ entityId: string }>(
@@ -224,6 +242,10 @@ export const RecoveryService = {
 
   async restoreBackup(fileUri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "restore database backups");
+    if (isNctPos()) {
+      const { restoreNctBackup } = await import("./nct-restore.service");
+      return restoreNctBackup(fileUri);
+    }
     const envelope = await this.validate(fileUri);
     const cloud = getCloudConnection();
     if (cloud && (envelope.businessId !== cloud.businessId || envelope.deviceId !== cloud.deviceId)) {
@@ -253,7 +275,7 @@ export const RecoveryService = {
 };
 
 async function queueCreatedBackup(file: File, envelope: BackupEnvelope, reference: string) {
-  if (!getCloudConnection()) throw new Error("Connect dealership cloud backups first.");
+  if (!getCloudConnection() && !isNctPos()) throw new Error("Connect cloud backups first.");
   const backupId = uuid();
   const idempotencyKey = `${envelope.businessId}:${envelope.deviceId}:${reference}:backup`;
   if (file.size > 32 * 1024 * 1024) throw new Error("Backup exceeds the 32 MiB cloud upload limit. Your local backup is retained.");
@@ -261,6 +283,7 @@ async function queueCreatedBackup(file: File, envelope: BackupEnvelope, referenc
   // Keep bytes in the local backup file. Embedding snapshots in SyncQueue
   // would recursively inflate every later database backup.
   const queued = await SyncQueueService.enqueue("DatabaseBackup", backupId, "UPLOAD", {
+    ...(isNctPos() ? { scope: "NCT" } : {}),
     idempotencyKey, businessId: envelope.businessId, deviceId: envelope.deviceId,
     schemaVersion: envelope.schemaVersion, checksum: envelope.databaseChecksum,
     createdAt: envelope.createdAt, fileUri: file.uri,

@@ -5,21 +5,25 @@ import { useCashierStore } from "@/lib/stores/cashier-store";
 import { nextBackupAt } from "@/lib/backup/schedule";
 import { SyncQueueService } from "./sync-queue.service";
 import { AppState } from "react-native";
+import type { NativeEventSubscription } from "react-native";
+import { isNctPos } from "./nct-scope";
+import { nextNctBackupAt } from "@/lib/backup/nct-schedule";
 
 const CHECK_INTERVAL_MS = 60_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let resumeListener: NativeEventSubscription | null = null;
 
 async function tick(): Promise<void> {
   if (running) return;
   const settings = useBackupSettingsStore.getState();
   const { autoBackupEnabled, markAutoBackup, hydrated } = settings;
   if (!hydrated || AppState.currentState !== "active") return;
-  if (!autoBackupEnabled) return;
-  if (!useCashierStore.getState().session) return;
+  if (!autoBackupEnabled && !isNctPos()) return;
+  if (!useCashierStore.getState().session && !isNctPos()) return;
 
-  const next = nextBackupAt(settings);
+  const next = isNctPos() ? nextNctBackupAt(settings.lastAutoBackupAt) : nextBackupAt(settings);
   const due = next && Date.now() >= next.valueOf();
   if (!due) return;
 
@@ -42,9 +46,12 @@ export function startAutoBackupScheduler(): void {
   timer = setInterval(() => {
     tick().catch(() => {});
   }, CHECK_INTERVAL_MS);
+  resumeListener = AppState.addEventListener("change", (state) => { if (state === "active") void tick(); });
 }
 
 export function stopAutoBackupScheduler(): void {
+  resumeListener?.remove();
+  resumeListener = null;
   if (timer) {
     clearInterval(timer);
     timer = null;

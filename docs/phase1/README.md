@@ -100,3 +100,29 @@ Automated checks: `node tests/phase1-checkout.cjs` uses the actual local schema 
 8. During a local checkout failure, verify no partial payment/items/receipt/stock ledger remains. Run two checkouts competing for the last stock; only one may succeed.
 
 Risks: end-to-end recovery is unverified; conflict reconciliation remains an operator decision. Exact “nothing lost or duplicated” acceptance requires the live fault-injection checks above. Deliberately retained historical sales with incomplete identity cannot be auto-attributed safely.
+
+## Task 5 — Backup scheduling and emergency restore
+
+Files: NCT schedule/upload/restore services, recovery/queue/HTTP timeout/scheduler, POS backup settings UI; OMS NCT backup handlers/storage helper and branch Database Backups view.
+
+The existing Dealership backup implementation is preserved. NCT devices use a separate metadata table and `nct-pos/` object namespace. Uploads validate the envelope, SQLite header, hashes and identity using the existing validation helpers, then read stored content back before marking it READY. A unique device/client key makes upload retries idempotent. Admins can download verified backups from the branch's Database Backups tab, then import them using the existing POS file-selection/credential-confirmation flow.
+
+NCT automatically creates/queues one daily snapshot for 7 PM Philippine time, including when signed out while the app is active. A missed schedule catches up on resume. The app cannot guarantee execution while terminated; a device/background deployment solution would be needed for that requirement. Scheduled local exports are distinguished from confirmed OMS uploads; connection failures retain local files and pending uploads.
+
+NCT restore verifies SQLite integrity/relationships, schema, manifest totals, business/device/branch identity BEFORE replacing the database. It saves a local recovery copy and retains an in-memory rollback snapshot for copy/asset failures, and signs the user out after successful restore. The matching device must be reconnected before emergency restore; replacing the hardware without restoring its device identity needs an administrator-led recovery procedure.
+
+SQL: `sql/005_nct_database_backups.proposed.sql`, NOT APPLIED.
+Staging configuration required: `NCT_POS_BACKUP_STORAGE_URL` pointing to a staging-only HTTP object-storage gateway supporting the same PUT/GET protocol as the existing backup adapter. No storage URL, Docker stack, production configuration or live database was changed. NCT uploads return retryable errors until the schema and storage are configured.
+
+Automated checks: `node tests/phase1-backups.cjs` verifies Philippine schedule boundaries/catch-up and restore preflight against in-memory SQLite. This does not verify Expo native backup/copy behavior or live storage.
+
+### Human acceptance checks (not executed)
+
+1. Approve/apply SQL 005 and configure the NCT staging-only object-storage URL. Create a manual backup on a test NCT device; verify it becomes READY in OMS, is downloaded intact, and remains isolated from Dealership backups.
+2. Retry the same upload after a lost response: one metadata row/object identity. Reuse the key with different content: expect 409. Simulate storage failure: the local file remains and the upload retries; an unverified object must not appear READY.
+3. Keep POS active through 7 PM Philippine time, including when signed out. Confirm automatic local export and eventual OMS upload. Change the device timezone and verify the cutoff remains Philippine time.
+4. Close POS through the cutoff and reopen later; confirm one catch-up snapshot. Restart after queueing but before persisting the schedule marker; confirm the daily key reuses its queued file.
+5. Download from OMS as an administrator. Use POS Settings > Select Backup File and confirm with the current login PIN. On an isolated test installation for the SAME device/branch/business, compare sale/stock/product totals before and after restore, branding/preferences, and required sign-in afterward.
+6. Try corrupted content, mismatched totals, schema, device, branch and business. Reject before overwriting the current database. Simulate copy/branding-write failure; verify rollback and the saved local rescue copy.
+7. Restore a snapshot containing pending uploads, reconnect and verify sale/backup deduplication. Confirm a device or unprivileged OMS account cannot download another device's backup.
+8. Recheck the already-completed Dealership backup path unchanged. Do not claim the NCT cloud or native restore path works until these tests pass.

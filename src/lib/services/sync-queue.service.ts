@@ -3,6 +3,8 @@ import type { SyncQueueRow, SyncStats } from "@/lib/repositories/sync-queue.repo
 import { File } from "expo-file-system";
 import { uploadCloudBackup } from "@/lib/services/dealership-cloud.service";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
+import { uploadNctBackup } from "./nct-backup.service";
+import { isNctPos } from "./nct-scope";
 
 let inFlight: Promise<{ processed: number; failed: number }> | null = null;
 
@@ -47,9 +49,13 @@ async function processBackups(): Promise<{ processed: number; failed: number }> 
       await SyncQueueRepository.markProcessing(item.id);
       try {
         const payload = JSON.parse(item.payload ?? "{}");
-        const { fileUri, ...metadata } = payload;
+        if (payload.scope === "NCT" && !isNctPos()) {
+          await SyncQueueRepository.reopen(item.id);
+          continue;
+        }
+        const { fileUri, scope, ...metadata } = payload;
         const contentBase64 = fileUri ? await new File(fileUri).base64() : payload.contentBase64;
-        const result = await uploadCloudBackup({ ...metadata, contentBase64 });
+        const result = scope === "NCT" ? await uploadNctBackup({ ...metadata, contentBase64 }) : await uploadCloudBackup({ ...metadata, contentBase64 });
         const { execute } = await import("@/lib/db/connection");
         await execute("UPDATE BackupManifest SET status='UPLOADED', remoteReference=?, uploadedAt=? WHERE id=?", [result.backupId,new Date().toISOString(),item.entityId]);
         await SyncQueueRepository.markSynced(item.id);

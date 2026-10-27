@@ -36,6 +36,7 @@ import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
+import { isNctPos } from "@/lib/services/nct-scope";
 import { CashierService, SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
@@ -1267,7 +1268,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
             <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
-            <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />
+            {!isNctPos() && <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />}
             <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
           </View>
         </Card>
@@ -2121,7 +2122,12 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Create a checksum-verified backup containing the complete local database, branding assets, theme palettes, and device UI preferences, or validate and restore a compatible backup.</Text>
         <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Restore can be performed at any time. The format, schema version, checksum, business identity, and totals are always validated, and you must enter your POS login {isBuiltInSuperAdmin ? "password" : "PIN"} to confirm. Restoring replaces the current database, so create a backup first if the existing data matters.</Text></View></View>
 
-        <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+        {isNctPos() ? <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
+          <Text style={{ color: posTheme.text, fontWeight: "900" }}>Daily NCT backup — 7 PM Philippine time</Text>
+          <Text style={{ color: posTheme.muted }}>POS creates a local recovery copy and queues it for OMS. Keep the app active at 7 PM; missed backups catch up when it reopens. Download emergency restore files from OMS Branch Management → Database Backups.</Text>
+          <Text style={{ color: posTheme.muted }}>Last local backup: {lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Never"}</Text>
+          <Button title="Back Up Now" icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} disabled={backupBusy !== null} />
+        </View> : <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
           <View style={styles.autoBackupHeading}>
             <View style={styles.sectionHeadingCopy}>
               <Text style={{ color: posTheme.text, fontWeight: "900" }}>Auto backup</Text>
@@ -2174,7 +2180,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
           <Button title={backupBusy === "export" ? "Backing up..." : "Back Up Now"} icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
-        </View>
+        </View>}
 
         <View style={styles.backupActions}>
           <Button title={backupBusy === "export" ? "Exporting backup..." : "Export Backup Locally"} icon="download-outline" onPress={() => void handleCreateLocalBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
