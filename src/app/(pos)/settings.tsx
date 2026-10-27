@@ -1189,6 +1189,7 @@ export default function SettingsScreen() {
     return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
   };
   const canOpenSettingsSection = (item: SettingsSectionDefinition) => {
+    if (isNctPos() && ["users", "permissions", "dealership"].includes(item.id)) return false;
     if (isSuperAdmin) return true;
     if (item.id === "store" || item.id === "tax" || item.id === "auto_lock") return canManageSettings;
     if (!item.adminOnly) return true;

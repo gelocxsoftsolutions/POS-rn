@@ -13,10 +13,26 @@ export async function syncNctAuditLogs() {
     ORDER BY a.createdAt, a.id LIMIT 50`);
   if (!logs.length) return;
   const events = logs.map((log) => {
-    const { branchId, deviceId: _deviceId, entityType, entityId, source: _source, ...metadata } = JSON.parse(log.metadata!);
-    return { id: log.id, action: log.eventType, cashierId: log.cashierId, cashierName: log.cashierName,
-      entityType: entityType ?? null, entityId: entityId ?? null, description: log.description,
-      branchId, createdAt: log.createdAt, metadata };
+    const {
+      branchId,
+      deviceId: _deviceId,
+      entityType,
+      entityId,
+      source: _source,
+      ...metadata
+    } = JSON.parse(log.metadata!);
+    return {
+      id: log.id,
+      action: log.eventType,
+      cashierId: log.cashierId,
+      cashierName: log.cashierName,
+      entityType: entityType ?? null,
+      entityId: entityId ?? null,
+      description: log.description,
+      branchId,
+      createdAt: log.createdAt,
+      metadata,
+    };
   });
   const response = await api.post<{ acceptedIds: string[] }>("/api/pos/audit", { events });
   if (!response.ok || !Array.isArray(response.data?.acceptedIds)) return;

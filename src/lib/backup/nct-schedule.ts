@@ -1,5 +1,7 @@
 const OFFSET = 8 * 3600000;
-export function philippineDate(now = new Date()) { return new Date(now.getTime() + OFFSET).toISOString().slice(0, 10); }
+export function philippineDate(now = new Date()) {
+  return new Date(now.getTime() + OFFSET).toISOString().slice(0, 10);
+}
 export function nextNctBackupAt(lastBackupAt: string | null, now = new Date()) {
   const last = lastBackupAt ? new Date(lastBackupAt) : null;
   const base = last && Number.isFinite(last.getTime()) ? last : now;

@@ -48,9 +48,10 @@ export async function runSyncCycle(): Promise<void> {
     if (BusinessConfigurationService.capabilities().importNctCatalog) {
       const device = useDeviceStore.getState().device;
       if (device.deviceId) {
+        if (nct) await OmsSyncService.syncPendingTransfers(device.deviceId);
         await OmsSyncService.syncInventory(device.deviceId);
         if (device.branchId) await OmsSyncService.syncBranchProducts(device.branchId);
-        await OmsSyncService.syncPendingTransfers(device.deviceId);
+        if (!nct) await OmsSyncService.syncPendingTransfers(device.deviceId);
       }
     }
     useSyncStore.getState().setLastSyncTime(new Date().toISOString());

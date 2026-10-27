@@ -4,6 +4,7 @@ import { isAuthorizedPOS } from "~/lib/pos-auth";
 import { db } from "~/server/db";
 import { posStorageScope } from "~/server/pos/scope";
 import { Prisma } from "@prisma/client";
+import { pendingNctAllocations } from "~/server/pos/nct-pending-allocations";
 
 
 
@@ -76,7 +77,8 @@ export async function GET(request: Request) {
       acknowledgedSaleIds = receipts.map((r) => r.id);
     }
   }
-  return { items, acknowledgedSaleIds };
+  const unreceived = nct ? await pendingNctAllocations(tx, [authz.deviceId!]) : new Map<string, number>();
+  return { items: items.map((item) => ({ ...item, qty: Math.max(0, item.qty - (unreceived.get(`${item.deviceId}:${item.groupKey}`) ?? 0)) })), acknowledgedSaleIds };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
   const deviceIds = [...new Set(items.map((i) => i.deviceId))];

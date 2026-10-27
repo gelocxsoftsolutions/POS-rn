@@ -371,7 +371,7 @@ export const OmsSyncService = {
   async syncInventoryNow(deviceId: string): Promise<{ synced: number }> {
     if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
-      const pending = isNctPos() ? await query<{ id: string }>("SELECT id FROM Sale WHERE synced=0 AND status='COMPLETED' AND originMode='NCT_DEPENDENT' ORDER BY createdAt LIMIT 101") : [];
+      const pending = isNctPos() ? await query<{ id: string }>("SELECT s.id FROM Sale s WHERE s.synced=0 AND s.status='COMPLETED' AND s.originMode='NCT_DEPENDENT' AND NOT EXISTS (SELECT 1 FROM SyncQueue q WHERE q.entityType='Sale' AND q.entityId=s.id AND q.status='FAILED') ORDER BY s.createdAt LIMIT 101") : [];
       if (pending.length > 100) return { synced: 0 }; // Drain a large backlog before applying a snapshot.
       const pendingQuery = pending.length ? `&pendingSaleIds=${encodeURIComponent(pending.map((s) => s.id).join(','))}` : "";
       const res = await api.get<{ complete?: boolean; acknowledgedSaleIds?: string[]; data: Array<{
@@ -407,7 +407,7 @@ export const OmsSyncService = {
             `SELECT 1 as one FROM InventoryTransfer t JOIN InventoryTransferItem iti ON iti.transferId = t.id WHERE t.status = 'IN_TRANSIT' AND iti.productId = ? LIMIT 1`,
             [product.id]
           );
-          if (pending) continue;
+          if (pending && !isNctPos()) continue;
         } catch {}
 
         // OMS is the canonical stock baseline. Preserve only completed sales
@@ -536,7 +536,7 @@ export const OmsSyncService = {
       } catch {
         needsReconcile = true;
       }
-      if (needsReconcile) {
+      if (needsReconcile && !isNctPos()) {
         console.log("[OmsSync] transfer reconcile check", { deviceId });
         const reconciliation = await api.post<{
           success?: boolean;
@@ -596,7 +596,7 @@ export const OmsSyncService = {
           if (existing) {
             // Repair transfers received by older builds that updated local
             // stock before the OMS confirmation request completed.
-            if (existing.status === "RECEIVED" && !["RECEIVED", "COMPLETED"].includes(String(t.status).toUpperCase())) {
+            if (!isNctPos() && existing.status === "RECEIVED" && !["RECEIVED", "COMPLETED"].includes(String(t.status).toUpperCase())) {
               const confirmation = await api.post<{ success?: boolean }>(
                 "/api/pos/transfers/receive",
                 { transferId: t.id, deviceId }

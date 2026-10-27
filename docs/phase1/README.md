@@ -126,3 +126,42 @@ Automated checks: `node tests/phase1-backups.cjs` verifies Philippine schedule b
 6. Try corrupted content, mismatched totals, schema, device, branch and business. Reject before overwriting the current database. Simulate copy/branding-write failure; verify rollback and the saved local rescue copy.
 7. Restore a snapshot containing pending uploads, reconnect and verify sale/backup deduplication. Confirm a device or unprivileged OMS account cannot download another device's backup.
 8. Recheck the already-completed Dealership backup path unchanged. Do not claim the NCT cloud or native restore path works until these tests pass.
+
+## Task 6 — Transfer UI and receipt reliability
+
+Files: OMS NCT create-transfer dialog, shared dialog wrapper, transfer create helper/router, NCT receipt endpoint, pending-allocation helper; POS NCT receipt service and sync ordering. Dealership continues to render its original dialog and use its original receipt handler.
+
+The NCT dialog supports branch/device selection, source-specific stock, searchable variations, quantity review, shared-stock validation, loading/empty/error states, accessible dialog controls, notes and a clear approval step. A single request UUID prevents repeated clicks or lost responses from creating duplicate transfer records; changing a committed request's payload is rejected. Creation saves the transfer/items atomically. NCT approval is guarded against concurrent duplicate approval; rejection cannot race an already-approved transfer.
+
+Receipts are scoped to the intended branch/device, include every variation, record actual quantities/discrepancy notes, and are idempotent. Approval already credits a device allocation: the new path never credits it twice. Unreceived allocations remain excluded from available branch/device stock and cannot be consumed by NCT sales. Quantity shortages correct the allocated balance and remain visible in the transfer/audit records for management reconciliation.
+
+POS applies the acknowledged stock snapshot minus unacknowledged local sales, and saves receipt quantities, ledger entries and final status atomically. A failed local write can retry the same OMS receipt safely. Pending transfers are fetched before inventory to avoid exposing unreceived allocations.
+
+SQL: none beyond the earlier proposed tables used by sales/employee attribution. Existing transfer and audit tables are reused.
+
+Automated checks: `node tests/phase1-transfers.cjs` exercises local stock application, duplicate local calls, invalid quantities, shared pending-allocation grouping and rollback/retry with real in-memory SQLite and mocked OMS responses. This is NOT a live end-to-end transfer or rendered UI/device test.
+
+### Human acceptance checks (not executed)
+
+1. As an authorized OMS manager, open a branch's Product Transfer dialog. Check keyboard focus/escape, scrolling at tablet/mobile widths, loading/errors/empty stock, device selection and search. Confirm other branches' device stock does not appear.
+2. Add individual and shared-stock variations. Try zero, fractions, negatives and a shared total above availability. Verify clear errors and no submission. Change device/direction and confirm the previous selection resets.
+3. Create a transfer, approve it, and compare warehouse allocation and device inventory. Unreceived stock must stay unavailable on POS and in the branch's available stock. Verify a role without management permission cannot create/approve/reject via direct API.
+4. Double-click create and simulate a lost creation response. Retry the same selection: one transfer. After an uncertain response, check the transfer list before cancelling and starting a different request.
+5. On the intended POS, scan and complete the receipt checklist. Confirm the actual quantities, received status, ledger and branch/device stock in OMS and POS. Repeat the same scan/receipt; stock must not increase again.
+6. Receive a shortage with notes; confirm the corrected available stock and recorded discrepancy. Try an excess quantity or a shortage without notes: reject without partial changes. Management must reconcile missing physical stock; it is not silently returned to warehouse stock.
+7. Lose the receipt response after OMS commits and retry. Simulate a local write failure after acknowledgement, restart if needed and retry: one final local receipt/ledger effect, with pending sales still deducted correctly.
+8. Try another device's transfer, mismatched branch/number/ID, rejected/cancelled transfers, concurrent approval and rejection. Reject invalid operations without stock duplication.
+9. Test two inbound transfers for the same shared pool; receiving one must not expose the other transfer's unreceived stock. Make/retry sales while inventory snapshots are fetched.
+10. Recheck Dealership transfer creation/receipt behavior. No live transfer was run by the implementation agent.
+
+Risks/open: native UI and live transfer acceptance are unverified. An interrupted shortage receipt whose draft was lost may need quantities recovered from OMS transfer details before local retry. Historical transfers with missing/incorrect branch/device/product identities require management reconciliation rather than guessed repairs.
+
+## Final integration notes
+
+No dependencies were added. Expo v57's versioned reference and SQLite documentation were consulted. No containers were rebuilt/restarted and no staging or production rows/schema were changed by this work. OMS source has been copied with backups; deployment is still pending.
+
+Staging SELECT confirmed OMS role codes differ from local POS codes. `src/lib/permissions/nct-permission-map.ts` explicitly translates the existing grants; unknown codes and page-only grants do not gain business actions. Device administration grants backup/settings/audit access, matching the OMS backup/audit administration checks. Review these mappings during employee-role acceptance. NCT employee revocation/role changes sign out stale sessions after successful refresh; permission views refresh with sync. Local standalone user/role creation panels are hidden for NCT. POS device locking logic was not changed.
+
+NCT checkout/dashboard/report dates use Philippine calendar days. The 7 PM setting is the backup schedule, not a redefinition of the reporting calendar day. Source-only OMS patches use LF line endings so manifest hashes survive Windows/Linux checkout.
+
+Final automated suite: POS TypeScript, five isolated scripts (`phase1-sales`, `phase1-audit`, `phase1-checkout`, `phase1-backups`, `phase1-transfers`) and the OMS overlay typecheck. See the final delivery message for actual results. Human live acceptance is intentionally pending, and SQL files are proposals only.

@@ -61,6 +61,7 @@ export function PosUsersDevicesTab({ branchId }: { branchId?: number } = {}) {
   );
 
   if (visibleSubTabs.length === 0) return null;
+  const displayedSubTab = branchId && !visibleSubTabs.some((t) => t.key === subTab) ? visibleSubTabs[0]!.key : subTab;
 
   return (
     <Card className="bg-white shadow-lg border-0">
@@ -86,7 +87,7 @@ export function PosUsersDevicesTab({ branchId }: { branchId?: number } = {}) {
                 type="button"
                 onClick={() => setSubTab(t.key)}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
-                  subTab === t.key
+                  displayedSubTab === t.key
                     ? "bg-white/20 text-white shadow-sm"
                     : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
@@ -100,10 +101,10 @@ export function PosUsersDevicesTab({ branchId }: { branchId?: number } = {}) {
       </CardHeader>
 
       <CardContent className="p-0">
-        {subTab === "devices" && <DevicesSubTab canManageDevices={!!canManageDevices} />}
-        {subTab === "users" && <UsersSubTab branchId={branchId} />}
-        {subTab === "roles" && <RolesSubTab />}
-        {subTab === "audit-logs" && <AuditLogsSubTab />}
+        {displayedSubTab === "devices" && <DevicesSubTab canManageDevices={!!canManageDevices} />}
+        {displayedSubTab === "users" && <UsersSubTab branchId={branchId} />}
+        {displayedSubTab === "roles" && <RolesSubTab />}
+        {displayedSubTab === "audit-logs" && <AuditLogsSubTab />}
       </CardContent>
     </Card>
   );

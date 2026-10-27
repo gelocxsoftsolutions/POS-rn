@@ -5,6 +5,7 @@ import { isAuthorizedPOS } from "~/lib/pos-auth";
 import { db } from "~/server/db";
 import { saleContract } from "~/server/pos/sale-contract";
 import { employeeAccessReady } from "~/server/pos/employee-directory";
+import { pendingNctAllocations } from "~/server/pos/nct-pending-allocations";
 
 class SaleError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -50,10 +51,12 @@ export async function POST(request: Request) {
       });
       const quantities = new Map<string, number>();
       for (const item of lines) quantities.set(item.groupKey, (quantities.get(item.groupKey) ?? 0) + item.qty);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM pos.pos_inventories WHERE "deviceId"=${auth.deviceId} AND "groupKey" IN (${Prisma.join([...quantities.keys()])}) ORDER BY "groupKey" FOR UPDATE`);
+      const unreceived = await pendingNctAllocations(tx, [auth.deviceId]);
       // Stable order avoids deadlocks between distinct concurrent sales.
       for (const [groupKey, qty] of [...quantities].sort(([a], [b]) => a.localeCompare(b))) {
         const updated = await tx.posInventory.updateMany({
-          where: { groupKey, deviceId: auth.deviceId!, qty: { gte: qty } }, data: { qty: { decrement: qty } },
+          where: { groupKey, deviceId: auth.deviceId!, qty: { gte: qty + (unreceived.get(`${auth.deviceId}:${groupKey}`) ?? 0) } }, data: { qty: { decrement: qty } },
         });
         if (updated.count !== 1) throw new SaleError(`Insufficient stock for ${groupKey}; sale preserved for reconciliation`, 409);
       }

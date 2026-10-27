@@ -49,8 +49,8 @@ function PosPageContent() {
                 const Icon = item.icon;
                 return (
                   <button key={item.key} type="button" onClick={() => { setActiveTab(item.key); setSelectedBranch(null); }}
-                    className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 font-medium transition-all text-center ${tab === item.key ? "text-white shadow-sm" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`}
-                    style={{ background: tab === item.key ? gradient : undefined }}
+                    className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 font-medium transition-all text-center ${effectiveTab === item.key ? "text-white shadow-sm" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`}
+                    style={{ background: effectiveTab === item.key ? gradient : undefined }}
                   >
                     <Icon className="w-4 h-4" />
                     {item.label}

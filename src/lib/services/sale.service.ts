@@ -13,6 +13,7 @@ import { BusinessConfigurationService } from "@/lib/business/configuration.servi
 import { requirePermission } from "@/lib/services/authorization.service";
 import { isNctPos } from "./nct-scope";
 import { createNctSale } from "./nct-checkout.service";
+import { philippineDate } from "@/lib/backup/nct-schedule";
 
 function createReceiptNumber(prefix: string = "R") {
   const time = Date.now().toString(36).toUpperCase().slice(-7);
@@ -271,7 +272,7 @@ export const SaleService = withNctActionAudit("Sale", {
 
   async summary() {
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = isNctPos() ? philippineDate() : new Date().toISOString().split("T")[0];
       const cashierIds = getVisibleCashierIds(useCashierStore.getState().session?.cashierId);
       const totalSales = await SaleRepository.sumTotalToday(cashierIds);
       const transactionCount = await SaleRepository.countToday(cashierIds);

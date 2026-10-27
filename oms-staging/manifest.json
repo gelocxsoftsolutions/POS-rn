@@ -5,7 +5,7 @@
         "previousPatchHashes":  [
                                     "BFF1359D164D9498703B190E4770D774A047E1F6E43A213079D59568BB1C398A"
                                 ],
-        "patchHash":  "BFF1359D164D9498703B190E4770D774A047E1F6E43A213079D59568BB1C398A"
+        "patchHash":  "BE8C9986D7145144D7322BAB900A4583843C48E37EFFAA5E5A335E3E0931DB7F"
     },
     {
         "path":  "src/app/(dashboard)/pos/page.tsx",
@@ -13,7 +13,7 @@
         "previousPatchHashes":  [
                                     "5FBBEFD4B2BA66545D3A2808547849D90A66BBE040C8300F5000073107B79466"
                                 ],
-        "patchHash":  "5FBBEFD4B2BA66545D3A2808547849D90A66BBE040C8300F5000073107B79466"
+        "patchHash":  "8DD8B4BDDD94A81BD50D5D0EFF41327FF503960CD530C2204C00518B2431368F"
     },
     {
         "path":  "src/app/api/device/register/route.ts",
@@ -21,7 +21,7 @@
         "previousPatchHashes":  [
                                     "3701757090FD869F4B409171734E2DD21D42F3F92FA5D80E1D68846CFDB3F1C2"
                                 ],
-        "patchHash":  "3701757090FD869F4B409171734E2DD21D42F3F92FA5D80E1D68846CFDB3F1C2"
+        "patchHash":  "78A198D6A040B5B02F931DD9FAB97C363FEAC2F057E9B29BF37AA87ED7511AE6"
     },
     {
         "path":  "src/app/api/pos/audit/route.ts",
@@ -43,7 +43,7 @@
         "path":  "src/app/api/pos/backups/route.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
-
+                                    "34AC0D826B6DA86CFD08E0FED60A3CC264F8178F1BF3D7AE59C49CC617A1EB99"
                                 ],
         "patchHash":  "34AC0D826B6DA86CFD08E0FED60A3CC264F8178F1BF3D7AE59C49CC617A1EB99"
     },
@@ -51,7 +51,7 @@
         "path":  "src/app/api/pos/backups/[id]/route.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
-
+                                    "62AB94D11BBBBC3D7CDD757F6BDD878CCFBA175B35F49908F16270BAA2D91179"
                                 ],
         "patchHash":  "62AB94D11BBBBC3D7CDD757F6BDD878CCFBA175B35F49908F16270BAA2D91179"
     },
@@ -62,7 +62,7 @@
                                     "2D5C6DEA273DC4D5C8B5C90E1A409F03E7C6F513073073D42D2E311C3FE8B62D",
                                     "D1F2C29EA9D14D44A24A8387EB8135CB8B2FF38CC77580947C2D131A384C0A58"
                                 ],
-        "patchHash":  "D1F2C29EA9D14D44A24A8387EB8135CB8B2FF38CC77580947C2D131A384C0A58"
+        "patchHash":  "424C1FD5DDBB3A5593684404A26AB923C66ACEE7ACABCA506FA0D69B9F996050"
     },
     {
         "path":  "src/app/api/pos/sales/route.ts",
@@ -71,7 +71,7 @@
                                     "8F8277246FA9DAF0CE3EA1F5710F90A09AB247D61A4A6BF6F59674C2EA690DF0",
                                     "5FA24A6B8D05F70FAF28D2D707C4020E3B3AC13EB7FA1CA95E7A387D310D7080"
                                 ],
-        "patchHash":  "5FA24A6B8D05F70FAF28D2D707C4020E3B3AC13EB7FA1CA95E7A387D310D7080"
+        "patchHash":  "519FB5D38075037EC826FAF4605CE02FA01D53D321DC50C0088724D1CC9FDD30"
     },
     {
         "path":  "src/app/api/pos/transfer/route.ts",
@@ -79,7 +79,15 @@
         "previousPatchHashes":  [
                                     "C4EDFBA2308150264A7F0365CE69F5E10E46C393D4C5CB4749D30547611BB329"
                                 ],
-        "patchHash":  "C4EDFBA2308150264A7F0365CE69F5E10E46C393D4C5CB4749D30547611BB329"
+        "patchHash":  "CCFB1EAFA18715DEC412C94C0E843F352879EA283B9B2943B33E08A994FC29F2"
+    },
+    {
+        "path":  "src/app/api/pos/transfers/receive/route.ts",
+        "originalHash":  "BE8966B30E2240598A8B758586291B0FEC3FD88343DEE0861A8267AEB083F77D",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "03DB29F06731050070DB9D34D734408E5BB3BAA591252BD0C060152CCD7CB451"
     },
     {
         "path":  "src/app/api/pos/users/route.ts",
@@ -94,9 +102,10 @@
         "originalHash":  "2D5E6321FBEF2A8DF04488A2FF399ACF68863E8D4C735C8DBF7BEA30573F41CF",
         "previousPatchHashes":  [
                                     "05101CB7A6572171E7B59650E5A0ECFBAACB2ABCFDFA661ADD9FA325026C2CA3",
-                                    "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34"
+                                    "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34",
+                                    "1A212DED49990E8C4D096B766CBAD87F9B57D18E915C154582DDEEF70590FD9A"
                                 ],
-        "patchHash":  "1A212DED49990E8C4D096B766CBAD87F9B57D18E915C154582DDEEF70590FD9A"
+        "patchHash":  "6CC940876D9BDDD15E84123C2A5E9D9EE26B2379A5DED7B6156970A1E00BC8B6"
     },
     {
         "path":  "src/components/pos/branch-inventory-sub-tab.tsx",
@@ -104,7 +113,15 @@
         "previousPatchHashes":  [
                                     "02E190DD134775EE209AA67E891EA9D809F4483E38822D4D726B5752D97F9DA7"
                                 ],
-        "patchHash":  "02E190DD134775EE209AA67E891EA9D809F4483E38822D4D726B5752D97F9DA7"
+        "patchHash":  "788CBF2F52EAAC4BD3B37B621F4FB1F5B7C8E156B759EA43D80002CDCC632564"
+    },
+    {
+        "path":  "src/components/pos/create-transfer-dialog.tsx",
+        "originalHash":  "D8AE51661EDE99077B8CE7372A325838537417E4E57F5904C4765748B06A3A18",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "56ECB87C7D899C25B48D0463CD9B93558BF32E2FCB0E67831EE58712B4EC6168"
     },
     {
         "path":  "src/components/pos/create-user-modal.tsx",
@@ -112,15 +129,23 @@
         "previousPatchHashes":  [
                                     "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
                                 ],
-        "patchHash":  "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
+        "patchHash":  "84025B07EA43AD629DF99F2023BA422F0DC2791DDBD974DF801AFBA7E80D90B1"
     },
     {
         "path":  "src/components/pos/nct-backups-tab.tsx",
         "originalHash":  null,
         "previousPatchHashes":  [
+                                    "AB6CF352FB3A0012A0F336DF8F68CB175D9B87B3D0190147F24EAD5BCF3D09ED"
+                                ],
+        "patchHash":  "4FB42DE60D91AD0298B89E6BFE069AE9FFDA1B6DD621CC7DA1ECAC2C0AF3C240"
+    },
+    {
+        "path":  "src/components/pos/nct-create-transfer-dialog.tsx",
+        "originalHash":  null,
+        "previousPatchHashes":  [
 
                                 ],
-        "patchHash":  "AB6CF352FB3A0012A0F336DF8F68CB175D9B87B3D0190147F24EAD5BCF3D09ED"
+        "patchHash":  "B00DD77BBF517D8CA1D324A44382E2DA56C59BE754DEF5ACEBB87A554FA0DE36"
     },
     {
         "path":  "src/components/pos/pos-summary-report.tsx",
@@ -128,7 +153,7 @@
         "previousPatchHashes":  [
                                     "0FFBE75895B650E35FC3AFE739111337A24BF3BC4DCA710C2B62C405C35E8F7C"
                                 ],
-        "patchHash":  "0FFBE75895B650E35FC3AFE739111337A24BF3BC4DCA710C2B62C405C35E8F7C"
+        "patchHash":  "0FF273D17CF2582B6B68A347E21C75F4E711F22EA84DF88592917D88FA97AD84"
     },
     {
         "path":  "src/components/pos/pos-users-devices-tab.tsx",
@@ -136,7 +161,7 @@
         "previousPatchHashes":  [
                                     "92F7B9A030EF5729F13ED4AC8FCEE2C0E979942C438FA9045EB4669E93BFBA63"
                                 ],
-        "patchHash":  "92F7B9A030EF5729F13ED4AC8FCEE2C0E979942C438FA9045EB4669E93BFBA63"
+        "patchHash":  "75A4BC1213621D85C4CF7CB969922DABEC5FE3B32BDAC994B0BFD59FB3D17C4A"
     },
     {
         "path":  "src/server/api/routers/finance.ts",
@@ -144,7 +169,7 @@
         "previousPatchHashes":  [
                                     "CB9666A5277C7C5412BCA7CABF40D288E78CC4D922805A45A8DFAB2BCDCF03CD"
                                 ],
-        "patchHash":  "CB9666A5277C7C5412BCA7CABF40D288E78CC4D922805A45A8DFAB2BCDCF03CD"
+        "patchHash":  "B131FF5837137189D761DB35527A071B535700935C8A411194CA159500EBEC90"
     },
     {
         "path":  "src/server/api/routers/pos-device.ts",
@@ -152,7 +177,15 @@
         "previousPatchHashes":  [
                                     "72B9E8EC94CF812F53FEEF796CB79990567D24CD65C651F9F891E977511A481B"
                                 ],
-        "patchHash":  "72B9E8EC94CF812F53FEEF796CB79990567D24CD65C651F9F891E977511A481B"
+        "patchHash":  "1993153CF760FE90C47BC8B5D0400F36CAE30128E0451B71586C9DD68295CD6A"
+    },
+    {
+        "path":  "src/server/api/routers/pos-transfer.ts",
+        "originalHash":  "E6C0A4362E582ECC74DE95A2D99B9BF4DADCCDC29156EB552535B8E98F2D97B3",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "C379DEA95B67512D8F1AEB34D9DD1ADE9AD084F36B19861FD709CDA76ED2E414"
     },
     {
         "path":  "src/server/api/routers/pos-user.ts",
@@ -160,7 +193,7 @@
         "previousPatchHashes":  [
                                     "9A7896D848C7FD1594E1BC7BA8331854405FE4FB48420066C386E26208C3F634"
                                 ],
-        "patchHash":  "9A7896D848C7FD1594E1BC7BA8331854405FE4FB48420066C386E26208C3F634"
+        "patchHash":  "48924445DAD8CFF00C0A714985607A002413DB2CA9273E3E808626370A37F38A"
     },
     {
         "path":  "src/server/api/routers/pos.ts",
@@ -169,7 +202,15 @@
                                     "EC7A95E08C6DE3A210C64684E19D7D970C3799D1F255F20B239B8CF1C5C6C1AA",
                                     "B9CEB391B1D350554236F03137A9A992B7934372460BCB3808D9FD732C801CD8"
                                 ],
-        "patchHash":  "B9CEB391B1D350554236F03137A9A992B7934372460BCB3808D9FD732C801CD8"
+        "patchHash":  "D6C32AD8F76E4FAD9282512E76F84FB0F6ED404A878C8D6320D64C14B9984B48"
+    },
+    {
+        "path":  "src/server/pos/dealership-transfer-receive.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "A8BAAC5A1CC285FF32067661856E9E7CB96D25A0F4BA948FBE0392401C4154DE"
     },
     {
         "path":  "src/server/pos/dealership-users.ts",
@@ -177,7 +218,7 @@
         "previousPatchHashes":  [
                                     "54778B4CC9F5939C227C7DEA47C87BE35871C696963FE217DCFD92B1A4897269"
                                 ],
-        "patchHash":  "54778B4CC9F5939C227C7DEA47C87BE35871C696963FE217DCFD92B1A4897269"
+        "patchHash":  "8CBFCA9F99BA6ADC285DA22614C4C12B878074667D5111446036CD91002F6EA0"
     },
     {
         "path":  "src/server/pos/employee-directory.ts",
@@ -191,9 +232,25 @@
         "path":  "src/server/pos/nct-backups.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
+                                    "F166D76E3F4D5BC460088CCE346B3F17BC6DC38F5BF5D6F4B935BB2C6510E82A"
+                                ],
+        "patchHash":  "E158D824BC4D7CF13A6DFD925959C4018377B90B955454B0921EA89081C53E30"
+    },
+    {
+        "path":  "src/server/pos/nct-pending-allocations.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
 
                                 ],
-        "patchHash":  "F166D76E3F4D5BC460088CCE346B3F17BC6DC38F5BF5D6F4B935BB2C6510E82A"
+        "patchHash":  "69CD87A0E8D0441201533C8601E14C54F278439A6B3104FB55B8431FBBB6E3D2"
+    },
+    {
+        "path":  "src/server/pos/nct-transfer-create.ts",
+        "originalHash":  null,
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "738D74E64F6E9BEA7421FFF904E3618FFD492B9C0D2F771BC030B3D0B5B19F12"
     },
     {
         "path":  "src/server/pos/sale-contract.ts",
@@ -201,7 +258,7 @@
         "previousPatchHashes":  [
                                     "B31A8D1D313D24CD52CD71EE55EDC36D756C5C92739BFFA3FA83A7D9090400FA"
                                 ],
-        "patchHash":  "B31A8D1D313D24CD52CD71EE55EDC36D756C5C92739BFFA3FA83A7D9090400FA"
+        "patchHash":  "39DC05C9875E1D2E7AD66E8709241B68B53C8C6E254218DDD544800F286BE078"
     },
     {
         "path":  "src/server/pos/sales-report.ts",
@@ -209,7 +266,7 @@
         "previousPatchHashes":  [
                                     "36367CE1FCE20CB28342B372C74C4D8E5532871BE7570769D8B25243B43836F1"
                                 ],
-        "patchHash":  "36367CE1FCE20CB28342B372C74C4D8E5532871BE7570769D8B25243B43836F1"
+        "patchHash":  "41900C23A678645B05C34CE0F0D9B1E02B565EF1A53C8BD79DCDC988A774AA33"
     },
     {
         "path":  "src/server/services/device-registration.service.ts",
@@ -217,6 +274,6 @@
         "previousPatchHashes":  [
                                     "D2B97505A6F933CEFC2EB8BC5C964895379AFA6FF3E8DFF45B7356D1303BEEF3"
                                 ],
-        "patchHash":  "D2B97505A6F933CEFC2EB8BC5C964895379AFA6FF3E8DFF45B7356D1303BEEF3"
+        "patchHash":  "4D9F70D196B3A693DC988A0C02D368135A15422F388B302B05E4F251756C25D5"
     }
 ]

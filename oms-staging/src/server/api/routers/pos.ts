@@ -7,6 +7,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { PERMISSIONS } from "~/lib/permissions";
 import { createSalesReportProcedure } from "~/server/pos/sales-report";
 import { isDealershipOperator } from "~/server/pos/dealership-procedure";
+import { pendingNctAllocations } from "~/server/pos/nct-pending-allocations";
 
 function toGroupKey(input: { variationId: number; stockGroupId?: string | null }) {
   if (input.stockGroupId && input.stockGroupId.trim().length > 0) {
@@ -254,12 +255,13 @@ export function createPosRouter(procedure = protectedProcedure) { return createT
           })
         : [];
       const deviceMap = new Map(devices.map((d) => [d.id, d]));
+      const unreceived = !isDealershipOperator(ctx) ? await pendingNctAllocations(ctx.db, deviceIds) : new Map<string, number>();
 
       return items.map((row) => ({
         id: row.id,
         groupKey: row.groupKey,
         stockGroupId: row.stockGroupId ?? null,
-        qty: row.qty,
+        qty: Math.max(0, row.qty - (unreceived.get(`${row.deviceId}:${row.groupKey}`) ?? 0)),
         deviceId: row.deviceId,
         deviceName: deviceMap.get(row.deviceId)?.deviceName ?? (row.deviceId === "" ? "General Pool" : row.deviceId),
         variation: {

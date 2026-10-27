@@ -13,8 +13,14 @@ export function localTransaction<T>(work: (tx: SQLiteDatabase) => Promise<T>): P
   return serializeLocalOperation(async () => {
     const database = await getDatabase();
     let result!: T;
-    if (Platform.OS === "web") await database.withTransactionAsync(async () => { result = await work(database); });
-    else await database.withExclusiveTransactionAsync(async (tx) => { result = await work(tx); });
+    if (Platform.OS === "web")
+      await database.withTransactionAsync(async () => {
+        result = await work(database);
+      });
+    else
+      await database.withExclusiveTransactionAsync(async (tx) => {
+        result = await work(tx);
+      });
     return result;
   });
 }
