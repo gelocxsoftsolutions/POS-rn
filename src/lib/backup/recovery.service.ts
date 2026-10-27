@@ -1,15 +1,12 @@
-import * as SQLite from "expo-sqlite";
 import { Directory, File, Paths } from "expo-file-system";
 import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
 import { v4 as uuid } from "uuid";
-import { getCloudConnection } from "@/lib/services/dealership-cloud.service";
-import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { SCHEMA_VERSION } from "@/lib/db/schema";
 import { execute, getDatabase, queryFirst } from "@/lib/db/connection";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
-import { exportUiPreferences, restoreUiPreferences, type PersistedUiPreferences } from "@/lib/stores/ui-store";
+import { exportUiPreferences, type PersistedUiPreferences } from "@/lib/stores/ui-store";
 import { requirePermission } from "@/lib/services/authorization.service";
 import { isNctPos } from "@/lib/services/nct-scope";
 import { nctBackupReference } from "./nct-schedule";
@@ -112,7 +109,7 @@ async function readAsset(name: BackupAsset["name"], uri: string | null): Promise
 
 async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file: File; envelope: BackupEnvelope }> {
   const business = BusinessConfigurationService.current();
-  const deviceId = getCloudConnection()?.deviceId ?? useDeviceStore.getState().device.deviceId;
+  const deviceId = useDeviceStore.getState().device.deviceId;
   const database = await getDatabase();
   await database.execAsync("PRAGMA wal_checkpoint(FULL)");
   const bytes = forceRollbackJournalMode(await database.serializeAsync());
@@ -146,39 +143,17 @@ async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file:
 export const RecoveryService = {
   async createBackup(options: { upload?: boolean } = {}): Promise<{ file: File; envelope: BackupEnvelope }> {
     await requirePermission("POS_BACKUP", "export database backups");
-    const backup = isNctPos() ? await serializeLocalOperation(() => createBackupFile("MANUAL")) : await createBackupFile("MANUAL");
-    if (options.upload !== false && (isNctPos() || getCloudConnection())) await queueCreatedBackup(backup.file, backup.envelope, `manual:${backup.envelope.createdAt}`);
+    const backup = await serializeLocalOperation(() => createBackupFile("MANUAL"));
+    if (options.upload !== false) await queueCreatedBackup(backup.file, backup.envelope, `manual:${backup.envelope.createdAt}`);
     return backup;
   },
 
   async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
-    if (isNctPos()) {
-      const deviceId = useDeviceStore.getState().device.deviceId;
-      const businessId = BusinessConfigurationService.current().businessId;
-      const reference = nctBackupReference();
-      const key = `${businessId}:${deviceId}:${reference}:backup`;
-      const existing = await queryFirst<{ payload: string }>("SELECT payload FROM SyncQueue WHERE dedupeKey=? ORDER BY createdAt DESC LIMIT 1", [key]);
-      if (existing) {
-        const file = new File(JSON.parse(existing.payload).fileUri);
-        if (!file.exists) throw new Error("The scheduled backup file is missing. Review its queue entry before retrying.");
-        return { file, envelope: await this.validate(file.uri) };
-      }
-      const backup = await serializeLocalOperation(() => createBackupFile("AUTOMATIC"));
-      await queueCreatedBackup(backup.file, backup.envelope, reference);
-      return backup;
-    }
-    const backup = await createBackupFile("AUTOMATIC");
-    if (getCloudConnection()) {
-      try {
-        await queueCreatedBackup(backup.file, backup.envelope, `auto:${backup.envelope.createdAt}`);
-        useBackupSettingsStore.getState().setCloudError(null);
-      } catch (error) {
-        // Preserve a successful local snapshot and its normal schedule, rather
-        // than generating another oversized/unqueuable file every minute.
-        useBackupSettingsStore.getState().setCloudError(error instanceof Error ? error.message : "Local backup saved, but cloud queue failed.");
-      }
-    }
-    return backup;
+    return createQueuedAutomaticBackup(nctBackupReference());
+  },
+
+  async createEndOfDayBackup(reference: string): Promise<{ file: File; envelope: BackupEnvelope }> {
+    return createQueuedAutomaticBackup(reference);
   },
 
   async listBackups(): Promise<BackupFileInfo[]> {
@@ -212,8 +187,8 @@ export const RecoveryService = {
 
   async queueBackupUpload(reference: string): Promise<{ backupId: string; fileUri: string }> {
     const currentBusiness = BusinessConfigurationService.current();
-    const currentDeviceId = isNctPos() ? useDeviceStore.getState().device.deviceId : getCloudConnection()?.deviceId;
-    if (!currentDeviceId) throw new Error("Connect dealership cloud backups first.");
+    const currentDeviceId = useDeviceStore.getState().device.deviceId;
+    if (!currentDeviceId) throw new Error("Register the intended NCT device first.");
     const idempotencyKey = `${currentBusiness.businessId}:${currentDeviceId ?? "device"}:${reference}:backup`;
     const existing = await queryFirst<{ entityId: string }>(
       `SELECT entityId FROM SyncQueue
@@ -222,7 +197,7 @@ export const RecoveryService = {
     );
     if (existing) return { backupId: existing.entityId, fileUri: "Stored in the durable upload queue" };
     await requirePermission("POS_BACKUP", "upload database backups");
-    const { file, envelope } = await createBackupFile("MANUAL");
+    const { file, envelope } = await serializeLocalOperation(() => createBackupFile("MANUAL"));
     const backupId = await queueCreatedBackup(file, envelope, reference);
     return { backupId, fileUri: file.uri };
   },
@@ -242,40 +217,13 @@ export const RecoveryService = {
 
   async restoreBackup(fileUri: string): Promise<void> {
     await requirePermission("POS_BACKUP", "restore database backups");
-    if (isNctPos()) {
-      const { restoreNctBackup } = await import("./nct-restore.service");
-      return restoreNctBackup(fileUri);
-    }
-    const envelope = await this.validate(fileUri);
-    const cloud = getCloudConnection();
-    if (cloud && (envelope.businessId !== cloud.businessId || envelope.deviceId !== cloud.deviceId)) {
-      throw new Error("This backup belongs to another dealership or device. Reconnect using the matching device connection before restoring it.");
-    }
-    const source = await SQLite.deserializeDatabaseAsync(forceRollbackJournalMode(base64ToBytes(envelope.databaseBase64)));
-    const destination = await getDatabase();
-    try {
-      const meta = await source.getFirstAsync<{ v: number }>("SELECT v FROM _meta WHERE key = 'schema_version'");
-      const identity = await source.getFirstAsync<{ businessId: string }>("SELECT businessId FROM StoreSettings WHERE id = 'default'");
-      if (meta?.v !== SCHEMA_VERSION || identity?.businessId !== envelope.businessId) throw new Error("Backup identity or schema metadata does not match its manifest.");
-      await SQLite.backupDatabaseAsync({ sourceDatabase: source, destDatabase: destination });
-    } finally { await source.closeAsync(); }
-    await destination.execAsync("PRAGMA journal_mode = WAL;");
-    const restoredTotals = await databaseTotals();
-    if (JSON.stringify(restoredTotals) !== JSON.stringify(envelope.totals)) throw new Error("Restored database totals do not match the backup manifest.");
-    const directory = new Directory(Paths.document, "business-branding");
-    directory.create({ intermediates: true, idempotent: true });
-    for (const asset of envelope.assets) {
-      const file = new File(directory, `${envelope.businessId}-restored-${asset.name}${asset.extension}`);
-      file.create({ overwrite: true }); file.write(base64ToBytes(asset.base64));
-      await execute(`UPDATE StoreSettings SET ${asset.name === "businessLogo" ? "businessLogoUri" : "receiptLogoUri"} = ? WHERE id = 'default'`, [file.uri]);
-    }
-    await BusinessConfigurationService.load();
-    restoreUiPreferences(envelope.uiPreferences);
+    const { restoreNctBackup } = await import("./nct-restore.service");
+    return restoreNctBackup(fileUri);
   },
 };
 
 async function queueCreatedBackup(file: File, envelope: BackupEnvelope, reference: string) {
-  if (!getCloudConnection() && !isNctPos()) throw new Error("Connect cloud backups first.");
+  if (!isNctPos()) throw new Error("NCT-dependent POS configuration is required.");
   const backupId = uuid();
   const idempotencyKey = `${envelope.businessId}:${envelope.deviceId}:${reference}:backup`;
   if (file.size > 32 * 1024 * 1024) throw new Error("Backup exceeds the 32 MiB cloud upload limit. Your local backup is retained.");
@@ -283,7 +231,7 @@ async function queueCreatedBackup(file: File, envelope: BackupEnvelope, referenc
   // Keep bytes in the local backup file. Embedding snapshots in SyncQueue
   // would recursively inflate every later database backup.
   const queued = await SyncQueueService.enqueue("DatabaseBackup", backupId, "UPLOAD", {
-    ...(isNctPos() ? { scope: "NCT" } : {}),
+    scope: "NCT",
     idempotencyKey, businessId: envelope.businessId, deviceId: envelope.deviceId,
     schemaVersion: envelope.schemaVersion, checksum: envelope.databaseChecksum,
     createdAt: envelope.createdAt, fileUri: file.uri,
@@ -291,4 +239,22 @@ async function queueCreatedBackup(file: File, envelope: BackupEnvelope, referenc
   }, idempotencyKey);
   if (!queued) throw new Error("Local backup saved, but cloud upload could not be queued. Please retry.");
   return backupId;
+}
+
+async function createQueuedAutomaticBackup(reference: string): Promise<{ file: File; envelope: BackupEnvelope }> {
+  const deviceId = useDeviceStore.getState().device.deviceId;
+  if (!deviceId) throw new Error("Register the intended NCT device before queueing backups.");
+  const businessId = BusinessConfigurationService.current().businessId;
+  const key = businessId + ":" + deviceId + ":" + reference + ":backup";
+  const existing = await queryFirst<{ payload: string }>("SELECT payload FROM SyncQueue WHERE dedupeKey=? ORDER BY createdAt DESC LIMIT 1", [key]);
+  if (existing) {
+    const payload = JSON.parse(existing.payload);
+    if (payload.scope !== "NCT") throw new Error("An unscoped historical backup needs review before retrying.");
+    const file = new File(payload.fileUri);
+    if (!file.exists) throw new Error("The queued backup file is missing. Review the queue before retrying.");
+    return { file, envelope: await RecoveryService.validate(file.uri) };
+  }
+  const backup = await serializeLocalOperation(() => createBackupFile("AUTOMATIC"));
+  await queueCreatedBackup(backup.file, backup.envelope, reference);
+  return backup;
 }

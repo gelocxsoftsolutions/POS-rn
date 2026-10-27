@@ -74,6 +74,8 @@ const { withNctActionAudit } = load("src/lib/services/action-audit.ts", {
           id: closureId,
           entityId: "2026-10-27",
           payload: JSON.stringify({
+            scope: "NCT",
+            operatingMode: "NCT_DEPENDENT",
             businessId: "nct-default",
             deviceId: "device-1",
             branchId: 1,

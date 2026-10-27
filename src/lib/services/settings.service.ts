@@ -44,7 +44,7 @@ export const SettingsService = withNctActionAudit("Settings", {
         address: "",
         receiptFooter: "",
         businessId: "nct-default",
-        operatingMode: "INDEPENDENT",
+        operatingMode: "NCT_DEPENDENT",
         posSystemName: "NCT Seafoods POS",
         headerName: "NCT Seafoods",
         businessLogoUri: null,

@@ -507,8 +507,8 @@ export const OmsSyncService = {
     return serializeNctSync(() => this.pushSaleNow(sale));
   },
   async pushSaleNow(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
-    if (getApiConfig().dealership || BusinessConfigurationService.current().operatingMode !== "NCT_DEPENDENT") {
-      return { success: false, status: 403, retryable: false, error: "Dealership and Independent sales remain local." };
+    if (!isNctPos()) {
+      return { success: false, status: 403, retryable: false, error: "Only NCT-dependent receipts can be synchronized." };
     }
     const response = await api.post<{ data?: { saleId: number } }>("/api/pos/sales", sale);
     const saleId = response.data?.data?.saleId;
@@ -700,8 +700,7 @@ export const OmsSyncService = {
       } catch { /* non-blocking */ }
 
       let inv = 0, prod = 0, tr = 0;
-      // Independent OMS connections are only for queued EOD and backup
-      // delivery. They must never import NCT catalog, stock, or transfers.
+      // Import only the registered NCT device's catalog, stock, and transfers.
       if (BusinessConfigurationService.capabilities().importNctCatalog) {
       let device = await DeviceRepository.find();
       // Remediation: local Device.id was previously random UUID, must match OMS deviceId (store deviceId)

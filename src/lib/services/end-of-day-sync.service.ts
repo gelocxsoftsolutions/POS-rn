@@ -14,6 +14,7 @@ export async function syncNctEndOfDay() {
   for (const row of pending) {
     const report = JSON.parse(row.payload);
     if (
+      report.scope !== "NCT" || report.operatingMode !== "NCT_DEPENDENT" ||
       report.businessId !== BusinessConfigurationService.current().businessId ||
       !report.deviceId ||
       !report.branchId

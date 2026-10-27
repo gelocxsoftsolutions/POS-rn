@@ -8,7 +8,7 @@ import { isNctPos } from "@/lib/services/nct-scope";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 
 export const EndOfDayService = {
-  async closeAndQueue(input: { businessDate: string; shiftId?: string | null }) {
+  async closeLocally(input: { businessDate: string; shiftId?: string | null }) {
     const business = BusinessConfigurationService.current();
     const device = useDeviceStore.getState().device;
     const summary = await queryFirst<{ transactionCount: number; grossSales: number; discounts: number; tax: number }>(
@@ -25,14 +25,15 @@ export const EndOfDayService = {
     );
     const idempotencyKey = `${business.businessId}:${device.deviceId ?? "device"}:${input.businessDate}:${input.shiftId ?? "day"}:eod`;
     const queue = await SyncQueueService.enqueue("EndOfDay", input.shiftId ?? input.businessDate, "UPLOAD", {
-      idempotencyKey, businessId: business.businessId, branchId: device.branchId,
+      scope: "NCT", idempotencyKey, businessId: business.businessId, branchId: device.branchId,
       deviceId: device.deviceId, operatingMode: business.operatingMode,
       businessDate: input.businessDate, shiftId: input.shiftId ?? null,
       summary: summary ?? { transactionCount: 0, grossSales: 0, discounts: 0, tax: 0 }, payments,
       generatedAt: new Date().toISOString(), schemaVersion: SCHEMA_VERSION,
       ...(isNctPos() ? { cashierId: useCashierStore.getState().session?.cashierId ?? null, cashierName: useCashierStore.getState().session?.cashierName ?? null } : {}),
     }, idempotencyKey);
-    const backup = await RecoveryService.queueBackupUpload(`${input.businessDate}:${input.shiftId ?? "day"}`);
-    return { queue, backup };
+    if (!queue) throw new Error("The end-of-day closure could not be saved to the local queue.");
+    const { file } = await RecoveryService.createEndOfDayBackup(`eod:${input.businessDate}:${input.shiftId ?? "day"}`);
+    return { summary, payments, queue, backup: { fileUri: file.uri } };
   },
 };

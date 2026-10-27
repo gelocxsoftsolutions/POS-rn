@@ -3,10 +3,9 @@ import { SyncQueueRepository } from "@/lib/repositories/sync-queue.repository";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { nctSalePayload } from "@/lib/services/nct-sale-payload";
-import { getApiConfig } from "@/lib/api/http";
+import { isNctPos } from "./nct-scope";
 import { queryFirst } from "@/lib/db/connection";
 import { acquireSaleSync, releaseSaleSync } from "@/lib/services/sale-sync-lock";
-import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import type { SaleSyncStatus } from "@/lib/types/sales";
 
 export interface RetrySaleResult { success: boolean; status: SaleSyncStatus; error?: string }
@@ -14,8 +13,8 @@ export interface RetrySaleResult { success: boolean; status: SaleSyncStatus; err
 export const SaleSyncService = {
   // Retries preserve the persisted UUID, receipt prices, time and device identity.
   async retrySale(saleId: string): Promise<RetrySaleResult> {
-    if (getApiConfig().dealership || BusinessConfigurationService.current().operatingMode !== "NCT_DEPENDENT") {
-      return { success: false, status: "UNSYNCED", error: "Dealership and Independent sales remain local." };
+    if (!isNctPos()) {
+      return { success: false, status: "UNSYNCED", error: "Only NCT-dependent receipts can be synchronized." };
     }
     if (!acquireSaleSync(saleId)) return { success: false, status: "PENDING", error: "Sale is already syncing." };
     try {

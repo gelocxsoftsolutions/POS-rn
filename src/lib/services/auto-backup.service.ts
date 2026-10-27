@@ -1,8 +1,6 @@
 import { RecoveryService } from "@/lib/backup/recovery.service";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { useBackupListStore } from "@/lib/stores/backup-list-store";
-import { useCashierStore } from "@/lib/stores/cashier-store";
-import { nextBackupAt } from "@/lib/backup/schedule";
 import { SyncQueueService } from "./sync-queue.service";
 import { AppState } from "react-native";
 import type { NativeEventSubscription } from "react-native";
@@ -18,12 +16,11 @@ let resumeListener: NativeEventSubscription | null = null;
 async function tick(): Promise<void> {
   if (running) return;
   const settings = useBackupSettingsStore.getState();
-  const { autoBackupEnabled, markAutoBackup, hydrated } = settings;
+  const { markAutoBackup, hydrated } = settings;
   if (!hydrated || AppState.currentState !== "active") return;
-  if (!autoBackupEnabled && !isNctPos()) return;
-  if (!useCashierStore.getState().session && !isNctPos()) return;
+  if (!isNctPos()) return;
 
-  const next = isNctPos() ? nextNctBackupAt(settings.lastAutoBackupAt) : nextBackupAt(settings);
+  const next = nextNctBackupAt(settings.lastAutoBackupAt);
   const due = next && Date.now() >= next.valueOf();
   if (!due) return;
 
@@ -33,7 +30,8 @@ async function tick(): Promise<void> {
     markAutoBackup();
     await useBackupListStore.getState().refresh();
     await SyncQueueService.processPending();
-  } catch {
+  } catch (error) {
+    settings.setCloudError(error instanceof Error ? error.message : "NCT backup could not be queued.");
     // Background auto-backups are best-effort; the scheduler retries next cycle.
   } finally {
     running = false;

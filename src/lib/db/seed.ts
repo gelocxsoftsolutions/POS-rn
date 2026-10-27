@@ -12,7 +12,7 @@ export async function seedIfNeeded(): Promise<void> {
     [defaultRoleId, "Admin", "Full access", now]
   );
 
-  // A fresh independent installation creates its owner during onboarding.
+  // OMS provisions cashier accounts during device activation.
   // Never seed a well-known production login or PIN here.
   await execute(
     `INSERT OR IGNORE INTO StoreSettings (id, storeName, storeCode, currencyCode, taxLabel, taxRate, address, receiptFooter) VALUES ('default', 'NCT Seafoods POS', 'NCT-MAIN', 'PHP', 'VAT', 0.12, 'Manila, Philippines', 'Thank you for your purchase!')`

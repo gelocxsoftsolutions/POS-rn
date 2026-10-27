@@ -15,7 +15,6 @@ import { startAutoBackupScheduler } from "@/lib/services/auto-backup.service";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
-import { loadCloudConnection } from "@/lib/services/dealership-cloud.service";
 import { AuditService } from "@/lib/services/audit.service";
 import { isNctPos } from "@/lib/services/nct-scope";
 
@@ -60,8 +59,7 @@ export default function RootLayout() {
         await BusinessConfigurationService.load();
         await SeedService.run();
         await initApiConfig();
-        await loadCloudConnection();
-        await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType='DatabaseBackup' AND status='PROCESSING'");
+        await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType IN ('Sale','DatabaseBackup') AND status='PROCESSING'");
         await AuthenticationService.init();
         startNetworkListener();
         startBackgroundSync();

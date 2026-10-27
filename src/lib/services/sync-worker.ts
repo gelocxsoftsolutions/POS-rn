@@ -1,25 +1,22 @@
-import { OmsSyncService } from "@/lib/services/oms-sync.service";
-import { SyncQueueService } from "@/lib/services/sync-queue.service";
+import { OmsSyncService } from "./oms-sync.service";
+import { SyncQueueService } from "./sync-queue.service";
 import { useDeviceStore } from "@/lib/stores/device-store";
-import { useNetworkStore } from "@/lib/services/network.service";
+import { useNetworkStore } from "./network.service";
 import { useSyncStore } from "@/lib/stores/sync-store";
-import { BusinessConfigurationService } from "@/lib/business/configuration.service";
-import { getCloudConnection, reportBackupStatus } from "@/lib/services/dealership-cloud.service";
-import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
-import { nextBackupAt } from "@/lib/backup/schedule";
-import { getApiConfig } from "@/lib/api/http";
 import { query } from "@/lib/db/connection";
-import { SaleSyncService } from "@/lib/services/sale-sync.service";
+import { SaleSyncService } from "./sale-sync.service";
 import { EmployeeSyncService } from "./employee-sync.service";
 import { syncNctAuditLogs } from "./audit-sync.service";
 import { syncNctEndOfDay } from "./end-of-day-sync.service";
+import { isNctPos } from "./nct-scope";
 
-async function pushNctSales() {
+async function pushNewNctSales() {
   const pending = await query<{ id: string }>(
-    `SELECT s.id FROM Sale s WHERE s.synced = 0 AND s.status = 'COMPLETED'
-     AND s.originMode = 'NCT_DEPENDENT'
-     AND NOT EXISTS (SELECT 1 FROM SyncQueue q WHERE q.entityType = 'Sale' AND q.entityId = s.id AND q.status = 'FAILED')
-     ORDER BY s.createdAt ASC LIMIT 50`
+    `SELECT s.id FROM Sale s WHERE s.synced=0 AND s.status='COMPLETED'
+     AND s.originMode='NCT_DEPENDENT'
+     AND NOT EXISTS (SELECT 1 FROM SyncQueue q WHERE q.entityType='Sale'
+       AND q.entityId=s.id AND q.status IN ('PENDING','PROCESSING','FAILED'))
+     ORDER BY s.createdAt LIMIT 50`,
   );
   for (const sale of pending) await SaleSyncService.retrySale(sale.id);
 }
@@ -27,46 +24,33 @@ async function pushNctSales() {
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 export async function runSyncCycle(): Promise<void> {
-  const nct = !getApiConfig().dealership && BusinessConfigurationService.current().operatingMode === "NCT_DEPENDENT";
-  if (running || !useNetworkStore.getState().isOnline || (!nct && !getCloudConnection())) return;
+  if (running || !isNctPos() || !useNetworkStore.getState().isOnline || !useDeviceStore.getState().device.deviceId) return;
   running = true;
   useSyncStore.getState().setIsSyncing(true);
   try {
-    if (nct) {
-      await pushNctSales();
-      await syncNctAuditLogs();
-      await syncNctEndOfDay();
-      await EmployeeSyncService.refresh();
-    }
+    // Queue retries own queued sales; discovery owns only receipts without jobs.
     await SyncQueueService.processPending();
-    const backup = useBackupSettingsStore.getState();
-    const stats = await SyncQueueService.getStats();
-    if (backup.hydrated) await reportBackupStatus({
-      enabled: backup.autoBackupEnabled, mode: backup.scheduleMode, intervalHours: backup.autoBackupIntervalHours,
-      dailyTime: backup.dailyTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Device local time",
-      nextBackupAt: nextBackupAt(backup)?.toISOString() ?? null, lastBackupAt: backup.lastAutoBackupAt,
-      pending: stats.pending + stats.processing, failed: stats.failed, error: backup.lastCloudError?.slice(0, 1000) ?? null,
-    }).catch(() => {});
-    if (BusinessConfigurationService.capabilities().importNctCatalog) {
-      const device = useDeviceStore.getState().device;
-      if (device.deviceId) {
-        if (nct) await OmsSyncService.syncPendingTransfers(device.deviceId);
-        await OmsSyncService.syncInventory(device.deviceId);
-        if (device.branchId) await OmsSyncService.syncBranchProducts(device.branchId);
-        if (!nct) await OmsSyncService.syncPendingTransfers(device.deviceId);
-      }
+    await pushNewNctSales();
+    await syncNctAuditLogs();
+    await syncNctEndOfDay();
+    await EmployeeSyncService.refresh();
+    const device = useDeviceStore.getState().device;
+    if (device.deviceId) {
+      await OmsSyncService.syncPendingTransfers(device.deviceId);
+      await OmsSyncService.syncInventory(device.deviceId);
+      if (device.branchId) await OmsSyncService.syncBranchProducts(device.branchId);
     }
     useSyncStore.getState().setLastSyncTime(new Date().toISOString());
-    await useSyncStore.getState().refreshPendingCount();
   } finally {
     running = false;
     useSyncStore.getState().setIsSyncing(false);
+    await useSyncStore.getState().refreshPendingCount();
   }
 }
 export function startBackgroundSync(): void {
   if (timer) return;
   void runSyncCycle().catch(() => {});
-  timer = setInterval(() => { runSyncCycle().catch(() => {}); }, 15000);
+  timer = setInterval(() => { void runSyncCycle().catch(() => {}); }, 15000);
 }
 export function stopBackgroundSync(): void {
   if (timer) clearInterval(timer);

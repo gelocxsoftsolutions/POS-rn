@@ -46,7 +46,7 @@ export const DeviceService = {
           }>;
         }>("/api/device/register", {
           activationToken: input.activationToken,
-          existingDeviceId: !getApiConfig().dealership ? priorDeviceId : undefined,
+          existingDeviceId: priorDeviceId,
           publicKey: input.publicKey,
           machineIdentifier: input.machineIdentifier,
           computerName: input.computerName,
@@ -121,7 +121,7 @@ export const DeviceService = {
 
           if (isNctPos()) await EmployeeSyncService.refresh();
           if (!isNctPos() && d.initialCashiers && d.initialCashiers.length > 0) {
-            // Upsert provisioned users without erasing local dealership users.
+            // Preserve historical local records; only Employees-backed accounts can sign in.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
             for (const roleId of roleIds) {

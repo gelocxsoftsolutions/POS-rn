@@ -59,8 +59,8 @@ export const SettingsRepository = {
         posSystemName, headerName, contactEmail, receiptTemplateVersion, updatedAt
        ) VALUES (
         'default', 'NCT Seafoods', '', 'PHP', 'VAT', 0, '', '',
-        'Thank you for your purchase!', 'nct-default', 'INDEPENDENT',
-        'Dealership POS', 'Dealership', '', 1, ?
+        'Thank you for your purchase!', 'nct-default', 'NCT_DEPENDENT',
+        'NCT Seafoods POS', 'NCT Seafoods', '', 1, ?
        )`,
       [now]
     );

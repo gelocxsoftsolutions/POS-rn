@@ -1,7 +1,13 @@
 # Phase 1 implementation and human verification
 
-Scope: NCT POS only. Dealership sales/backups and POS locking remain outside this change.
+Scope: NCT POS only. POS-rn follows staging's NCT-only client design. The shared OMS Dealership API remains intact for the separate POS-dealership application. POS locking remains outside this change.
 POS branch: `feat/phase1-pos-completion`, created from fetched `origin/staging`.
+
+Integration update (28 October 2026): merged staging `34d2df7` into this feature branch and resolved its ten conflicting paths. The client retains NCT receipt delivery, Employees, audits, scoped inventory, identity-preserving reconnect, daily backups and safe restore while removing Dealership pairing, routes, imports and API routing. Historical independent sales and unscoped backup/closure jobs remain local; returns remain a documented follow-up. The queue processes supported NCT types without letting deferred returns block sales/backups. End-of-day callers retain staging's `closeLocally` result shape, with a separate closure backup key so they cannot consume the daily 7 PM snapshot.
+
+The OMS overlay is unchanged by this merge resolution. References below to preserving or rechecking Dealership behavior refer to the shared OMS server and separate app, rather than reintroducing a Dealership client in POS-rn. No OMS application, database, schema, deployment or production configuration was changed during resolution.
+
+Merge verification: POS TypeScript, all five Phase 1 scripts, seven NCT isolation/queue/worker regression tests and the existing PowerShell platform contract checks passed. Android JavaScript export also passed (`expo export --platform android --no-bytecode`, 2,307 modules, staging configuration). These use local/memory databases and mocked transport, with no OMS writes. Full Android bytecode export could not execute the installed Hermes compiler (`permission denied`). Web export failed because the installed `expo-sqlite` package lacks `web/wa-sqlite/wa-sqlite.wasm`. Neither full bytecode nor web export is a pass. Live acceptance below remains pending. No new SQL or dependencies were introduced by resolution; earlier SQL proposals remain unapplied.
 
 See [FILES.md](FILES.md) for the exact files in each task commit. Every task below includes implementation details, SQL status, risks and a human acceptance checklist.
 

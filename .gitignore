@@ -15,9 +15,6 @@ android/
 ios/
 .DS_Store
 *.tsbuildinfo
-# Dealership validation artifacts
-.dealership-export/
-dealership-*.log
+# Phase 1 review artifacts
 docs/phase1/oms-typecheck.log
 docs/phase1/oms-source-backups/
-.dealership-export.log
