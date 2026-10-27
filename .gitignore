@@ -18,4 +18,6 @@ ios/
 # Dealership validation artifacts
 .dealership-export/
 dealership-*.log
+docs/phase1/oms-typecheck.log
+docs/phase1/oms-source-backups/
 .dealership-export.log

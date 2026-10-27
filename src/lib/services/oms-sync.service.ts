@@ -11,6 +11,7 @@ import { ProductPriceRepository } from "@/lib/repositories/product-price.reposit
 import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
+import type { nctSalePayload } from "@/lib/services/nct-sale-payload";
 
 interface VariationDto {
   id: string;
@@ -485,19 +486,18 @@ export const OmsSyncService = {
     }
   },
 
-  async pushSale(sale: {
-    receiptNumber?: string;
-    cashierId?: string;
-    cashierName?: string;
-    cashierUserId?: string;
-    paymentMethod?: string;
-    total?: number;
-    items: Array<{ variationId: number; qty: number }>;
-    payments?: Array<{ method: string; amount: number }>;
-    deviceId?: string | null;
-    branchId?: number | null;
-  }): Promise<SalePushResult> {
-    return { success: false, status: 403, retryable: false, error: "Dealership sales remain local and are included in cloud database backups." };
+  async pushSale(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
+    if (getApiConfig().dealership || BusinessConfigurationService.current().operatingMode !== "NCT_DEPENDENT") {
+      return { success: false, status: 403, retryable: false, error: "Dealership and Independent sales remain local." };
+    }
+    const response = await api.post<{ data?: { saleId: number } }>("/api/pos/sales", sale);
+    const saleId = response.data?.data?.saleId;
+    if (response.ok && Number.isInteger(saleId) && Number(saleId) > 0) {
+      return { success: true, status: response.status, retryable: false, saleId };
+    }
+    return { success: false, status: response.status,
+      retryable: response.status === 0 || response.status === 408 || response.status === 429 || response.status >= 500,
+      error: typeof response.error === "string" ? response.error : response.error?.error ?? "OMS did not acknowledge this sale." };
   },
 
   async syncPendingTransfers(deviceId: string): Promise<{ synced: number }> {

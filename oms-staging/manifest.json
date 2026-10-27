@@ -1,0 +1,47 @@
+﻿[
+    {
+        "path":  "src/app/(dashboard)/finance/page.tsx",
+        "originalHash":  "C7ED1CD0724D3EECCE7AD5B4F5D1519DE1A1FC7AEA11C1E45A38E05D425CA646",
+        "patchHash":  "BFF1359D164D9498703B190E4770D774A047E1F6E43A213079D59568BB1C398A"
+    },
+    {
+        "path":  "src/app/(dashboard)/pos/page.tsx",
+        "originalHash":  "AEC69446E60A7C398820F3500C27DB867840D369338C81E353459698448BFEF2",
+        "patchHash":  "5FBBEFD4B2BA66545D3A2808547849D90A66BBE040C8300F5000073107B79466"
+    },
+    {
+        "path":  "src/app/api/pos/sales/route.ts",
+        "originalHash":  "752EC708A216E3D3D43B02D7148E4A73DC39002D14E4BAD6B56A943109D061F2",
+        "patchHash":  "8F8277246FA9DAF0CE3EA1F5710F90A09AB247D61A4A6BF6F59674C2EA690DF0"
+    },
+    {
+        "path":  "src/components/pos/branch-detail-view.tsx",
+        "originalHash":  "2D5E6321FBEF2A8DF04488A2FF399ACF68863E8D4C735C8DBF7BEA30573F41CF",
+        "patchHash":  "05101CB7A6572171E7B59650E5A0ECFBAACB2ABCFDFA661ADD9FA325026C2CA3"
+    },
+    {
+        "path":  "src/components/pos/pos-summary-report.tsx",
+        "originalHash":  null,
+        "patchHash":  "0FFBE75895B650E35FC3AFE739111337A24BF3BC4DCA710C2B62C405C35E8F7C"
+    },
+    {
+        "path":  "src/server/api/routers/finance.ts",
+        "originalHash":  "D5D21289D7D5AEB521DAB840F98C695B20E24E5DD9B594A501B78FAD1D254C42",
+        "patchHash":  "CB9666A5277C7C5412BCA7CABF40D288E78CC4D922805A45A8DFAB2BCDCF03CD"
+    },
+    {
+        "path":  "src/server/api/routers/pos.ts",
+        "originalHash":  "CC607574B45CD67CB615686E0865239B893CFC0047A18E3335A16E00DFD9E43E",
+        "patchHash":  "EC7A95E08C6DE3A210C64684E19D7D970C3799D1F255F20B239B8CF1C5C6C1AA"
+    },
+    {
+        "path":  "src/server/pos/sale-contract.ts",
+        "originalHash":  null,
+        "patchHash":  "B31A8D1D313D24CD52CD71EE55EDC36D756C5C92739BFFA3FA83A7D9090400FA"
+    },
+    {
+        "path":  "src/server/pos/sales-report.ts",
+        "originalHash":  null,
+        "patchHash":  "36367CE1FCE20CB28342B372C74C4D8E5532871BE7570769D8B25243B43836F1"
+    }
+]
