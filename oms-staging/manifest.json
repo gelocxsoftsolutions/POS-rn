@@ -19,7 +19,7 @@
         "path":  "src/app/api/pos/audit/route.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
-
+                                    "E77F06253DE04152990BA38E265B3D5DC3599DE9D1FC578C3CDE3F5C486F91A2"
                                 ],
         "patchHash":  "E77F06253DE04152990BA38E265B3D5DC3599DE9D1FC578C3CDE3F5C486F91A2"
     },
@@ -27,23 +27,40 @@
         "path":  "src/app/api/pos/auth/route.ts",
         "originalHash":  "C1AD410ADBAAD8599788ADB1A21DAC5E18DB65A9006243A55A54061C95EAF784",
         "previousPatchHashes":  [
-
+                                    "79C76458E4EFFAD76545C5A5FC57505EBF7E17C39C667D948392F394A2A0B7E3"
                                 ],
         "patchHash":  "79C76458E4EFFAD76545C5A5FC57505EBF7E17C39C667D948392F394A2A0B7E3"
+    },
+    {
+        "path":  "src/app/api/pos/inventory/route.ts",
+        "originalHash":  "03896FA8D32E6824D9CA8E720302E061B7366EB4CB2466E0DE9AF9975A88FAD9",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "2D5C6DEA273DC4D5C8B5C90E1A409F03E7C6F513073073D42D2E311C3FE8B62D"
     },
     {
         "path":  "src/app/api/pos/sales/route.ts",
         "originalHash":  "752EC708A216E3D3D43B02D7148E4A73DC39002D14E4BAD6B56A943109D061F2",
         "previousPatchHashes":  [
-                                    "8F8277246FA9DAF0CE3EA1F5710F90A09AB247D61A4A6BF6F59674C2EA690DF0"
+                                    "8F8277246FA9DAF0CE3EA1F5710F90A09AB247D61A4A6BF6F59674C2EA690DF0",
+                                    "5FA24A6B8D05F70FAF28D2D707C4020E3B3AC13EB7FA1CA95E7A387D310D7080"
                                 ],
         "patchHash":  "5FA24A6B8D05F70FAF28D2D707C4020E3B3AC13EB7FA1CA95E7A387D310D7080"
+    },
+    {
+        "path":  "src/app/api/pos/transfer/route.ts",
+        "originalHash":  "7FFB14A6D5C2D6BA49A8F491A26363D2170DC2C4527BEF6D389A864038723D37",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "C4EDFBA2308150264A7F0365CE69F5E10E46C393D4C5CB4749D30547611BB329"
     },
     {
         "path":  "src/app/api/pos/users/route.ts",
         "originalHash":  "54778B4CC9F5939C227C7DEA47C87BE35871C696963FE217DCFD92B1A4897269",
         "previousPatchHashes":  [
-
+                                    "F543A4064BABCA99350D7CD0FC78137A8213A304B66A23AA34BC8C205CC1750B"
                                 ],
         "patchHash":  "F543A4064BABCA99350D7CD0FC78137A8213A304B66A23AA34BC8C205CC1750B"
     },
@@ -51,15 +68,24 @@
         "path":  "src/components/pos/branch-detail-view.tsx",
         "originalHash":  "2D5E6321FBEF2A8DF04488A2FF399ACF68863E8D4C735C8DBF7BEA30573F41CF",
         "previousPatchHashes":  [
-                                    "05101CB7A6572171E7B59650E5A0ECFBAACB2ABCFDFA661ADD9FA325026C2CA3"
+                                    "05101CB7A6572171E7B59650E5A0ECFBAACB2ABCFDFA661ADD9FA325026C2CA3",
+                                    "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34"
                                 ],
         "patchHash":  "DA3C2808F03E7CCE8A9B76FD1404B6D1317026D68A4DAC663204FC3D80479B34"
+    },
+    {
+        "path":  "src/components/pos/branch-inventory-sub-tab.tsx",
+        "originalHash":  "A577FF8BFBD29FD211C1A8B63FC828736C571A12EDAE27EAF410F6F2B1D4B1BA",
+        "previousPatchHashes":  [
+
+                                ],
+        "patchHash":  "02E190DD134775EE209AA67E891EA9D809F4483E38822D4D726B5752D97F9DA7"
     },
     {
         "path":  "src/components/pos/create-user-modal.tsx",
         "originalHash":  "291AD2C35005D9D1378413CF3572A29561A0C352E9FA47AA312FFC9C061AB8A0",
         "previousPatchHashes":  [
-
+                                    "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
                                 ],
         "patchHash":  "85C02960392CCCFDD01A16ABBC6A9F6F153DE01AB34CFAA3BBA35286B870BFC0"
     },
@@ -75,7 +101,7 @@
         "path":  "src/components/pos/pos-users-devices-tab.tsx",
         "originalHash":  "2C9BE3A7AEA58C2DD9D8B85F49111482DAF09109C2926AE434C96925458C97EA",
         "previousPatchHashes":  [
-
+                                    "92F7B9A030EF5729F13ED4AC8FCEE2C0E979942C438FA9045EB4669E93BFBA63"
                                 ],
         "patchHash":  "92F7B9A030EF5729F13ED4AC8FCEE2C0E979942C438FA9045EB4669E93BFBA63"
     },
@@ -91,7 +117,7 @@
         "path":  "src/server/api/routers/pos-user.ts",
         "originalHash":  "6A37B124E02BED139E5FE47DBBA8BBB73CB552A8DBE4C0177AE4323227B03B04",
         "previousPatchHashes":  [
-
+                                    "9A7896D848C7FD1594E1BC7BA8331854405FE4FB48420066C386E26208C3F634"
                                 ],
         "patchHash":  "9A7896D848C7FD1594E1BC7BA8331854405FE4FB48420066C386E26208C3F634"
     },
@@ -101,13 +127,13 @@
         "previousPatchHashes":  [
                                     "EC7A95E08C6DE3A210C64684E19D7D970C3799D1F255F20B239B8CF1C5C6C1AA"
                                 ],
-        "patchHash":  "EC7A95E08C6DE3A210C64684E19D7D970C3799D1F255F20B239B8CF1C5C6C1AA"
+        "patchHash":  "B9CEB391B1D350554236F03137A9A992B7934372460BCB3808D9FD732C801CD8"
     },
     {
         "path":  "src/server/pos/dealership-users.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
-
+                                    "54778B4CC9F5939C227C7DEA47C87BE35871C696963FE217DCFD92B1A4897269"
                                 ],
         "patchHash":  "54778B4CC9F5939C227C7DEA47C87BE35871C696963FE217DCFD92B1A4897269"
     },
@@ -115,7 +141,7 @@
         "path":  "src/server/pos/employee-directory.ts",
         "originalHash":  null,
         "previousPatchHashes":  [
-
+                                    "F3FFFF354079BC83D18581BB985A6553D6A3D92270ED29B2D324DD064DB27C16"
                                 ],
         "patchHash":  "F3FFFF354079BC83D18581BB985A6553D6A3D92270ED29B2D324DD064DB27C16"
     },

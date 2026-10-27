@@ -12,6 +12,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import type { nctSalePayload } from "@/lib/services/nct-sale-payload";
+import { isNctPos } from "./nct-scope";
 
 interface VariationDto {
   id: string;
@@ -365,7 +366,7 @@ export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
     if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
-      const res = await api.get<{ data: Array<{
+      const res = await api.get<{ complete?: boolean; data: Array<{
         groupKey: string;
         qty: number;
         deviceId: string;
@@ -377,6 +378,8 @@ export const OmsSyncService = {
         ? inventoryPayload
         : inventoryPayload?.data ?? inventoryPayload?.items ?? inventoryPayload?.inventory;
       if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
+      // An old/truncated response must never zero stock absent from its page.
+      if (isNctPos() && inventoryPayload?.complete !== true) return { synced: 0 };
 
       let synced = 0;
       const syncedVariationSkus = new Set<string>();

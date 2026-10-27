@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { PERMISSIONS } from "~/lib/permissions";
 import { createSalesReportProcedure } from "~/server/pos/sales-report";
+import { isDealershipOperator } from "~/server/pos/dealership-procedure";
 
 function toGroupKey(input: { variationId: number; stockGroupId?: string | null }) {
   if (input.stockGroupId && input.stockGroupId.trim().length > 0) {
@@ -203,6 +204,11 @@ export function createPosRouter(procedure = protectedProcedure) { return createT
       const search = input.search?.trim();
 
       const whereBase: any = {};
+      const nctBranch = input.branchId && !isDealershipOperator(ctx);
+      if (nctBranch) {
+        const branchDevices = await ctx.db.posDevice.findMany({ where: { branchId: BigInt(input.branchId!) }, select: { id: true } });
+        whereBase.AND = [{ deviceId: { in: branchDevices.map((d) => d.id) } }];
+      }
       if (input.deviceId && input.deviceId !== "ALL") {
         whereBase.deviceId = input.deviceId;
       }
@@ -219,7 +225,7 @@ export function createPosRouter(procedure = protectedProcedure) { return createT
               ],
             }
           : Object.keys(whereBase).length > 0 ? whereBase : undefined,
-        take: input.limit,
+        take: nctBranch ? undefined : input.limit,
         orderBy: [{ qty: "desc" }, { id: "asc" }],
         include: {
           variation: {

@@ -57,3 +57,21 @@ SQL: `sql/002_nct_employee_access.proposed.sql` creates stable employee/access l
 6. Simulate a lost audit-upload response and retry: one stored event per client UUID. Confirm no PIN/password or raw credential payload appears in local/OMS audit details.
 7. Disable/hold or unassign an employee in OMS, reconnect and refresh; verify cached access is revoked. Rename the Employee and confirm POS displays the canonical new name without creating a second user.
 8. Confirm required setup missing/HTTP errors preserve the last complete offline cache, rather than replacing it with an empty or partial failed response.
+
+## Task 3 — Branch stock and product requests
+
+Files: OMS POS inventory query, Branch Inventory component, device inventory endpoint, direct transfer endpoint; POS OMS inventory sync service.
+
+NCT branch stock is filtered on the server by that branch's devices before fetching, without the global 500-row cap. General/unassigned stock is not invented as branch stock. Device inventory requests are restricted to the authenticated device; a complete snapshot is required before missing products can be reset to zero. Dealership inventory behavior is retained. No POS product-request UI was present in this branch; the legacy device-initiated stock transfer endpoint is disabled for NCT. Management's OMS allocations and approved-transfer receipt remain available.
+
+SQL: none.
+
+### Human acceptance checks (not executed)
+
+1. Compare Branch Inventory with read-only stock rows for every device in that branch, including zero stock. Use branches with overlapping products and more than 500 inventory rows globally.
+2. Verify an empty branch shows zero/empty stock and never inherits another branch or the general pool.
+3. Refresh POS stock, make an offline sale, refresh after reconnect, and check pending quantities are deducted exactly once. Simulate an incomplete/old-server response; local quantities must remain intact.
+4. Request another device's inventory with the wrong device key: expect rejection. Verify NCT direct product requests/transfers return 403 and no stock changes.
+5. Check Dealership inventory and normal OMS-managed transfers still behave as before.
+
+Risk: stock is derived from recorded device allocations; this change cannot correct inaccurate historical allocations or transfer records without reviewed data reconciliation. No live stock/transfer write test was performed.
