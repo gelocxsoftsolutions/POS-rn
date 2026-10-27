@@ -13,6 +13,8 @@ import { Platform } from "react-native";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import type { nctSalePayload } from "@/lib/services/nct-sale-payload";
 import { isNctPos } from "./nct-scope";
+import { serializeLocalOperation } from "@/lib/db/local-operation";
+import { serializeNctSync } from "./nct-sync-coordinator";
 
 interface VariationDto {
   id: string;
@@ -364,14 +366,20 @@ async function deleteLegacyMockProducts(): Promise<void> {
 
 export const OmsSyncService = {
   async syncInventory(deviceId: string): Promise<{ synced: number }> {
+    return isNctPos() ? serializeNctSync(() => this.syncInventoryNow(deviceId)) : this.syncInventoryNow(deviceId);
+  },
+  async syncInventoryNow(deviceId: string): Promise<{ synced: number }> {
     if (!BusinessConfigurationService.capabilities().importNctCatalog) return { synced: 0 };
     try {
-      const res = await api.get<{ complete?: boolean; data: Array<{
+      const pending = isNctPos() ? await query<{ id: string }>("SELECT id FROM Sale WHERE synced=0 AND status='COMPLETED' AND originMode='NCT_DEPENDENT' ORDER BY createdAt LIMIT 101") : [];
+      if (pending.length > 100) return { synced: 0 }; // Drain a large backlog before applying a snapshot.
+      const pendingQuery = pending.length ? `&pendingSaleIds=${encodeURIComponent(pending.map((s) => s.id).join(','))}` : "";
+      const res = await api.get<{ complete?: boolean; acknowledgedSaleIds?: string[]; data: Array<{
         groupKey: string;
         qty: number;
         deviceId: string;
         variation: VariationDto;
-      }> }>(`/api/pos/inventory?deviceId=${deviceId}`);
+      }> }>(`/api/pos/inventory?deviceId=${deviceId}${pendingQuery}`);
 
       const inventoryPayload = res.data as any;
       const rows = Array.isArray(inventoryPayload)
@@ -380,7 +388,10 @@ export const OmsSyncService = {
       if (!res.ok || !Array.isArray(rows)) return { synced: 0 };
       // An old/truncated response must never zero stock absent from its page.
       if (isNctPos() && inventoryPayload?.complete !== true) return { synced: 0 };
+      const acknowledged = isNctPos() && Array.isArray(inventoryPayload?.acknowledgedSaleIds)
+        ? inventoryPayload.acknowledgedSaleIds.filter((id: unknown): id is string => typeof id === "string" && pending.some((s) => s.id === id)) : [];
 
+      const applySnapshot = async () => {
       let synced = 0;
       const syncedVariationSkus = new Set<string>();
       for (const item of rows) {
@@ -407,8 +418,9 @@ export const OmsSyncService = {
            INNER JOIN Sale s ON s.id = si.saleId
            WHERE si.productId = ?
              AND s.status = 'COMPLETED'
-             AND s.synced = 0`,
-          [product.id]
+             AND s.synced = 0
+             ${acknowledged.length ? `AND s.id NOT IN (${acknowledged.map(() => '?').join(',')})` : ''}`,
+          [product.id, ...acknowledged]
         );
         const availableQty = Math.max(
           0,
@@ -453,6 +465,8 @@ export const OmsSyncService = {
       try { await deleteLegacyMockProducts(); } catch {}
 
       return { synced };
+      };
+      return isNctPos() ? await serializeLocalOperation(applySnapshot) : await applySnapshot();
     } catch {
       try { await deleteLegacyMockProducts(); } catch {}
       return { synced: 0 };
@@ -490,6 +504,9 @@ export const OmsSyncService = {
   },
 
   async pushSale(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
+    return serializeNctSync(() => this.pushSaleNow(sale));
+  },
+  async pushSaleNow(sale: ReturnType<typeof nctSalePayload>): Promise<SalePushResult> {
     if (getApiConfig().dealership || BusinessConfigurationService.current().operatingMode !== "NCT_DEPENDENT") {
       return { success: false, status: 403, retryable: false, error: "Dealership and Independent sales remain local." };
     }

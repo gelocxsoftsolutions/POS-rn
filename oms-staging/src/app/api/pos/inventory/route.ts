@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isAuthorizedPOS } from "~/lib/pos-auth";
 import { db } from "~/server/db";
 import { posStorageScope } from "~/server/pos/scope";
+import { Prisma } from "@prisma/client";
 
 
 
@@ -30,6 +31,8 @@ export async function GET(request: Request) {
   }
 
   const { search, limit, deviceId } = parsed.data;
+  const pendingSaleIds = (url.searchParams.get("pendingSaleIds") ?? "").split(',').filter(Boolean);
+  if (!z.array(z.string().uuid()).max(100).safeParse(pendingSaleIds).success) return NextResponse.json({ error: "Invalid pending sale IDs" }, { status: 400 });
   const nct = posStorageScope.getStore() !== "dealership";
   if (nct && !authz.deviceId) return NextResponse.json({ error: "A registered NCT device is required" }, { status: 401 });
   if (nct && deviceId && deviceId !== authz.deviceId) return NextResponse.json({ error: "Cannot read another device's stock" }, { status: 403 });
@@ -50,7 +53,8 @@ export async function GET(request: Request) {
     ];
   }
 
-  const items = await db.posInventory.findMany({
+  const { items, acknowledgedSaleIds } = await db.$transaction(async (tx) => {
+  const items = await tx.posInventory.findMany({
     where: Object.keys(where).length > 0 ? where : undefined,
     take: nct ? undefined : limit ?? 500,
     orderBy: [{ qty: "desc" }, { id: "asc" }],
@@ -64,6 +68,17 @@ export async function GET(request: Request) {
     },
   });
 
+  let acknowledgedSaleIds: string[] = [];
+  if (nct && pendingSaleIds.length) {
+    const [schema] = await tx.$queryRaw<Array<{ ready: boolean }>>`SELECT to_regclass('pos.sale_sync_receipts') IS NOT NULL AS ready`;
+    if (schema?.ready) {
+      const receipts = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT client_sale_id::text AS id FROM pos.sale_sync_receipts WHERE device_id = ${authz.deviceId} AND client_sale_id::text IN (${Prisma.join(pendingSaleIds)})`);
+      acknowledgedSaleIds = receipts.map((r) => r.id);
+    }
+  }
+  return { items, acknowledgedSaleIds };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+
   const deviceIds = [...new Set(items.map((i) => i.deviceId))];
   const devices = deviceIds.length > 0
     ? await db.posDevice.findMany({
@@ -75,7 +90,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json(
     {
-      ...(nct ? { complete: !search } : {}),
+      ...(nct ? { complete: !search, acknowledgedSaleIds } : {}),
       data: items.map((row) => ({
         groupKey: row.groupKey,
         stockGroupId: row.stockGroupId ?? null,

@@ -75,3 +75,28 @@ SQL: none.
 5. Check Dealership inventory and normal OMS-managed transfers still behave as before.
 
 Risk: stock is derived from recorded device allocations; this change cannot correct inaccurate historical allocations or transfer records without reviewed data reconciliation. No live stock/transfer write test was performed.
+
+## Task 4 — Offline catch-up and reconnection
+
+Files: NCT checkout service, local-operation transaction helper, sale service, sync worker/network listener, sale/stock sync coordinator; OMS registration route/service, device reconnect router and inventory snapshot endpoint.
+
+NCT checkout atomically saves the sale, items, net payment, receipt, stock ledger/deduction and sale audit in SQLite. Integer cents keep receipt/report amounts consistent; change is not recorded as revenue. Pending sales are discovered from durable local rows after restart. Network recovery triggers immediate catch-up in addition to the timer. Sales delivery and stock snapshots are serialized without holding a local checkout lock over network requests. Stock snapshots include server-acknowledged pending UUIDs, so a committed sale with a lost response is not deducted twice locally.
+
+NCT reconnection now generates an explicitly bound one-time token without revoking the working key first. Redemption rotates credentials on the SAME device ID, preserving branch stock/assignments and pending sale attribution. Normal registration cannot silently replace an existing installation. Activation tokens are claimed atomically to prevent simultaneous redemption.
+
+SQL: `sql/004_nct_device_reconnect_tokens.proposed.sql`, NOT APPLIED. Reconnect initiation reports setup pending until applied. Receipt deduplication still requires SQL 001; employee attribution requires SQL 002.
+
+Automated checks: `node tests/phase1-checkout.cjs` uses the actual local schema and in-memory SQLite to exercise saved records, tender/change accounting, whole-checkout rollback on insufficient stock and concurrent stock consumption. `node tests/phase1-sales.cjs` checks the client/server receipt contract. No OMS writes or device reconnection were exercised.
+
+### Human acceptance checks (not executed)
+
+1. Disconnect an NCT device. Complete several sales, terminate/restart POS, and confirm receipts/stock remain local. Reconnect and compare all three reporting views.
+2. Interrupt delivery immediately after OMS commits but before POS receives the response. Retry repeatedly and concurrently: one OMS sale and one stock deduction. Refresh inventory before the local synced flag is saved; availability must remain correct.
+3. Queue more than 100 sales. Verify batches drain without loss; stock snapshot application waits until the pending candidate list fits its safe request bound.
+4. Generate a reconnect token in OMS. Confirm the device still works with the old key until redemption. Scan on that same installation; verify unchanged device ID, branch stock and assignments, with new credentials and pending sales retained.
+5. Try a normal/new-device token on an existing installation, a token for another device, an expired token and concurrent token redemption. Expect rejection without deleting local records or creating stray replacement devices.
+6. Simulate a lost reconnect response. Obtain a new administrator-issued reconnect token; verify recovery retains the same device ID. Old sessions/refresh tokens must be revoked after successful redemption.
+7. Force insufficient OMS stock, missing products and identity conflicts. Local completed sales must remain visible as failed/requiring reconciliation; do not silently delete them or mark them synced.
+8. During a local checkout failure, verify no partial payment/items/receipt/stock ledger remains. Run two checkouts competing for the last stock; only one may succeed.
+
+Risks: end-to-end recovery is unverified; conflict reconciliation remains an operator decision. Exact “nothing lost or duplicated” acceptance requires the live fault-injection checks above. Deliberately retained historical sales with incomplete identity cannot be auto-attributed safely.

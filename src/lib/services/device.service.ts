@@ -13,6 +13,7 @@ export const DeviceService = {
   async register(input: RegisterDeviceInput) {
     try {
       if (input.serverUrl) {
+        const priorDevice = await DeviceRepository.find();
         console.log("[DeviceService] registering with server:", input.serverUrl);
         setApiConfig({ baseUrl: input.serverUrl });
 
@@ -44,6 +45,7 @@ export const DeviceService = {
           }>;
         }>("/api/device/register", {
           activationToken: input.activationToken,
+          existingDeviceId: !getApiConfig().dealership ? priorDevice?.id : undefined,
           publicKey: input.publicKey,
           machineIdentifier: input.machineIdentifier,
           computerName: input.computerName,

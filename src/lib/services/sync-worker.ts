@@ -62,6 +62,7 @@ export async function runSyncCycle(): Promise<void> {
 }
 export function startBackgroundSync(): void {
   if (timer) return;
+  void runSyncCycle().catch(() => {});
   timer = setInterval(() => { runSyncCycle().catch(() => {}); }, 15000);
 }
 export function stopBackgroundSync(): void {

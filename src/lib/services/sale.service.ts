@@ -4,13 +4,15 @@ import { InventoryRepository } from "@/lib/repositories/inventory.repository";
 import { InventoryLedgerRepository } from "@/lib/repositories/inventory-ledger.repository";
 import { execute, queryFirst } from "@/lib/db/connection";
 import { v4 as uuid } from "uuid";
-import type { CreateSaleInput as SaleInput, SaleFilter } from "@/lib/types/sales";
+import type { CreateSaleInput as SaleInput, SaleFilter, CreateSaleResult } from "@/lib/types/sales";
 import type { PaginatedResult } from "@/lib/types/inventory";
 import type { SaleDTO } from "@/lib/types/sales";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { requirePermission } from "@/lib/services/authorization.service";
+import { isNctPos } from "./nct-scope";
+import { createNctSale } from "./nct-checkout.service";
 
 function createReceiptNumber(prefix: string = "R") {
   const time = Date.now().toString(36).toUpperCase().slice(-7);
@@ -19,7 +21,8 @@ function createReceiptNumber(prefix: string = "R") {
 }
 
 export const SaleService = withNctActionAudit("Sale", {
-  async create(input: SaleInput) {
+  async create(input: SaleInput): Promise<CreateSaleResult> {
+    if (isNctPos()) return createNctSale(input);
     try {
       await requirePermission("POS_SALES", "complete sales");
       const business = BusinessConfigurationService.current();
@@ -227,7 +230,7 @@ export const SaleService = withNctActionAudit("Sale", {
       // The local transaction is complete at this point for both operating
       // modes. Background sync owns all OMS delivery and retry behavior so a
       // slow or unavailable network never delays checkout completion.
-      return { success: true as const, sale };
+      return { success: true as const, sale: sale ?? undefined };
 
     } catch (e: any) {
       return { success: false, error: e.message ?? "Sale creation failed" };
