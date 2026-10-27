@@ -85,7 +85,7 @@ async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRep
     isSuperAdmin: isAdministrator,
   });
 
-  await AuditService.log("LOGIN_SUCCESS", "User signed in", cashier.id, cashier.displayName, JSON.stringify({ entityType: "Session", entityId: session.id }));
+  if (isNctPos()) await AuditService.log("LOGIN_SUCCESS", "User signed in", cashier.id, cashier.displayName, JSON.stringify({ entityType: "Session", entityId: session.id }));
   return session;
 }
 
@@ -94,6 +94,7 @@ export const CashierService = withNctActionAudit("Cashier", {
     try {
       const pinHash = credentialHash(pin);
       const cashier = await CashierRepository.findByPinHash(pinHash);
+      if (isNctPos() && cashier && !cashier.pinLoginEnabled) return { success: false, error: "PIN login is disabled for this employee." };
       if (!cashier) {
         return { success: false, error: "Invalid PIN" };
       }
@@ -215,6 +216,7 @@ export const CashierService = withNctActionAudit("Cashier", {
     try {
       const cashier = await CashierRepository.findByUsername(username);
       if (!cashier) return { success: false, error: "Invalid credentials" };
+      if (isNctPos() && !cashier.passwordLoginEnabled) return { success: false, error: "Password login is disabled for this employee." };
 
       if (cashier.accountLocked) return { success: false, error: "This account is locked. Ask a super admin to unlock it." };
 
@@ -241,7 +243,7 @@ export const CashierService = withNctActionAudit("Cashier", {
   },
 
   async logout(sessionId: string): Promise<void> {
-    await AuditService.log("LOGOUT", "User signed out", undefined, undefined, JSON.stringify({ entityType: "Session", entityId: sessionId }));
+    if (isNctPos()) await AuditService.log("LOGOUT", "User signed out", undefined, undefined, JSON.stringify({ entityType: "Session", entityId: sessionId }));
     try {
       await SessionRepository.deactivate(sessionId);
     } catch {

@@ -12,6 +12,7 @@ import { query } from "@/lib/db/connection";
 import { SaleSyncService } from "@/lib/services/sale-sync.service";
 import { EmployeeSyncService } from "./employee-sync.service";
 import { syncNctAuditLogs } from "./audit-sync.service";
+import { syncNctEndOfDay } from "./end-of-day-sync.service";
 
 async function pushNctSales() {
   const pending = await query<{ id: string }>(
@@ -34,6 +35,7 @@ export async function runSyncCycle(): Promise<void> {
     if (nct) {
       await pushNctSales();
       await syncNctAuditLogs();
+      await syncNctEndOfDay();
       await EmployeeSyncService.refresh();
     }
     await SyncQueueService.processPending();

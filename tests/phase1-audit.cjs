@@ -55,6 +55,54 @@ const { withNctActionAudit } = load("src/lib/services/action-audit.ts", {
   assert.equal(cashierPermissions.includes("POS_BACKUP"), false);
   assert.equal(mapNctPermissions(["MANAGE_POS_DEVICES"]).includes("POS_BACKUP"), true);
   assert.equal(mapNctPermissions(["page:sales", "UNKNOWN_CODE"]).length, 0);
+  let acknowledgeClosure = false;
+  const closureBodies = [],
+    markedClosures = [];
+  const closureId = "79c3d55d-943d-4b09-9978-3ea849af9a63";
+  const { syncNctEndOfDay } = load("src/lib/services/end-of-day-sync.service.ts", {
+    "@/lib/api/http": {
+      api: {
+        post: async (_path, body) => {
+          closureBodies.push(body);
+          return { ok: true, data: { acceptedIds: acknowledgeClosure ? [closureId] : [] } };
+        },
+      },
+    },
+    "@/lib/db/connection": {
+      query: async () => [
+        {
+          id: closureId,
+          entityId: "2026-10-27",
+          payload: JSON.stringify({
+            businessId: "nct-default",
+            deviceId: "device-1",
+            branchId: 1,
+            businessDate: "2026-10-27",
+            generatedAt: "2026-10-27T11:00:00Z",
+            summary: { grossSales: 140 },
+            payments: [],
+          }),
+        },
+      ],
+    },
+    "@/lib/repositories/sync-queue.repository": {
+      SyncQueueRepository: { markSynced: async (id) => markedClosures.push(id) },
+    },
+    "@/lib/business/configuration.service": {
+      BusinessConfigurationService: { current: () => ({ businessId: "nct-default" }) },
+    },
+    "./nct-scope": { isNctPos: () => true },
+  });
+  await syncNctEndOfDay();
+  assert.equal(markedClosures.length, 0, "an unacknowledged closure stays queued");
+  acknowledgeClosure = true;
+  await syncNctEndOfDay();
+  assert.equal(markedClosures[0], closureId);
+  assert.equal(
+    closureBodies[0].events[0].id,
+    closureBodies[1].events[0].id,
+    "closure retries preserve event identity",
+  );
   await AuditService.log(
     "SALE_CREATED",
     "Completed",

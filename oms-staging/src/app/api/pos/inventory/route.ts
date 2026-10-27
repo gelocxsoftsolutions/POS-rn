@@ -78,7 +78,7 @@ export async function GET(request: Request) {
     }
   }
   const unreceived = nct ? await pendingNctAllocations(tx, [authz.deviceId!]) : new Map<string, number>();
-  return { items: items.map((item) => ({ ...item, qty: Math.max(0, item.qty - (unreceived.get(`${item.deviceId}:${item.groupKey}`) ?? 0)) })), acknowledgedSaleIds };
+  return { items: items.map((item) => ({ ...item, qty: nct ? Math.max(0, item.qty - (unreceived.get(`${item.deviceId}:${item.groupKey}`) ?? 0)) : item.qty })), acknowledgedSaleIds };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
   const deviceIds = [...new Set(items.map((i) => i.deviceId))];

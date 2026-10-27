@@ -261,7 +261,7 @@ export function createPosRouter(procedure = protectedProcedure) { return createT
         id: row.id,
         groupKey: row.groupKey,
         stockGroupId: row.stockGroupId ?? null,
-        qty: Math.max(0, row.qty - (unreceived.get(`${row.deviceId}:${row.groupKey}`) ?? 0)),
+        qty: isDealershipOperator(ctx) ? row.qty : Math.max(0, row.qty - (unreceived.get(`${row.deviceId}:${row.groupKey}`) ?? 0)),
         deviceId: row.deviceId,
         deviceName: deviceMap.get(row.deviceId)?.deviceName ?? (row.deviceId === "" ? "General Pool" : row.deviceId),
         variation: {

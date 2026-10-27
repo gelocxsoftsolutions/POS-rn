@@ -13,7 +13,7 @@ export const AuditService = {
     metadata?: string
   ): Promise<AuditLogRow | null> {
     try {
-      const session = useCashierStore.getState().session;
+      const session = isNctPos() ? useCashierStore.getState().session : null;
       if (isNctPos()) {
         let details: Record<string, unknown> = {};
         try {

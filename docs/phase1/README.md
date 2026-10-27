@@ -3,6 +3,8 @@
 Scope: NCT POS only. Dealership sales/backups and POS locking remain outside this change.
 POS branch: `feat/phase1-pos-completion`, created from fetched `origin/staging`.
 
+See [FILES.md](FILES.md) for the exact files in each task commit. Every task below includes implementation details, SQL status, risks and a human acceptance checklist.
+
 OMS changes are versioned in `oms-staging/src`, preserving their OMS paths.
 `scripts/apply-oms-staging-source.ps1` previews the exact copies; `-Apply` copies only application source, checks original hashes, and saves originals under `docs/phase1/oms-source-backups`.
 It does not deploy or execute SQL. Do not rebuild production from this working source.
@@ -165,3 +167,11 @@ Staging SELECT confirmed OMS role codes differ from local POS codes. `src/lib/pe
 NCT checkout/dashboard/report dates use Philippine calendar days. The 7 PM setting is the backup schedule, not a redefinition of the reporting calendar day. Source-only OMS patches use LF line endings so manifest hashes survive Windows/Linux checkout.
 
 Final automated suite: POS TypeScript, five isolated scripts (`phase1-sales`, `phase1-audit`, `phase1-checkout`, `phase1-backups`, `phase1-transfers`) and the OMS overlay typecheck. See the final delivery message for actual results. Human live acceptance is intentionally pending, and SQL files are proposals only.
+
+Actual final results: POS TypeScript passed; all five isolated scripts passed; whitespace checks passed. OMS overlay checking reported 718 project-wide diagnostics and zero in patched files. The project-wide OMS check is not a clean pass. Native app rendering, device restore, live sales/reconnect, storage and product transfer end-to-end checks were not executed.
+
+Database-loss recovery on the same device: registration also accepts the installation's persisted device-store identity when the local SQLite Device row is missing. Use an OMS reconnect token for that original device, sign in with the restored OMS employee cache, then import its matching backup. Test this explicitly; replacement hardware that has lost both SQLite and all persisted device identity remains an administrator-led open recovery procedure.
+
+End-of-day closure queue entries are now delivered as idempotent `END_OF_DAY_CLOSED` evidence in the existing OMS audit table, with the original summary, payments, actor and business date. Finance continues to read individual sale receipts, avoiding duplicate revenue from closures. Human check: close a shift/day offline, reconnect, verify the queue is acknowledged and one closure event is stored even after retries.
+
+Legacy `Return` queue entries are retained locally, but this project has no established OMS POS return-ingestion contract. Posting returns/refunds into Finance and deciding their stock/accounting treatment remain open; this work does not guess that contract or claim comprehensive return synchronization. Include a return/refund scenario in the human audit if the “all pending data” requirement is intended to cover returns as well as the listed Phase 1 sale/inventory/audit/backup flows.

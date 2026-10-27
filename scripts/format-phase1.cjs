@@ -8,6 +8,7 @@ const walk = (folder) => fs.readdirSync(folder, { withFileTypes: true }).flatMap
 });
 const posFiles = [
   "src/lib/permissions/nct-permission-map.ts",
+  "src/lib/services/end-of-day-sync.service.ts",
   "src/lib/db/local-operation.ts", "src/lib/services/action-audit.ts", "src/lib/services/audit-sync.service.ts",
   "src/lib/services/employee-sync.service.ts", "src/lib/services/nct-backup.service.ts", "src/lib/services/nct-checkout.service.ts",
   "src/lib/services/nct-sale-payload.ts", "src/lib/services/nct-scope.ts", "src/lib/services/nct-sync-coordinator.ts",

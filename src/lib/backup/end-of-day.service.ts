@@ -4,6 +4,8 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { SyncQueueService } from "@/lib/services/sync-queue.service";
 import { RecoveryService } from "./recovery.service";
 import { SCHEMA_VERSION } from "@/lib/db/schema";
+import { isNctPos } from "@/lib/services/nct-scope";
+import { useCashierStore } from "@/lib/stores/cashier-store";
 
 export const EndOfDayService = {
   async closeAndQueue(input: { businessDate: string; shiftId?: string | null }) {
@@ -28,6 +30,7 @@ export const EndOfDayService = {
       businessDate: input.businessDate, shiftId: input.shiftId ?? null,
       summary: summary ?? { transactionCount: 0, grossSales: 0, discounts: 0, tax: 0 }, payments,
       generatedAt: new Date().toISOString(), schemaVersion: SCHEMA_VERSION,
+      ...(isNctPos() ? { cashierId: useCashierStore.getState().session?.cashierId ?? null, cashierName: useCashierStore.getState().session?.cashierName ?? null } : {}),
     }, idempotencyKey);
     const backup = await RecoveryService.queueBackupUpload(`${input.businessDate}:${input.shiftId ?? "day"}`);
     return { queue, backup };

@@ -14,6 +14,7 @@ export const DeviceService = {
     try {
       if (input.serverUrl) {
         const priorDevice = await DeviceRepository.find();
+        const priorDeviceId = priorDevice?.id || useDeviceStore.getState().device.deviceId || undefined;
         console.log("[DeviceService] registering with server:", input.serverUrl);
         setApiConfig({ baseUrl: input.serverUrl });
 
@@ -45,7 +46,7 @@ export const DeviceService = {
           }>;
         }>("/api/device/register", {
           activationToken: input.activationToken,
-          existingDeviceId: !getApiConfig().dealership ? priorDevice?.id : undefined,
+          existingDeviceId: !getApiConfig().dealership ? priorDeviceId : undefined,
           publicKey: input.publicKey,
           machineIdentifier: input.machineIdentifier,
           computerName: input.computerName,
