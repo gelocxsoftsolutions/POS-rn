@@ -72,7 +72,7 @@ export default function ReceiptsScreen() {
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
-  const showOmsSyncStatus = false; // Dealership sales are protected by database backups, not sale replay.
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const loadReceipts = useCallback(async () => {
     try {

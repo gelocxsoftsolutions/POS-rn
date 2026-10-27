@@ -6,16 +6,16 @@ const CAPABILITIES: Record<OperatingMode, BusinessCapabilities> = {
     manageLocalInventory: false,
     receiveNctTransfers: true,
     importNctCatalog: true,
-    uploadEndOfDay: true,
-    uploadBackups: true,
+    uploadEndOfDay: false,
+    uploadBackups: false,
   },
   INDEPENDENT: {
-    manageLocalCatalog: true,
-    manageLocalInventory: true,
-    receiveNctTransfers: false,
-    importNctCatalog: false,
-    uploadEndOfDay: true,
-    uploadBackups: true,
+    manageLocalCatalog: false,
+    manageLocalInventory: false,
+    receiveNctTransfers: true,
+    importNctCatalog: true,
+    uploadEndOfDay: false,
+    uploadBackups: false,
   },
 };
 
@@ -28,6 +28,6 @@ export function assertCapability(
   capability: keyof BusinessCapabilities
 ): void {
   if (!CAPABILITIES[mode][capability]) {
-    throw new Error(`This operation is unavailable in ${mode === "INDEPENDENT" ? "Independent" : "OMS-dependent"} mode.`);
+    throw new Error("This operation is unavailable in NCT OMS-dependent POS.");
   }
 }

@@ -2,9 +2,6 @@ import { RecoveryService } from "@/lib/backup/recovery.service";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { useBackupListStore } from "@/lib/stores/backup-list-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
-import { nextBackupAt } from "@/lib/backup/schedule";
-import { SyncQueueService } from "./sync-queue.service";
-import { AppState } from "react-native";
 
 const CHECK_INTERVAL_MS = 60_000;
 
@@ -13,14 +10,13 @@ let running = false;
 
 async function tick(): Promise<void> {
   if (running) return;
-  const settings = useBackupSettingsStore.getState();
-  const { autoBackupEnabled, markAutoBackup, hydrated } = settings;
-  if (!hydrated || AppState.currentState !== "active") return;
+  const { autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt, markAutoBackup } =
+    useBackupSettingsStore.getState();
   if (!autoBackupEnabled) return;
   if (!useCashierStore.getState().session) return;
 
-  const next = nextBackupAt(settings);
-  const due = next && Date.now() >= next.valueOf();
+  const intervalMs = autoBackupIntervalHours * 3_600_000;
+  const due = !lastAutoBackupAt || Date.now() - new Date(lastAutoBackupAt).valueOf() >= intervalMs;
   if (!due) return;
 
   running = true;
@@ -28,7 +24,6 @@ async function tick(): Promise<void> {
     await RecoveryService.createAutoBackup();
     markAutoBackup();
     await useBackupListStore.getState().refresh();
-    await SyncQueueService.processPending();
   } catch {
     // Background auto-backups are best-effort; the scheduler retries next cycle.
   } finally {
@@ -52,8 +47,7 @@ export function stopAutoBackupScheduler(): void {
 }
 
 export async function runAutoBackupNow(): Promise<void> {
-  // A user pressing Back Up Now creates a manual backup and keeps the automatic schedule.
-  await RecoveryService.createBackup();
+  await RecoveryService.createAutoBackup();
+  useBackupSettingsStore.getState().markAutoBackup();
   await useBackupListStore.getState().refresh();
-  await SyncQueueService.processPending();
 }

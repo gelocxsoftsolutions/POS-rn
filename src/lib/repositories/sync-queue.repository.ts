@@ -83,7 +83,7 @@ export const SyncQueueRepository = {
   async getPending(limit: number = 50): Promise<SyncQueueRow[]> {
     return query<SyncQueueRow>(
       `SELECT * FROM SyncQueue
-       WHERE entityType = 'DatabaseBackup' AND status = 'PENDING'
+       WHERE status = 'PENDING' AND retryCount < maxRetries
        ORDER BY createdAt ASC
        LIMIT ?`,
       [limit]
@@ -158,19 +158,19 @@ export const SyncQueueRepository = {
 
   async getStats(): Promise<SyncStats> {
     const total = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM SyncQueue WHERE entityType = 'DatabaseBackup'"
+      "SELECT COUNT(*) as c FROM SyncQueue"
     );
     const pending = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM SyncQueue WHERE entityType = 'DatabaseBackup' AND status = 'PENDING'"
+      "SELECT COUNT(*) as c FROM SyncQueue WHERE status = 'PENDING'"
     );
     const processing = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM SyncQueue WHERE entityType = 'DatabaseBackup' AND status = 'PROCESSING'"
+      "SELECT COUNT(*) as c FROM SyncQueue WHERE status = 'PROCESSING'"
     );
     const synced = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM SyncQueue WHERE entityType = 'DatabaseBackup' AND status = 'SYNCED'"
+      "SELECT COUNT(*) as c FROM SyncQueue WHERE status = 'SYNCED'"
     );
     const failed = await queryFirst<{ c: number }>(
-      "SELECT COUNT(*) as c FROM SyncQueue WHERE entityType = 'DatabaseBackup' AND status = 'FAILED'"
+      "SELECT COUNT(*) as c FROM SyncQueue WHERE status = 'FAILED'"
     );
 
     return {

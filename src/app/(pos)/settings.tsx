@@ -1,4 +1,3 @@
-import { nextBackupAt } from "@/lib/backup/schedule";
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   View,
@@ -63,7 +62,7 @@ const formatFileSize = (bytes: number) => {
 const AUTO_BACKUP_INTERVAL_PRESETS = [1, 6, 12, 24, 48, 72, 168] as const;
 const formatBackupIntervalLabel = (hours: number) => (hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`);
 
-export type SettingsSectionId = "dealership" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
+export type SettingsSectionId = "business" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
 type SettingsSectionDefinition = {
   id: SettingsSectionId;
   title: string;
@@ -74,7 +73,7 @@ type SettingsSectionDefinition = {
 };
 
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
-  { id: "dealership", title: "Dealership Platform", description: "Business identity, branding, OMS connection, and receipt design.", icon: "business-outline", keywords: "business branding dealership company logo OMS dependent receipt designer template" , adminOnly: true },
+  { id: "business", title: "Business & Receipts", description: "Business identity, branding, OMS connection, and receipt design.", icon: "business-outline", keywords: "business branding company logo OMS dependent receipt designer template" , adminOnly: true },
   { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
   { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
   { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },
@@ -95,7 +94,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
 ];
 
 const SECTION_MATCHERS: Record<SettingsSectionId, string[]> = {
-  dealership: ["business branding dealership operating mode receipt designer"],
+  business: ["business branding receipt designer"],
   store: ["store details"],
   tax: ["tax profile"],
   users: ["users cashiers roles"],
@@ -312,9 +311,16 @@ export default function SettingsScreen() {
   const lastAutoBackupAt = useBackupSettingsStore((state) => state.lastAutoBackupAt);
   const setAutoBackupEnabled = useBackupSettingsStore((state) => state.setAutoBackupEnabled);
   const setAutoBackupIntervalHours = useBackupSettingsStore((state) => state.setAutoBackupIntervalHours);
-  const scheduleMode = useBackupSettingsStore(state => state.scheduleMode);
-  const dailyTime = useBackupSettingsStore(state => state.dailyTime);
-  const nextAutoBackupLabel = useMemo(() => nextBackupAt({ autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt, scheduleMode, dailyTime })?.toLocaleString() ?? "Paused", [autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt, scheduleMode, dailyTime]);
+  const nextAutoBackupLabel = useMemo(() => {
+    if (!autoBackupEnabled) return "";
+    const nowMs = Date.now();
+    const baseMs = lastAutoBackupAt ? new Date(lastAutoBackupAt).valueOf() : nowMs;
+    const diffHours = Math.max(0, (baseMs + autoBackupIntervalHours * 3_600_000 - nowMs) / 3_600_000);
+    if (!lastAutoBackupAt) return "right away on the next check";
+    if (diffHours < 1) return `in ${Math.max(1, Math.round(diffHours * 60))} min`;
+    if (diffHours < 48) return `in ${Math.max(1, Math.round(diffHours))} hours`;
+    return `in ${Math.max(1, Math.round(diffHours / 24))} days`;
+  }, [autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt]);
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -796,7 +802,7 @@ export default function SettingsScreen() {
   const handleCreateLocalBackup = async () => {
     setBackupBusy("export");
     try {
-      const { envelope } = await RecoveryService.createBackup({ upload: false });
+      const { envelope } = await RecoveryService.createBackup();
       await refreshBackupList();
       Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.`);
     } catch (error: any) {
@@ -830,9 +836,9 @@ export default function SettingsScreen() {
     try {
       await runAutoBackupNow();
       await refreshBackupList();
-      Alert.alert("Manual backup created", "Your local recovery copy was saved. If connected, its cloud upload has been queued or verified. Check Cloud Backup for upload status.");
+      Alert.alert("Auto backup created", "A checksum-verified local backup was created.");
     } catch (error: any) {
-      Alert.alert("Manual backup", error?.message ?? "Unable to create the backup.");
+      Alert.alert("Auto backup", error?.message ?? "Unable to create the auto backup.");
     } finally {
       setBackupBusy(null);
     }
@@ -1261,13 +1267,12 @@ export default function SettingsScreen() {
         <ScrollView ref={detailScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.settingsDetailContent} keyboardShouldPersistTaps="handled">
       <View style={styles.settingsDetailHeader}><View style={{ flex: 1 }}><Text style={[styles.screenTitle, { color: posTheme.text, marginBottom: 2 }]}>{activeSectionDefinition?.title ?? "Settings"}</Text><Text style={[styles.screenSubtitle, { color: posTheme.muted, marginBottom: 0 }]}>{activeSectionDefinition?.description}</Text></View></View>
 
-      {canManageSettings && showSettingsSection("business branding dealership operating mode receipt designer") && (
+      {canManageSettings && showSettingsSection("business branding receipt designer") && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Dealership Platform</Text>
+          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Business & Receipts</Text>
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
             <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
-            <Button title="Cloud Backup" icon="cloud-upload-outline" onPress={() => router.push("/(auth)/dealership-cloud" as any)} />
             <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
           </View>
         </Card>
@@ -2169,7 +2174,7 @@ export default function SettingsScreen() {
             <Ionicons name="time-outline" size={15} color={posTheme.muted} />
             <Text style={{ color: posTheme.muted, fontSize: 12, flex: 1 }}>
               {autoBackupEnabled
-                ? `${scheduleMode === "DAILY" ? "Daily at " + dailyTime : "Every " + formatBackupIntervalLabel(autoBackupIntervalHours)} · Last: ${lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString() : "never"} · Next: ${nextAutoBackupLabel}`
+                ? `Every ${formatBackupIntervalLabel(autoBackupIntervalHours)} · Last: ${lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString() : "never"} · Next: ${nextAutoBackupLabel}`
                 : "Auto backup is off. Turn it on to keep a scheduled recovery copy."}
             </Text>
           </View>
@@ -2210,7 +2215,6 @@ export default function SettingsScreen() {
                 <Ionicons name="document-text-outline" size={19} color={posTheme.accent} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>{backup.name}</Text>
-                  <Text style={{ color: posTheme.accent, fontSize: 11, marginTop: 3 }}>{backup.source === "AUTOMATIC" ? "Automatic" : backup.source === "MANUAL" ? "Manual" : "Earlier backup"}</Text>
                   <Text style={{ color: posTheme.muted, fontSize: 11, marginTop: 3 }}>{new Date(backup.createdAt).toLocaleString()} · {formatFileSize(backup.size)}</Text>
                 </View>
                 <View style={styles.backupFileActions}>

@@ -15,8 +15,8 @@ type Props = {
   onClose: () => void;
   onPrint: () => void;
   printing: boolean;
-  onQueueUpload: () => void;
-  queueingUpload: boolean;
+  onSaveBackup: () => void;
+  savingBackup: boolean;
   report: SalesReport;
   settings: ReportSettings | null;
   startDate: Date;
@@ -37,8 +37,8 @@ export function EndOfDayReportModal({
   onClose,
   onPrint,
   printing,
-  onQueueUpload,
-  queueingUpload,
+  onSaveBackup,
+  savingBackup,
   report,
   settings,
   startDate,
@@ -127,10 +127,10 @@ export function EndOfDayReportModal({
                   style={styles.actionButton}
                 />
                 <Button
-                  title={queueingUpload ? "Preparing backup..." : "Close EOD & Queue OMS Backup"}
-                  onPress={onQueueUpload}
-                  icon="cloud-upload-outline"
-                  loading={queueingUpload}
+                  title={savingBackup ? "Preparing backup..." : "Save Local EOD Backup"}
+                  onPress={onSaveBackup}
+                  icon="save-outline"
+                  loading={savingBackup}
                   variant="secondary"
                   style={styles.doneButton}
                 />

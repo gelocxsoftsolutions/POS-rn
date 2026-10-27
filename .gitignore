@@ -15,7 +15,3 @@ android/
 ios/
 .DS_Store
 *.tsbuildinfo
-# Dealership validation artifacts
-.dealership-export/
-dealership-*.log
-.dealership-export.log

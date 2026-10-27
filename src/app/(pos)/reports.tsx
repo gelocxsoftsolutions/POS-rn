@@ -262,7 +262,7 @@ export default function ReportsScreen() {
   const salesGroupCashierIds = useAccessSettingsStore((state) => state.salesGroupCashierIds);
   const selectedPrinter = usePrinterStore((state) => state.selectedPrinter);
   const operatingMode = useBusinessConfigStore((state) => state.configuration.operatingMode);
-  const showOmsSyncStatus = false; // Both dealership modes retain sales locally and in cloud backups.
+  const showOmsSyncStatus = operatingMode === "NCT_DEPENDENT";
 
   const colors = useMemo(() => ({
     background: theme.background, panel: theme.surface, panelAlt: theme.surfaceAlt,
@@ -501,10 +501,10 @@ export default function ReportsScreen() {
     }
     setQueueingEod(true);
     try {
-      const result = await EndOfDayService.closeAndQueue({
+      const result = await EndOfDayService.closeLocally({
         businessDate: dayjs(startDate).format("YYYY-MM-DD"),
       });
-      Alert.alert("End of day saved", `The database backup is saved locally and queued for cloud saving.\n\nBackup: ${result.backup.fileUri}`);
+      Alert.alert("End of day saved", `A recoverable backup is stored on this device. Sales continue syncing to NCT OMS.\n\nBackup: ${result.backup.fileUri}`);
       setEodVisible(false);
     } catch (error: any) {
       Alert.alert("End of day", error?.message ?? "Unable to create the recoverable EOD package.");
@@ -644,7 +644,7 @@ export default function ReportsScreen() {
             <View style={styles.rowBetween}>
               <View style={styles.flex}>
                 <Text style={[styles.panelTitle, { color: colors.text }]}>{showOmsSyncStatus ? "Sales & Sync Status" : "Sales Records"}</Text>
-                <Text style={[styles.panelCaption, { color: colors.muted }]}>{showOmsSyncStatus ? "Every recorded sale and whether it reached the OMS" : "Every sale recorded locally for this dealership"}</Text>
+                <Text style={[styles.panelCaption, { color: colors.muted }]}>Every recorded sale and whether it reached the OMS</Text>
               </View>
               {showOmsSyncStatus && report.sales.some((sale) => sale.syncStatus === "FAILED" || sale.syncStatus === "UNSYNCED") && (
                 <TouchableOpacity
@@ -707,8 +707,8 @@ export default function ReportsScreen() {
         onClose={() => setEodVisible(false)}
         onPrint={printEndOfDay}
         printing={printingEod}
-        onQueueUpload={() => void queueEndOfDay()}
-        queueingUpload={queueingEod}
+        onSaveBackup={() => void queueEndOfDay()}
+        savingBackup={queueingEod}
         report={report}
         settings={settings}
         startDate={startDate}

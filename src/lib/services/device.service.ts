@@ -115,7 +115,7 @@ export const DeviceService = {
           } catch { /* non-blocking */ }
 
           if (d.initialCashiers && d.initialCashiers.length > 0) {
-            // Upsert provisioned users without erasing local dealership users.
+            // Upsert provisioned users without erasing existing local users.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
             for (const roleId of roleIds) {

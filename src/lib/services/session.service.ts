@@ -77,19 +77,19 @@ export const SessionService = {
         actualCash,
         difference,
       });
-      let uploadQueued = false;
-      let uploadWarning: string | undefined;
+      let backupCreated = false;
+      let backupWarning: string | undefined;
       try {
-        await EndOfDayService.closeAndQueue({
+        await EndOfDayService.closeLocally({
           businessDate: new Date().toISOString().split("T")[0],
           shiftId,
         });
-        uploadQueued = true;
+        backupCreated = true;
       } catch (error: any) {
-        uploadWarning = error?.message ?? "The EOD backup could not be queued.";
+        backupWarning = error?.message ?? "The local EOD backup could not be created.";
       }
 
-      return { success: true, shift: closed, uploadQueued, uploadWarning };
+      return { success: true, shift: closed, backupCreated, backupWarning };
     } catch (e: any) {
       return { success: false, error: e.message ?? "Failed to close shift" };
     }
