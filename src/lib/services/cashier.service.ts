@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
 import { SessionRepository } from "@/lib/repositories/session.repository";
 import { PermissionRepository } from "@/lib/repositories/permission.repository";
@@ -10,6 +11,14 @@ import { sha256 as secureSha256 } from "@noble/hashes/sha2.js";
 import { queryFirst } from "@/lib/db/connection";
 import { PermissionService } from "@/lib/services/permission.service";
 import AsyncStorage from "@/lib/storage/app-storage";
+import { isNctPos } from "./nct-scope";
+import { EmployeeSyncService } from "./employee-sync.service";
+import { AuditService } from "./audit.service";
+
+function credentialHash(value: string) { return isNctPos() ? secureCredentialHash(value) : sha256(value); }
+function requireLocalUserSource() {
+  if (isNctPos()) throw new Error("Manage NCT users and credentials in OMS Employees / branch POS access.");
+}
 
 export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
 const SUPER_ADMIN_USERNAME_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
@@ -31,11 +40,12 @@ async function requireUserManagementPermission() {
 
 async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRepository.findById>>, loginType: "pin" | "password") {
   if (!cashier) throw new Error("User not found");
+  if (isNctPos() && !/^oms:\d+$/.test(cashier.employeeId ?? "")) throw new Error("This account is not linked to OMS Employees.");
   const role = cashier.roleId
     ? await queryFirst<{ name: string }>("SELECT name FROM Role WHERE id = ?", [cashier.roleId])
     : null;
   const roleName = role?.name ?? "";
-  const isAdministrator = roleName.trim().toLowerCase() === "admin";
+  const isAdministrator = !isNctPos() && roleName.trim().toLowerCase() === "admin";
   const device = useDeviceStore.getState().device;
   const session = await SessionRepository.create({
     cashierId: cashier.id,
@@ -75,14 +85,16 @@ async function startCashierSession(cashier: Awaited<ReturnType<typeof CashierRep
     isSuperAdmin: isAdministrator,
   });
 
+  if (isNctPos()) await AuditService.log("LOGIN_SUCCESS", "User signed in", cashier.id, cashier.displayName, JSON.stringify({ entityType: "Session", entityId: session.id }));
   return session;
 }
 
-export const CashierService = {
+export const CashierService = withNctActionAudit("Cashier", {
   async loginPin(pin: string) {
     try {
-      const pinHash = sha256(pin);
+      const pinHash = credentialHash(pin);
       const cashier = await CashierRepository.findByPinHash(pinHash);
+      if (isNctPos() && cashier && !cashier.pinLoginEnabled) return { success: false, error: "PIN login is disabled for this employee." };
       if (!cashier) {
         return { success: false, error: "Invalid PIN" };
       }
@@ -113,7 +125,7 @@ export const CashierService = {
       if (cashier.accountLocked) {
         return { success: false, locked: true, error: "This account is locked. Ask a super admin to unlock it." };
       }
-      if (!cashier.pinHash || cashier.pinHash !== sha256(pin)) {
+      if (!cashier.pinHash || cashier.pinHash !== credentialHash(pin)) {
         const maximumAttempts = useAccessSettingsStore.getState().maxPinAttempts || 5;
         const updated = await CashierRepository.recordFailedPinAttempt(cashier.id, maximumAttempts);
         const failed = Number(updated?.failedPinAttempts ?? 0);
@@ -146,12 +158,14 @@ export const CashierService = {
     }
     const cashier = await CashierRepository.findById(session.cashierId);
     if (!cashier || !cashier.pinHash) return { success: false, error: "This account has no PIN set." };
-    return cashier.pinHash === sha256(pin)
+    return cashier.pinHash === credentialHash(pin)
       ? { success: true }
       : { success: false, error: "Incorrect PIN." };
   },
 
-  async loginSuperAdmin(username: string, password: string) {    if (
+  async loginSuperAdmin(username: string, password: string) {
+    if (isNctPos()) return { success: false, error: "Sign in using an OMS Employee account." };
+    if (
       secureCredentialHash(username.trim().toLowerCase()) !== SUPER_ADMIN_USERNAME_HASH ||
       secureCredentialHash(password) !== SUPER_ADMIN_PASSWORD_HASH
     ) {
@@ -186,7 +200,9 @@ export const CashierService = {
   },
 
   async listLoginUsers() {
-    return CashierRepository.findLoginUsers();
+    if (isNctPos()) await EmployeeSyncService.refresh().catch(() => false);
+    const users = await CashierRepository.findLoginUsers();
+    return isNctPos() ? users.filter((user) => /^oms:\d+$/.test(user.employeeId ?? "")) : users;
   },
 
   async unlockManagedUser(cashierId: string) {
@@ -200,10 +216,11 @@ export const CashierService = {
     try {
       const cashier = await CashierRepository.findByUsername(username);
       if (!cashier) return { success: false, error: "Invalid credentials" };
+      if (isNctPos() && !cashier.passwordLoginEnabled) return { success: false, error: "Password login is disabled for this employee." };
 
       if (cashier.accountLocked) return { success: false, error: "This account is locked. Ask a super admin to unlock it." };
 
-      const passwordHash = sha256(password);
+      const passwordHash = credentialHash(password);
       if (cashier.passwordHash !== passwordHash) {
         return { success: false, error: "Invalid credentials" };
       }
@@ -226,6 +243,7 @@ export const CashierService = {
   },
 
   async logout(sessionId: string): Promise<void> {
+    if (isNctPos()) await AuditService.log("LOGOUT", "User signed out", undefined, undefined, JSON.stringify({ entityType: "Session", entityId: sessionId }));
     try {
       await SessionRepository.deactivate(sessionId);
     } catch {
@@ -259,6 +277,7 @@ export const CashierService = {
   },
 
   async updateProfile(cashierId: string, displayName: string, pin?: string, photoUri?: string | null) {
+    requireLocalUserSource();
     if (cashierId === SUPER_ADMIN_ID) {
       const currentSession = useCashierStore.getState().session;
       if (!currentSession?.isSuperAdmin) throw new Error("Only the Super Admin can update this profile.");
@@ -293,6 +312,7 @@ export const CashierService = {
   },
 
   async createLocalUser(input: { displayName: string; username?: string; pin: string; roleId?: string }) {
+    requireLocalUserSource();
     await requireUserManagementPermission();
     const displayName = input.displayName.trim();
     const username = input.username?.trim().toLowerCase();
@@ -310,6 +330,7 @@ export const CashierService = {
   },
 
   async updateManagedUser(cashierId: string, input: { displayName: string; username?: string; pin?: string; roleId?: string }) {
+    requireLocalUserSource();
     await requireUserManagementPermission();
     const displayName = input.displayName.trim();
     const username = input.username?.trim().toLowerCase() || null;
@@ -342,6 +363,7 @@ export const CashierService = {
   },
 
   async deleteLocalUser(cashierId: string) {
+    requireLocalUserSource();
     await requireUserManagementPermission();
     const current = useCashierStore.getState().session;
     if (current?.cashierId === cashierId) throw new Error("You cannot delete the account currently signed in.");
@@ -389,4 +411,4 @@ export const CashierService = {
       // silent fail
     }
   },
-};
+});

@@ -80,13 +80,14 @@ export const SyncQueueRepository = {
     ) as Promise<SyncQueueRow>;
   },
 
-  async getPending(limit: number = 50): Promise<SyncQueueRow[]> {
+  async getPending(limit: number = 50, entityTypes?: string[]): Promise<SyncQueueRow[]> {
     return query<SyncQueueRow>(
       `SELECT * FROM SyncQueue
-       WHERE status = 'PENDING' AND retryCount < maxRetries
+       WHERE status = 'PENDING' AND (retryCount < maxRetries OR entityType = 'DatabaseBackup')
+         ${entityTypes?.length ? `AND entityType IN (${entityTypes.map(() => '?').join(',')})` : ''}
        ORDER BY createdAt ASC
        LIMIT ?`,
-      [limit]
+      [...(entityTypes ?? []), limit]
     );
   },
 

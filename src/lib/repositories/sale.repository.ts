@@ -3,6 +3,8 @@ import { v4 as uuid } from "uuid";
 import type { SaleDTO, SaleItemDTO, PaymentDTO, SaleFilter, SaleSyncStatus } from "@/lib/types/sales";
 import type { PaginatedResult } from "@/lib/types/inventory";
 import { canonicalScannedCode, normalizeScannedCode } from "@/lib/barcodes/normalize-scanned-code";
+import { isNctPos } from "@/lib/services/nct-scope";
+import { philippineDate } from "@/lib/backup/nct-schedule";
 
 interface SaleSyncRow {
   entityId: string;
@@ -340,7 +342,7 @@ export const SaleRepository = {
   },
 
   async countToday(cashierIds?: string[]): Promise<number> {
-    const today = new Date().toISOString().split("T")[0];
+    const today = isNctPos() ? philippineDate() : new Date().toISOString().split("T")[0];
     const cashierClause = cashierIds?.length ? ` AND cashierId IN (${cashierIds.map(() => "?").join(", ")})` : "";
     const result = await queryFirst<{ c: number }>(
       `SELECT COUNT(*) as c FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'${cashierClause}`,
@@ -350,7 +352,7 @@ export const SaleRepository = {
   },
 
   async sumTotalToday(cashierIds?: string[]): Promise<number> {
-    const today = new Date().toISOString().split("T")[0];
+    const today = isNctPos() ? philippineDate() : new Date().toISOString().split("T")[0];
     const cashierClause = cashierIds?.length ? ` AND cashierId IN (${cashierIds.map(() => "?").join(", ")})` : "";
     const result = await queryFirst<{ s: number }>(
       `SELECT COALESCE(SUM(total), 0) as s FROM Sale WHERE businessDate = ? AND status = 'COMPLETED'${cashierClause}`,

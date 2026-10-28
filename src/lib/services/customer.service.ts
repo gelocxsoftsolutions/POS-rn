@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { query, queryFirst } from "@/lib/db/connection";
 
 // Customers are recorded as free-text customerName on completed sales.
@@ -86,7 +87,7 @@ function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 86400000).toISOString();
 }
 
-export const CustomerService = {
+export const CustomerService = withNctActionAudit("Customer", {
   async list(cashierIds: string[]): Promise<CustomerSummary[]> {
     if (cashierIds.length === 0) return [];
     const { clause, params } = cashierClause(cashierIds);
@@ -282,4 +283,4 @@ export const CustomerService = {
       paymentMethod: String(sale.paymentMethod ?? "CASH"),
     };
   },
-};
+});

@@ -6,6 +6,8 @@ interface BackupSettingsState {
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;
   lastAutoBackupAt: string | null;
+  lastCloudError: string | null;
+  setCloudError: (message: string | null) => void;
   hydrated: boolean;
   setAutoBackupEnabled: (enabled: boolean) => void;
   setAutoBackupIntervalHours: (hours: number) => void;
@@ -19,6 +21,8 @@ export const useBackupSettingsStore = create<BackupSettingsState>()(
       autoBackupEnabled: false,
       autoBackupIntervalHours: 24,
       lastAutoBackupAt: null,
+      lastCloudError: null,
+      setCloudError: (lastCloudError) => set({ lastCloudError }),
       hydrated: false,
       setAutoBackupEnabled: (autoBackupEnabled) => set({ autoBackupEnabled }),
       setAutoBackupIntervalHours: (hours) =>
@@ -33,6 +37,7 @@ export const useBackupSettingsStore = create<BackupSettingsState>()(
         autoBackupEnabled: state.autoBackupEnabled,
         autoBackupIntervalHours: state.autoBackupIntervalHours,
         lastAutoBackupAt: state.lastAutoBackupAt,
+        lastCloudError: state.lastCloudError,
       }),
       onRehydrateStorage: () => () => useBackupSettingsStore.getState().setHydrated(true),
     }

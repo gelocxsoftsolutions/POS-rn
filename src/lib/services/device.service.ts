@@ -6,11 +6,15 @@ import { query, queryFirst, execute } from "@/lib/db/connection";
 import type { RegisterDeviceInput } from "@/lib/types/pos";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import type { OperatingMode } from "@/lib/business/types";
+import { EmployeeSyncService } from "./employee-sync.service";
+import { isNctPos } from "./nct-scope";
 
 export const DeviceService = {
   async register(input: RegisterDeviceInput) {
     try {
       if (input.serverUrl) {
+        const priorDevice = await DeviceRepository.find();
+        const priorDeviceId = priorDevice?.id || useDeviceStore.getState().device.deviceId || undefined;
         console.log("[DeviceService] registering with server:", input.serverUrl);
         setApiConfig({ baseUrl: input.serverUrl });
 
@@ -42,6 +46,7 @@ export const DeviceService = {
           }>;
         }>("/api/device/register", {
           activationToken: input.activationToken,
+          existingDeviceId: priorDeviceId,
           publicKey: input.publicKey,
           machineIdentifier: input.machineIdentifier,
           computerName: input.computerName,
@@ -114,8 +119,9 @@ export const DeviceService = {
             }));
           } catch { /* non-blocking */ }
 
-          if (d.initialCashiers && d.initialCashiers.length > 0) {
-            // Upsert provisioned users without erasing existing local users.
+          if (isNctPos()) await EmployeeSyncService.refresh();
+          if (!isNctPos() && d.initialCashiers && d.initialCashiers.length > 0) {
+            // Preserve historical local records; only Employees-backed accounts can sign in.
 
             const roleIds = [...new Set(d.initialCashiers.map((c) => c.roleId))];
             for (const roleId of roleIds) {

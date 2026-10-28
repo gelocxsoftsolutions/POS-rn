@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { ReceiptRepository } from "@/lib/repositories/receipt.repository";
 import { queryFirst } from "@/lib/db/connection";
 
@@ -32,7 +33,7 @@ export interface ReceiptSettings {
   receiptFooter?: string;
 }
 
-export const ReceiptService = {
+export const ReceiptService = withNctActionAudit("Receipt", {
   async getBySaleId(saleId: string) {
     try {
       return await ReceiptRepository.findBySaleId(saleId);
@@ -113,4 +114,4 @@ export const ReceiptService = {
 
     return lines.join("\n");
   },
-};
+});
