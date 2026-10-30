@@ -25,11 +25,13 @@ export function startNetworkListener(): void {
 
   unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
     const isOnline = state.isConnected === true && state.isInternetReachable !== false;
+    const wasOnline = useNetworkStore.getState().isOnline;
     useNetworkStore.getState().setNetwork({
       isOnline,
       isConnected: state.isConnected,
       type: state.type,
     });
+    if (isOnline && !wasOnline) void import("./sync-worker").then(({ runSyncCycle }) => runSyncCycle()).catch(() => {});
   });
 }
 

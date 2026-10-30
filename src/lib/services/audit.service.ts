@@ -1,5 +1,8 @@
 import { AuditRepository } from "@/lib/repositories/audit.repository";
 import type { AuditLogRow } from "@/lib/repositories/audit.repository";
+import { isNctPos } from "./nct-scope";
+import { useDeviceStore } from "@/lib/stores/device-store";
+import { useCashierStore } from "@/lib/stores/cashier-store";
 
 export const AuditService = {
   async log(
@@ -10,11 +13,25 @@ export const AuditService = {
     metadata?: string
   ): Promise<AuditLogRow | null> {
     try {
+      const session = isNctPos() ? useCashierStore.getState().session : null;
+      if (isNctPos()) {
+        let details: Record<string, unknown> = {};
+        try {
+          const parsed = metadata ? JSON.parse(metadata) : {};
+          // Audit only known event context; omit arbitrary input and credentials.
+          for (const key of ["entityType", "entityId", "outcome", "targetCashierId", "productId", "transferId", "saleId"]) {
+            if (parsed && ["string", "number", "boolean"].includes(typeof parsed[key])) details[key] = parsed[key];
+          }
+        } catch { /* Exclude unstructured data that may contain credentials. */ }
+        const device = useDeviceStore.getState().device;
+        metadata = JSON.stringify({ ...details, source: "NCT_POS", branchId: device.branchId, deviceId: device.deviceId });
+      }
       return await AuditRepository.create({
         eventType,
         description,
-        cashierId,
-        cashierName,
+        cashierId: cashierId ?? session?.cashierId,
+        cashierName: cashierName ?? session?.cashierName,
+        roleId: session?.roleId,
         metadata,
       });
     } catch {

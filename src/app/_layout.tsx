@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Image, useWindowDimensions } from "react-native";
-import { SplashScreen, Stack } from "expo-router";
+import { SplashScreen, Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { MD3DarkTheme, MD3LightTheme, PaperProvider } from "react-native-paper";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { getDatabase } from "@/lib/db/connection";
+import { getDatabase, execute } from "@/lib/db/connection";
 import { SeedService } from "@/lib/services/seed.service";
 import { initApiConfig } from "@/lib/api/http";
 import { AuthenticationService } from "@/lib/services/authentication.service";
@@ -15,11 +15,17 @@ import { startAutoBackupScheduler } from "@/lib/services/auto-backup.service";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { BusinessConfigurationService } from "@/lib/business/configuration.service";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
+import { AuditService } from "@/lib/services/audit.service";
+import { isNctPos } from "@/lib/services/nct-scope";
 
 export default function RootLayout() {
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [startupStage, setStartupStage] = useState("Opening local database");
+  useEffect(() => {
+    if (ready && isNctPos()) void AuditService.log("SCREEN_VIEW", "Opened screen", undefined, undefined, JSON.stringify({ entityType: "Screen", entityId: pathname }));
+  }, [ready, pathname]);
   const theme = usePosTheme();
   const dark = theme.dark;
   const { width, height } = useWindowDimensions();
@@ -59,6 +65,7 @@ export default function RootLayout() {
         if (mounted) setStartupStage("Loading server configuration");
         await initApiConfig();
         if (mounted) setStartupStage("Loading saved session");
+        await execute("UPDATE SyncQueue SET status='PENDING' WHERE entityType IN ('Sale','DatabaseBackup') AND status='PROCESSING'");
         await AuthenticationService.init();
         startNetworkListener();
         startBackgroundSync();

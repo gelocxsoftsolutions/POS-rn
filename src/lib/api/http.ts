@@ -85,7 +85,8 @@ export async function initApiConfig() {
 async function request<T>(
   method: string,
   path: string,
-  body?: any
+  body?: any,
+  timeoutMs = DEFAULT_TIMEOUT
 ): Promise<{ ok: boolean; data?: T; status: number; error?: any }> {
   if (!config.baseUrl) {
     return { ok: false, status: 0 };
@@ -101,7 +102,7 @@ async function request<T>(
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, {
       method,
       headers,
@@ -125,7 +126,7 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body?: any) => request<T>("POST", path, body),
+  post: <T>(path: string, body?: any, timeoutMs?: number) => request<T>("POST", path, body, timeoutMs),
   put: <T>(path: string, body?: any) => request<T>("PUT", path, body),
   delete: <T>(path: string) => request<T>("DELETE", path),
 };

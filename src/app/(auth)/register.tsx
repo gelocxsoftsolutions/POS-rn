@@ -30,6 +30,7 @@ import { useDeviceStore } from "@/lib/stores/device-store";
 import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import * as Constants from "expo-constants";
+import { isNctPos } from "@/lib/services/nct-scope";
 
 type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
 
@@ -234,7 +235,7 @@ export default function RegisterDevice() {
         }
 
         const cashiers = await CashierRepository.findAll();
-        if (cashiers.length > 0) {
+        if (!isNctPos() && cashiers.length > 0) {
           setCashierPins(cashiers.map((c) => ({
             id: c.id,
             username: c.username ?? "",

@@ -6,8 +6,8 @@ const CAPABILITIES: Record<OperatingMode, BusinessCapabilities> = {
     manageLocalInventory: false,
     receiveNctTransfers: true,
     importNctCatalog: true,
-    uploadEndOfDay: false,
-    uploadBackups: false,
+    uploadEndOfDay: true,
+    uploadBackups: true,
   },
   INDEPENDENT: {
     manageLocalCatalog: false,

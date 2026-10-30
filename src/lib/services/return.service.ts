@@ -1,3 +1,4 @@
+import { withNctActionAudit } from "./action-audit";
 import { ReturnRepository } from "@/lib/repositories/return.repository";
 import { SaleRepository } from "@/lib/repositories/sale.repository";
 import { InventoryRepository } from "@/lib/repositories/inventory.repository";
@@ -86,7 +87,7 @@ function currentSession() {
   return session;
 }
 
-export const ReturnService = {
+export const ReturnService = withNctActionAudit("Return", {
   async list(filter: ReturnRequestFilter): Promise<PaginatedResult<ReturnRequestDTO>> {
     try {
       await requirePermission("POS_RETURNS", "process returns");
@@ -564,4 +565,4 @@ export const ReturnService = {
       return { success: false, error: e.message ?? "Exchange completion failed" };
     }
   },
-};
+});

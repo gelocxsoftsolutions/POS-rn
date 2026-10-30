@@ -35,6 +35,7 @@ import { usePrinterStore } from "@/lib/stores/printer-store";
 import { SettingsService } from "@/lib/services/settings.service";
 import { OmsSyncService } from "@/lib/services/oms-sync.service";
 import { AuditService } from "@/lib/services/audit.service";
+import { isNctPos } from "@/lib/services/nct-scope";
 import { CashierService, SUPER_ADMIN_ID } from "@/lib/services/cashier.service";
 import { DeviceService } from "@/lib/services/device.service";
 import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
@@ -59,10 +60,7 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const AUTO_BACKUP_INTERVAL_PRESETS = [1, 6, 12, 24, 48, 72, 168] as const;
-const formatBackupIntervalLabel = (hours: number) => (hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`);
-
-export type SettingsSectionId = "business" | "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
+export type SettingsSectionId = "store" | "tax" | "users" | "permissions" | "security" | "auto_lock" | "audit" | "oms" | "printer" | "hardware_test" | "navigation" | "sales_layout" | "theme" | "sounds" | "display" | "database" | "device";
 type SettingsSectionDefinition = {
   id: SettingsSectionId;
   title: string;
@@ -73,7 +71,6 @@ type SettingsSectionDefinition = {
 };
 
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
-  { id: "business", title: "Business & Receipts", description: "Business identity, branding, OMS connection, and receipt design.", icon: "business-outline", keywords: "business branding company logo OMS dependent receipt designer template" , adminOnly: true },
   { id: "store", title: "Store Details", description: "Store name, device identity, address, and currency.", icon: "storefront-outline", keywords: "store details name address currency device code registration location" },
   { id: "tax", title: "Tax Profile", description: "Tax label, tax rate, and default receipt footer.", icon: "calculator-outline", keywords: "tax profile vat rate percent receipt footer invoice" },
   { id: "users", title: "Users & Shared Sales", description: "Create cashiers, manage accounts, roles, and shared sales.", icon: "people-outline", keywords: "users cashiers roles shared sales create edit delete account", adminOnly: true },
@@ -94,7 +91,6 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
 ];
 
 const SECTION_MATCHERS: Record<SettingsSectionId, string[]> = {
-  business: ["business branding receipt designer"],
   store: ["store details"],
   tax: ["tax profile"],
   users: ["users cashiers roles"],
@@ -302,25 +298,11 @@ export default function SettingsScreen() {
   const [restorePinError, setRestorePinError] = useState<string | null>(null);
   const [restorePinBusy, setRestorePinBusy] = useState(false);
   const restoreLockRef = useRef(false);
-  const [backupIntervalInput, setBackupIntervalInput] = useState(() => String(useBackupSettingsStore.getState().autoBackupIntervalHours));
   const backupItems = useBackupListStore((state) => state.items);
   const backupListLoading = useBackupListStore((state) => state.loading);
   const refreshBackupList = useBackupListStore((state) => state.refresh);
-  const autoBackupEnabled = useBackupSettingsStore((state) => state.autoBackupEnabled);
-  const autoBackupIntervalHours = useBackupSettingsStore((state) => state.autoBackupIntervalHours);
   const lastAutoBackupAt = useBackupSettingsStore((state) => state.lastAutoBackupAt);
-  const setAutoBackupEnabled = useBackupSettingsStore((state) => state.setAutoBackupEnabled);
-  const setAutoBackupIntervalHours = useBackupSettingsStore((state) => state.setAutoBackupIntervalHours);
-  const nextAutoBackupLabel = useMemo(() => {
-    if (!autoBackupEnabled) return "";
-    const nowMs = Date.now();
-    const baseMs = lastAutoBackupAt ? new Date(lastAutoBackupAt).valueOf() : nowMs;
-    const diffHours = Math.max(0, (baseMs + autoBackupIntervalHours * 3_600_000 - nowMs) / 3_600_000);
-    if (!lastAutoBackupAt) return "right away on the next check";
-    if (diffHours < 1) return `in ${Math.max(1, Math.round(diffHours * 60))} min`;
-    if (diffHours < 48) return `in ${Math.max(1, Math.round(diffHours))} hours`;
-    return `in ${Math.max(1, Math.round(diffHours / 24))} days`;
-  }, [autoBackupEnabled, autoBackupIntervalHours, lastAutoBackupAt]);
+  const backupUploadError = useBackupSettingsStore((state) => state.lastCloudError);
 
   const [storeName, setStoreName] = useState("");
   const [address, setAddress] = useState("");
@@ -802,7 +784,7 @@ export default function SettingsScreen() {
   const handleCreateLocalBackup = async () => {
     setBackupBusy("export");
     try {
-      const { envelope } = await RecoveryService.createBackup();
+      const { envelope } = await RecoveryService.createBackup({ upload: false });
       await refreshBackupList();
       Alert.alert("Local backup created", `${envelope.totals.sales} sales, ${envelope.totals.products} active products, and ${envelope.totals.inventoryQuantity} inventory units were saved and verified.`);
     } catch (error: any) {
@@ -836,30 +818,12 @@ export default function SettingsScreen() {
     try {
       await runAutoBackupNow();
       await refreshBackupList();
-      Alert.alert("Auto backup created", "A checksum-verified local backup was created.");
+      Alert.alert("Manual backup created", "Your local recovery copy was saved and queued for OMS. Check OMS Branch Management > Database Backups for a verified upload, or this page for pending upload errors.");
     } catch (error: any) {
-      Alert.alert("Auto backup", error?.message ?? "Unable to create the auto backup.");
+      Alert.alert("Manual backup", error?.message ?? "Unable to create the backup.");
     } finally {
       setBackupBusy(null);
     }
-  };
-
-  const handleApplyBackupInterval = () => {
-    const parsed = Number(backupIntervalInput);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      Alert.alert("Auto backup", "Enter a valid number of hours (at least 1).");
-      setBackupIntervalInput(String(autoBackupIntervalHours));
-      return;
-    }
-    const value = Math.min(168, Math.max(1, Math.round(parsed)));
-    setAutoBackupIntervalHours(value);
-    setBackupIntervalInput(String(value));
-  };
-
-  const handleBackupIntervalPreset = (hours: number) => {
-    const value = Math.min(168, Math.max(1, Math.round(hours)));
-    setAutoBackupIntervalHours(value);
-    setBackupIntervalInput(String(value));
   };
 
   const requestRestore = (uri: string, label: string) => {
@@ -1194,6 +1158,7 @@ export default function SettingsScreen() {
     return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
   };
   const canOpenSettingsSection = (item: SettingsSectionDefinition) => {
+    if (isNctPos() && ["users", "permissions"].includes(item.id)) return false;
     if (isSuperAdmin) return true;
     if (item.id === "store" || item.id === "tax" || item.id === "auto_lock") return canManageSettings;
     if (!item.adminOnly) return true;
@@ -1267,16 +1232,7 @@ export default function SettingsScreen() {
         <ScrollView ref={detailScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.settingsDetailContent} keyboardShouldPersistTaps="handled">
       <View style={styles.settingsDetailHeader}><View style={{ flex: 1 }}><Text style={[styles.screenTitle, { color: posTheme.text, marginBottom: 2 }]}>{activeSectionDefinition?.title ?? "Settings"}</Text><Text style={[styles.screenSubtitle, { color: posTheme.muted, marginBottom: 0 }]}>{activeSectionDefinition?.description}</Text></View></View>
 
-      {canManageSettings && showSettingsSection("business branding receipt designer") && (
-        <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-          <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Business & Receipts</Text>
-          <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Configure stable business identity, offline branding, operating capabilities, and the thermal receipt template.</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
-            <Button title="Business & Branding" icon="business-outline" onPress={() => router.push("/(pos)/business-settings" as any)} />
-            <Button title="Receipt Designer" icon="receipt-outline" variant="secondary" onPress={() => router.push("/(pos)/receipt-designer" as any)} />
-          </View>
-        </Card>
-      )}
+
 
       <View style={[styles.twoColRow, isWideColumns && styles.twoColRowWide]}>
         {/* Store Details Card */}
@@ -2127,58 +2083,11 @@ export default function SettingsScreen() {
         <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Restore can be performed at any time. The format, schema version, checksum, business identity, and totals are always validated, and you must enter your POS login {isBuiltInSuperAdmin ? "password" : "PIN"} to confirm. Restoring replaces the current database, so create a backup first if the existing data matters.</Text></View></View>
 
         <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
-          <View style={styles.autoBackupHeading}>
-            <View style={styles.sectionHeadingCopy}>
-              <Text style={{ color: posTheme.text, fontWeight: "900" }}>Auto backup</Text>
-              <Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Create a checksum-verified local backup automatically on a schedule.</Text>
-            </View>
-            <Switch
-              value={autoBackupEnabled}
-              onValueChange={setAutoBackupEnabled}
-              trackColor={{ false: posTheme.border, true: posTheme.accent }}
-              thumbColor={autoBackupEnabled ? posTheme.primary : posTheme.surface}
-            />
-          </View>
-          <View style={styles.autoBackupControls}>
-            <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 13 }}>Back up every</Text>
-            <TextInput
-              style={[styles.autoBackupInput, { backgroundColor: inputBg, borderColor: inputBorder, color: inputColor }]}
-              value={backupIntervalInput}
-              onChangeText={(value) => setBackupIntervalInput(value.replace(/[^0-9]/g, ""))}
-              keyboardType="number-pad"
-              maxLength={3}
-              accessibilityLabel="Auto backup interval in hours"
-            />
-            <Text style={{ color: posTheme.muted, fontSize: 12 }}>hours</Text>
-            <TouchableOpacity style={[styles.autoBackupApply, { backgroundColor: posTheme.primary }]} onPress={handleApplyBackupInterval}>
-              <Ionicons name="checkmark" size={16} color={posTheme.onPrimary} />
-              <Text style={{ color: posTheme.onPrimary, fontWeight: "800", fontSize: 12 }}>Apply</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.autoBackupPresets}>
-            {AUTO_BACKUP_INTERVAL_PRESETS.map((hours) => {
-              const active = autoBackupIntervalHours === hours;
-              return (
-                <TouchableOpacity
-                  key={hours}
-                  style={[styles.autoBackupPreset, { borderColor: active ? posTheme.primary : posTheme.border, backgroundColor: active ? posTheme.primary : "transparent" }]}
-                  onPress={() => handleBackupIntervalPreset(hours)}
-                  accessibilityState={{ selected: active }}
-                >
-                  <Text style={{ color: active ? posTheme.onPrimary : posTheme.muted, fontWeight: "800", fontSize: 11 }}>{formatBackupIntervalLabel(hours)}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <View style={styles.autoBackupStatus}>
-            <Ionicons name="time-outline" size={15} color={posTheme.muted} />
-            <Text style={{ color: posTheme.muted, fontSize: 12, flex: 1 }}>
-              {autoBackupEnabled
-                ? `Every ${formatBackupIntervalLabel(autoBackupIntervalHours)} · Last: ${lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString() : "never"} · Next: ${nextAutoBackupLabel}`
-                : "Auto backup is off. Turn it on to keep a scheduled recovery copy."}
-            </Text>
-          </View>
-          <Button title={backupBusy === "export" ? "Backing up..." : "Back Up Now"} icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} loading={backupBusy === "export"} disabled={backupBusy !== null} style={styles.backupButton} />
+          <Text style={{ color: posTheme.text, fontWeight: "900" }}>Daily NCT backup — 7 PM Philippine time</Text>
+          <Text style={{ color: posTheme.muted }}>POS creates a local recovery copy and queues it for OMS. Keep the app active at 7 PM; missed backups catch up when it reopens. Download emergency restore files from OMS Branch Management → Database Backups.</Text>
+          <Text style={{ color: posTheme.muted }}>Last local backup: {lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Never"}</Text>
+          {backupUploadError ? <Text style={{ color: "#dc2626" }}>OMS backup pending: {backupUploadError}</Text> : null}
+          <Button title="Back Up Now" icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} disabled={backupBusy !== null} />
         </View>
 
         <View style={styles.backupActions}>
@@ -2215,6 +2124,7 @@ export default function SettingsScreen() {
                 <Ionicons name="document-text-outline" size={19} color={posTheme.accent} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={{ color: posTheme.text, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>{backup.name}</Text>
+                  <Text style={{ color: posTheme.accent, fontSize: 11, marginTop: 3 }}>{backup.source === "AUTOMATIC" ? "Automatic" : backup.source === "MANUAL" ? "Manual" : "Earlier backup"}</Text>
                   <Text style={{ color: posTheme.muted, fontSize: 11, marginTop: 3 }}>{new Date(backup.createdAt).toLocaleString()} · {formatFileSize(backup.size)}</Text>
                 </View>
                 <View style={styles.backupFileActions}>

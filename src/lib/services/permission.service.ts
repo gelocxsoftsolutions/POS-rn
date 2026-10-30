@@ -2,6 +2,7 @@ import { execute, queryFirst, query } from "@/lib/db/connection";
 import { PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { v4 as uuid } from "uuid";
+import { isNctPos } from "./nct-scope";
 
 export interface PermissionRoleRow {
   id: string;
@@ -20,6 +21,7 @@ export interface PermissionUserRow {
 export type UserPermissionOverrides = Record<string, boolean>;
 
 function permissionAdministrator() {
+  if (isNctPos()) throw new Error("Manage NCT access in OMS.");
   const session = useCashierStore.getState().session;
   if (!session?.isSuperAdmin) throw new Error("Only the system Super Admin can change individual permissions.");
   return session;
