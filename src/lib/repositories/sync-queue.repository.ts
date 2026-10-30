@@ -157,6 +157,13 @@ export const SyncQueueRepository = {
     );
   },
 
+  async getUnresolved(limit = 5): Promise<SyncQueueRow[]> {
+    return query<SyncQueueRow>(
+      "SELECT * FROM SyncQueue WHERE status IN ('PENDING', 'FAILED') ORDER BY createdAt ASC LIMIT ?",
+      [limit],
+    );
+  },
+
   async getStats(): Promise<SyncStats> {
     const total = await queryFirst<{ c: number }>(
       "SELECT COUNT(*) as c FROM SyncQueue"

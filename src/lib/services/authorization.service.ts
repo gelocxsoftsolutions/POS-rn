@@ -2,10 +2,12 @@ import { PermissionService } from "@/lib/services/permission.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { isNctPos } from "./nct-scope";
 import { CashierRepository } from "@/lib/repositories/cashier.repository";
+import { isLocalSuperAdmin } from "@/lib/permissions/local-super-admin";
 
 export async function requirePermission(permissionCode: string, action = "perform this operation") {
   const session = useCashierStore.getState().session;
   if (!session) throw new Error(`Sign in before trying to ${action}.`);
+  if (isLocalSuperAdmin(session)) return;
   if (isNctPos()) {
     const employee = await CashierRepository.findById(session.cashierId);
     if (!employee?.active || !/^oms:\d+$/.test(employee.employeeId ?? "")) throw new Error("This employee no longer has NCT POS access.");

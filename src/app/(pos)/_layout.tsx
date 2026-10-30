@@ -21,6 +21,7 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useDeviceStore } from "@/lib/stores/device-store";
 import { PermissionService } from "@/lib/services/permission.service";
+import { isNavItemActive, permissionRedirect } from "@/lib/permissions/navigation";
 import { TransferService } from "@/lib/services/transfer.service";
 import { CashierService } from "@/lib/services/cashier.service";
 import { DeviceRepository } from "@/lib/repositories/device.repository";
@@ -111,17 +112,6 @@ function hasAnyRequiredPermission(item: (typeof navItems)[number], grantedPermis
       ? [item.requiredPermission]
       : [];
   return required.some((permission) => grantedPermissions.includes(permission));
-}
-
-function normalizePosPath(path: string) {
-  const normalized = path.replace(/^\/\(pos\)/, "") || "/";
-  return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
-}
-
-function isNavItemActive(pathname: string, href: string) {
-  const current = normalizePosPath(pathname);
-  const target = normalizePosPath(href);
-  return target === "/" ? current === "/" : current === target || current.startsWith(`${target}/`);
 }
 
 function SidebarClock({ dark }: { dark: boolean }) {
@@ -345,14 +335,21 @@ function POSHeader({
     setSyncingNow(true);
     try {
       await useOmsConnectionStore.getState().checkConnection();
-      try {
-        const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
-        await SyncQueueService.processPending();
-      } catch {
-        // queue flush is best-effort from the header
-      }
+      const { checkNetwork } = await import("@/lib/services/network.service");
+      if (!await checkNetwork()) throw new Error("This device is offline. Connect to the internet and try again.");
+      const { runSyncCycle } = await import("@/lib/services/sync-worker");
+      await runSyncCycle();
       await useSyncStore.getState().refreshPendingCount();
+      const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+      const remaining = await SyncQueueRepository.getUnresolved();
+      if (remaining.length) {
+        const details = remaining.map((job) => `${job.entityType}: ${job.error ?? (job.entityType === "Return" ? "Return upload is not supported yet; saved on this device." : "Still awaiting server confirmation; saved on this device.")}`).join("\n");
+        Alert.alert("Sync needs attention", details);
+      }
+    } catch (error) {
+      Alert.alert("Sync could not finish", error instanceof Error ? error.message : "Please try again.");
     } finally {
+      await useSyncStore.getState().refreshPendingCount();
       setSyncingNow(false);
     }
   };
@@ -622,6 +619,7 @@ export default function POSLayout() {
 
   const [grantedPermissions, setGrantedPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
   const [transferCount, setTransferCount] = useState(0);
   const [transfers, setTransfers] = useState<InventoryTransferDTO[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -776,25 +774,20 @@ export default function POSLayout() {
     return () => clearTimeout(t);
   }, [authHydrated, uiHydrated, cashierHydrated]);
 
-  // 2. Permission-gated navigation
   useEffect(() => {
+    let active = true;
     setPermissionsLoaded(false);
-    if (session?.isSuperAdmin) {
-      setGrantedPermissions([]);
-      setPermissionsLoaded(true);
-      return;
-    }
-    if (!session?.roleId) {
+    if (session?.isSuperAdmin || !session?.roleId) {
       setGrantedPermissions([]);
       setPermissionsLoaded(true);
       return;
     }
     PermissionService.getEffectivePermissions(session.roleId, session.cashierId)
-      .then(setGrantedPermissions)
-      .catch(() => setGrantedPermissions([]))
-      .finally(() => setPermissionsLoaded(true));
+      .then((codes) => { if (active) setGrantedPermissions(codes); })
+      .catch(() => { if (active) setGrantedPermissions([]); })
+      .finally(() => { if (active) setPermissionsLoaded(true); });
+    return () => { active = false; };
   }, [session?.cashierId, session?.isSuperAdmin, session?.roleId]);
-
   const visibleNavItems = navItems.filter(
     (item) =>
       (item.name !== "transfers" || capabilities.receiveNctTransfers) &&
@@ -874,25 +867,18 @@ export default function POSLayout() {
     }
   }, [pathname]);
 
-  // Permission gate — redirect if current route is forbidden
-  useEffect(() => {
-    if (isNavItemActive(pathname, "/(pos)/transfers") && !capabilities.receiveNctTransfers) {
-      router.replace("/(pos)");
-      return;
-    }
-    if (isNavItemActive(pathname, "/(pos)/settings") && !session?.isSuperAdmin && !["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code))) {
-      router.replace("/(pos)");
-      return;
-    }
-    if (session?.isSuperAdmin || !permissionsLoaded) return;
-    const currentItem = navItems.find((item) => {
-      return isNavItemActive(pathname, item.href);
-    });
-    if (currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions)) {
-      router.replace("/(pos)");
-    }
-  }, [pathname, grantedPermissions, permissionsLoaded, router, capabilities.receiveNctTransfers, session?.isSuperAdmin]);
+  const currentItem = navItems.find((item) => isNavItemActive(pathname, item.href));
+  const routeForbidden =
+    (isNavItemActive(pathname, "/(pos)/transfers") && !capabilities.receiveNctTransfers) ||
+    (permissionsLoaded && !session?.isSuperAdmin && (
+      (isNavItemActive(pathname, "/(pos)/settings") && !["POS_SETTINGS", "POS_USERS", "POS_AUDIT", "POS_BACKUP"].some((code) => grantedPermissions.includes(code))) ||
+      Boolean(currentItem && !hasAnyRequiredPermission(currentItem, grantedPermissions))
+    ));
+  const redirectTarget = permissionRedirect(pathname, routeForbidden, visibleNavItems.map((item) => item.href));
 
+  useEffect(() => {
+    if (permissionsLoaded && redirectTarget) router.replace(redirectTarget as any);
+  }, [permissionsLoaded, redirectTarget, router]);
   // Loading state
   if (!authHydrated || !uiHydrated || !cashierHydrated || !deviceHydrated) {
     return (
@@ -957,7 +943,14 @@ export default function POSLayout() {
       <View style={styles.body}>
         {/* Main content always full width — sidebar overlays on top, does not push content */}
         <View style={styles.main}>
-          <Slot />
+          {!permissionsLoaded ? (
+            <ActivityIndicator style={{ margin: 24 }} />
+          ) : routeForbidden ? (
+            <View style={{ padding: 24 }}>
+              <Text style={{ color: theme.text, fontSize: 18 }}>Access unavailable</Text>
+              <Text style={{ color: theme.text, marginTop: 8 }}>Your account does not have permission to open this screen. Ask your administrator to review your access in OMS.</Text>
+            </View>
+          ) : <Slot />}
         </View>
 
         {isWide && (

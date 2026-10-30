@@ -14,13 +14,14 @@ import AsyncStorage from "@/lib/storage/app-storage";
 import { isNctPos } from "./nct-scope";
 import { EmployeeSyncService } from "./employee-sync.service";
 import { AuditService } from "./audit.service";
+import { SUPER_ADMIN_ID } from "@/lib/permissions/local-super-admin";
 
 function credentialHash(value: string) { return isNctPos() ? secureCredentialHash(value) : sha256(value); }
 function requireLocalUserSource() {
   if (isNctPos()) throw new Error("Manage NCT users and credentials in OMS Employees / branch POS access.");
 }
 
-export const SUPER_ADMIN_ID = "__nct_pos_super_admin__";
+export { SUPER_ADMIN_ID } from "@/lib/permissions/local-super-admin";
 const SUPER_ADMIN_USERNAME_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
 const SUPER_ADMIN_PASSWORD_HASH = "ec6df1896ef437111a84bd831d24130d1ad8c8e68582f39ee08ee1ce89e806d7";
 const SUPER_ADMIN_PROFILE_KEY = "nct-pos-super-admin-profile";
@@ -164,7 +165,6 @@ export const CashierService = withNctActionAudit("Cashier", {
   },
 
   async loginSuperAdmin(username: string, password: string) {
-    if (isNctPos()) return { success: false, error: "Sign in using an OMS Employee account." };
     if (
       secureCredentialHash(username.trim().toLowerCase()) !== SUPER_ADMIN_USERNAME_HASH ||
       secureCredentialHash(password) !== SUPER_ADMIN_PASSWORD_HASH

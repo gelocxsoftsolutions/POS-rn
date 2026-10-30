@@ -1,6 +1,6 @@
 {
   "extends": "expo/tsconfig.base",
-  "exclude": ["node_modules", "oms-staging", "docs/phase1/oms-source-backups"],
+  "exclude": ["node_modules", ".tmp", "oms-staging", "docs/phase1/oms-source-backups"],
   "compilerOptions": {
     "strict": true,
     "ignoreDeprecations": "6.0",
