@@ -136,6 +136,19 @@ const { withNctActionAudit } = load("src/lib/services/action-audit.ts", {
   await sale.create({ password: "SECRET_PASSWORD" });
   assert.equal(JSON.parse(events[1][4]).entityId, "sale-2");
   assert.equal(JSON.stringify(events).includes("SECRET_PASSWORD"), false);
+  const eventCount = events.length;
+  const transfer = withNctActionAudit("Transfer", {
+    parseTransferQr: (raw) => {
+      try { return JSON.parse(raw); } catch { return null; }
+    },
+  });
+  const qr = transfer.parseTransferQr(JSON.stringify({
+    type: "nct-transfer", transferId: 42, transferNumber: "TRF-42",
+  }));
+  assert.equal(qr.transferNumber, "TRF-42", "QR parsing must remain synchronous for scanners");
+  assert.equal(qr.then, undefined);
+  assert.equal(transfer.parseTransferQr("invalid"), null);
+  assert.equal(events.length, eventCount, "parsing must not create business-operation audit events");
   console.log(
     "Passed NCT audit actor/target attribution, failure outcome and credential-exclusion checks. No network/database used.",
   );

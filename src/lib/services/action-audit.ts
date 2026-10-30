@@ -10,7 +10,7 @@ export function withNctActionAudit<T extends object>(entityType: string, service
       if (
         typeof value !== "function" ||
         typeof property !== "string" ||
-        /^(get|list|find|count|summary|recent|by)/.test(property) ||
+        /^(get|list|find|count|summary|recent|by|parse)/.test(property) ||
         property === "lock" ||
         property === "unlock"
       )
