@@ -146,12 +146,31 @@ test('worker discovers only unqueued NCT receipts and fetches transfers before s
       './sale-sync.service': { SaleSyncService: { retrySale: async id => steps.push(id) } },
       './employee-sync.service': { EmployeeSyncService: { refresh: async () => {} } },
       './audit-sync.service': { syncNctAuditLogs: async () => {} },
-      './end-of-day-sync.service': { syncNctEndOfDay: async () => {} },
+      './end-of-day-sync.service': { syncNctEndOfDay: async () => steps.push('end-of-day') },
       './nct-scope': { isNctPos: () => true },
     });
     await Promise.all([runSyncCycle(), runSyncCycle()]);
-    assert.deepEqual(steps, ['queue', 'new', 'transfers', 'stock', 'catalog']);
+    assert.deepEqual(steps, ['queue', 'new', 'end-of-day', 'transfers', 'stock', 'catalog']);
   } finally { db.close(); }
+});
+
+test('already synced sales reconcile stale queue entries without another upload', async () => {
+  const marked = [];
+  let released = false;
+  const { SaleSyncService } = load('lib/services/sale-sync.service.ts', {
+    '@/lib/repositories/sale.repository': { SaleRepository: { findById: async () => ({ synced: true }) } },
+    '@/lib/repositories/sync-queue.repository': { SyncQueueRepository: { markEntitySynced: async (...args) => marked.push(args) } },
+    '@/lib/services/sync-queue.service': {},
+    '@/lib/services/oms-sync.service': {},
+    '@/lib/services/nct-sale-payload': {},
+    './nct-scope': { isNctPos: () => true },
+    '@/lib/db/connection': {},
+    '@/lib/services/sale-sync-lock': { acquireSaleSync: () => true, releaseSaleSync: () => { released = true; } },
+  });
+  const result = await SaleSyncService.retrySale('sale-1');
+  assert.equal(result.success, true);
+  assert.deepEqual(marked, [['Sale', 'sale-1']]);
+  assert.equal(released, true);
 });
 
 test('NCT client source contains no dealership routes, imports or API routing', () => {
