@@ -47,6 +47,7 @@ import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.serv
 import { useBackupListStore } from "@/lib/stores/backup-list-store";
 import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
 import { runAutoBackupNow } from "@/lib/services/auto-backup.service";
+import { BranchBackupSchedule } from "@/components/ui/branch-backup-schedule";
 import {
   BluetoothPrinter,
   type BluetoothPrinterDevice,
@@ -2083,8 +2084,8 @@ export default function SettingsScreen() {
         <View style={[styles.backupNotice, { backgroundColor: posTheme.surfaceAlt, borderColor: cardBorder }]}><Ionicons name="shield-checkmark-outline" size={22} color={posTheme.accent} /><View style={{ flex: 1 }}><Text style={{ color: posTheme.text, fontWeight: "800" }}>Restore policy</Text><Text style={{ color: posTheme.muted, fontSize: 12, lineHeight: 18, marginTop: 2 }}>Restore can be performed at any time. The format, schema version, checksum, business identity, and totals are always validated, and you must enter your POS login {isBuiltInSuperAdmin ? "password" : "PIN"} to confirm. Restoring replaces the current database, so create a backup first if the existing data matters.</Text></View></View>
 
         <View style={[styles.backupAutoPanel, { borderColor: cardBorder, backgroundColor: posTheme.surfaceAlt }]}>
-          <Text style={{ color: posTheme.text, fontWeight: "900" }}>Daily NCT backup — 7 PM Philippine time</Text>
-          <Text style={{ color: posTheme.muted }}>POS creates a local recovery copy and queues it for OMS. Keep the app active at 7 PM; missed backups catch up when it reopens. Download emergency restore files from OMS Branch Management → Database Backups.</Text>
+          <BranchBackupSchedule />
+          <Text style={{ color: posTheme.muted }}>POS creates a local recovery copy and queues it for OMS at the saved branch time. Keep the app active at that time; missed backups catch up when it reopens. Download emergency restore files from OMS Branch Management → Database Backups.</Text>
           <Text style={{ color: posTheme.muted }}>Last local backup: {lastAutoBackupAt ? new Date(lastAutoBackupAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Never"}</Text>
           {backupUploadError ? <Text style={{ color: "#dc2626" }}>OMS backup pending: {backupUploadError}</Text> : null}
           <Button title="Back Up Now" icon="cloud-upload-outline" onPress={() => void handleRunAutoBackup()} disabled={backupBusy !== null} />

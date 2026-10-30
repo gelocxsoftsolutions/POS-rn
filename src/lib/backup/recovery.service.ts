@@ -10,6 +10,7 @@ import { exportUiPreferences, type PersistedUiPreferences } from "@/lib/stores/u
 import { requirePermission } from "@/lib/services/authorization.service";
 import { isNctPos } from "@/lib/services/nct-scope";
 import { nctBackupReference } from "./nct-schedule";
+import { cachedBranchBackupTime } from "@/lib/stores/backup-settings-store";
 import { serializeLocalOperation } from "@/lib/db/local-operation";
 
 interface BackupAsset {
@@ -148,8 +149,9 @@ export const RecoveryService = {
     return backup;
   },
 
-  async createAutoBackup(): Promise<{ file: File; envelope: BackupEnvelope }> {
-    return createQueuedAutomaticBackup(nctBackupReference());
+  async createAutoBackup(reference?: string): Promise<{ file: File; envelope: BackupEnvelope }> {
+    const time = cachedBranchBackupTime(useDeviceStore.getState().device.branchId);
+    return createQueuedAutomaticBackup(reference ?? nctBackupReference(new Date(), time));
   },
 
   async createEndOfDayBackup(reference: string): Promise<{ file: File; envelope: BackupEnvelope }> {

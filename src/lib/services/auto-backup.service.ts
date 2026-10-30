@@ -1,11 +1,13 @@
 import { RecoveryService } from "@/lib/backup/recovery.service";
-import { useBackupSettingsStore } from "@/lib/stores/backup-settings-store";
+import { useBackupSettingsStore, cachedBranchBackupTime } from "@/lib/stores/backup-settings-store";
 import { useBackupListStore } from "@/lib/stores/backup-list-store";
 import { SyncQueueService } from "./sync-queue.service";
 import { AppState } from "react-native";
 import type { NativeEventSubscription } from "react-native";
 import { isNctPos } from "./nct-scope";
-import { nextNctBackupAt } from "@/lib/backup/nct-schedule";
+import { nextNctBackupAt, nctBackupReference, philippineDate } from "@/lib/backup/nct-schedule";
+import { BackupScheduleService } from "./backup-schedule.service";
+import { useDeviceStore } from "@/lib/stores/device-store";
 
 const CHECK_INTERVAL_MS = 60_000;
 
@@ -13,21 +15,26 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 let resumeListener: NativeEventSubscription | null = null;
 
-async function tick(): Promise<void> {
+export async function runScheduledBackupCheck(): Promise<void> {
   if (running) return;
   const settings = useBackupSettingsStore.getState();
-  const { markAutoBackup, hydrated } = settings;
-  if (!hydrated || AppState.currentState !== "active") return;
+  if (!settings.hydrated || AppState.currentState !== "active") return;
   if (!isNctPos()) return;
-
-  const next = nextNctBackupAt(settings.lastAutoBackupAt);
-  const due = next && Date.now() >= next.valueOf();
-  if (!due) return;
-
+  if (!useDeviceStore.getState().device.deviceId) return;
   running = true;
   try {
-    await RecoveryService.createAutoBackup();
-    markAutoBackup();
+    // Configuration refresh failure must never stop offline scheduled backups.
+    await BackupScheduleService.refresh().catch(() => null);
+    const current = useBackupSettingsStore.getState();
+    const now = new Date();
+    const time = cachedBranchBackupTime(useDeviceStore.getState().device.branchId);
+    const previous = current.lastAutoBackupAt ? new Date(current.lastAutoBackupAt) : null;
+    const completedDate = current.lastScheduledDate ?? (previous && Number.isFinite(previous.getTime()) ? philippineDate(previous) : null);
+    const next = nextNctBackupAt(current.lastAutoBackupAt, now, time, completedDate);
+    if (now.getTime() < next.getTime()) return;
+    const reference = nctBackupReference(now, time);
+    await RecoveryService.createAutoBackup(reference);
+    current.markAutoBackup(reference.slice("nct-daily:".length));
     await useBackupListStore.getState().refresh();
     await SyncQueueService.processPending();
   } catch (error) {
@@ -40,11 +47,11 @@ async function tick(): Promise<void> {
 
 export function startAutoBackupScheduler(): void {
   if (timer) return;
-  tick().catch(() => {});
+  runScheduledBackupCheck().catch(() => {});
   timer = setInterval(() => {
-    tick().catch(() => {});
+    runScheduledBackupCheck().catch(() => {});
   }, CHECK_INTERVAL_MS);
-  resumeListener = AppState.addEventListener("change", (state) => { if (state === "active") void tick(); });
+  resumeListener = AppState.addEventListener("change", (state) => { if (state === "active") void runScheduledBackupCheck().catch(() => {}); });
 }
 
 export function stopAutoBackupScheduler(): void {

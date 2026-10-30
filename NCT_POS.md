@@ -1,5 +1,18 @@
 # NCT POS
 
+Daily backups use one shared branch time in `Asia/Manila`. Administrators can edit
+the time in OMS Branch Management > Database Backups or POS Settings > Database
+& Recovery. POS changes require an OMS connection and backup permission. Devices
+refresh the schedule while active and retain the last saved branch time offline.
+The default remains 19:00 until a branch time is saved. Existing APKs need updating
+to follow the shared schedule. Missed backups catch up on reopening; a terminated
+app cannot guarantee execution at the cutoff.
+
+Schedule edits use revisions: if someone changes the time elsewhere, refresh
+before retrying. Moving a cutoff does not create a second automatic backup for
+an already completed scheduled date; catch-up snapshots retain their original
+daily key. Manual and end-of-day backups do not move the daily schedule.
+
 This application is an OMS-dependent NCT terminal. Activate it with an NCT OMS
 device QR code. Catalog, inventory, and incoming transfers come from OMS;
 completed sales are saved locally and synchronized through the NCT POS API.

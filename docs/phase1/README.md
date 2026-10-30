@@ -1,5 +1,22 @@
 # Phase 1 implementation and human verification
 
+Branch backup schedule update (31 October 2026): OMS and POS can edit one daily
+time per NCT branch, always in `Asia/Manila`. POS saves require a connection and
+backup permission. Active devices refresh the shared setting once per minute
+and on resume; offline operation retains the last complete branch schedule.
+19:00 is now a default, not a fixed cutoff. Schedule revisions reject conflicting
+edits, and daily keys remain stable when the time changes. Existing POS APKs must
+be updated to consume the shared schedule. This uses the existing OMS
+`public.system_settings` table and requires no additional schema.
+
+Schedule verification: POS TypeScript, eight new schedule tests and existing
+Phase 1 checks passed. Nine live staging API checks passed for branch sharing,
+isolation, invalid times, stale/concurrent edits and transactional audit records;
+temporary test branches/devices/settings were removed. OMS typechecking reported
+721 project-wide diagnostics, zero in the four schedule files; the full project
+is not a clean typecheck. Native UI and interactive OMS session acceptance remain
+human checks. Shared Dealership behavior and production are outside this update.
+
 ## POS-only staging promotion — 29 October 2026
 
 This staging snapshot contains only committed POS Phase 1 changes from feature commit `84a7511`. Uncommitted weight/production work is excluded. OMS patches, SQL proposals and OMS application/check/format helpers are intentionally withheld from staging at the owner's request. Their review copies and server-side tests remain on [feat/phase1-pos-completion](https://github.com/gelocxsoftsolutions/POS-rn/tree/84a75110c6c3fb2ae0a212b558e963df3964408b).
