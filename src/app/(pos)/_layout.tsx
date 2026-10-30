@@ -345,14 +345,21 @@ function POSHeader({
     setSyncingNow(true);
     try {
       await useOmsConnectionStore.getState().checkConnection();
-      try {
-        const { SyncQueueService } = await import("@/lib/services/sync-queue.service");
-        await SyncQueueService.processPending();
-      } catch {
-        // queue flush is best-effort from the header
-      }
+      const { checkNetwork } = await import("@/lib/services/network.service");
+      if (!await checkNetwork()) throw new Error("This device is offline. Connect to the internet and try again.");
+      const { runSyncCycle } = await import("@/lib/services/sync-worker");
+      await runSyncCycle();
       await useSyncStore.getState().refreshPendingCount();
+      const { SyncQueueRepository } = await import("@/lib/repositories/sync-queue.repository");
+      const remaining = await SyncQueueRepository.getUnresolved();
+      if (remaining.length) {
+        const details = remaining.map((job) => `${job.entityType}: ${job.error ?? (job.entityType === "Return" ? "Return upload is not supported yet; saved on this device." : "Still awaiting server confirmation; saved on this device.")}`).join("\n");
+        Alert.alert("Sync needs attention", details);
+      }
+    } catch (error) {
+      Alert.alert("Sync could not finish", error instanceof Error ? error.message : "Please try again.");
     } finally {
+      await useSyncStore.getState().refreshPendingCount();
       setSyncingNow(false);
     }
   };

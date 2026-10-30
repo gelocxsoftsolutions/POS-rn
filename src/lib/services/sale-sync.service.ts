@@ -20,7 +20,10 @@ export const SaleSyncService = {
     try {
       const sale = await SaleRepository.findById(saleId);
       if (!sale) return { success: false, status: "UNSYNCED", error: "Sale not found" };
-      if (sale.synced) return { success: true, status: "SYNCED" };
+      if (sale.synced) {
+        await SyncQueueRepository.markEntitySynced("Sale", saleId);
+        return { success: true, status: "SYNCED" };
+      }
       const origin = await queryFirst<{ originMode: string }>("SELECT originMode FROM Sale WHERE id = ?", [saleId]);
       if (origin?.originMode !== "NCT_DEPENDENT") return { success: false, status: "UNSYNCED", error: "Independent sales cannot be replayed into OMS." };
       let payload: ReturnType<typeof nctSalePayload>;
