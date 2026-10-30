@@ -23,6 +23,25 @@ function load(file, mocks = {}) {
   });
   return exports;
 }
+const { withNctActionAudit } = load("src/lib/services/action-audit.ts", {
+  "./audit.service": { AuditService: { log: async () => {} } },
+  "./nct-scope": { isNctPos: () => true },
+  "@/lib/stores/cashier-store": { useCashierStore: { getState: () => ({ session: null }) } },
+});
+const { TransferService } = load("src/lib/services/transfer.service.ts", {
+  "./action-audit": { withNctActionAudit },
+  "@/lib/business/configuration.service": {
+    BusinessConfigurationService: { capabilities: () => ({ receiveNctTransfers: true }) },
+  },
+});
+const parsedQr = TransferService.parseTransferQr(JSON.stringify({
+  type: "nct-transfer", server: "https://oms.example", transferId: 42, transferNumber: "TRF-42",
+}));
+assert.equal(parsedQr.transferNumber, "TRF-42", "actual transfer parser returns the QR payload synchronously");
+assert.equal(parsedQr.transferId, 42);
+assert.equal(TransferService.parseTransferQr("not-json"), null);
+assert.equal(TransferService.parseTransferQr(JSON.stringify({ type: "other", transferId: 42, transferNumber: "TRF-42" })), null);
+assert.equal(TransferService.parseTransferQr(JSON.stringify({ type: "nct-transfer", transferId: 42 })), null);
 const db = new DatabaseSync(":memory:");
 for (const sql of load("src/lib/db/schema.ts").CREATE_TABLES) db.exec(sql);
 db.exec(`INSERT INTO Product(id,name,sku) VALUES ('p1','Test fish','12'); INSERT INTO PosInventory(id,productId,availableQty) VALUES ('i1','p1',5);

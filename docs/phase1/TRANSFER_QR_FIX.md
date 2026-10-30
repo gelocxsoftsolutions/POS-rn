@@ -4,9 +4,9 @@ The NCT action-audit proxy wrapped `parseTransferQr()` in an async function. The
 
 Pure parsing methods now bypass the business-operation audit wrapper, preserving their synchronous return values. Transfer receipt operations still use the existing audit and OMS validation paths. Device/branch checks and receipt deduplication are unchanged.
 
-Files: `src/lib/services/action-audit.ts`, `tests/phase1-audit.cjs`.
+Files: `src/lib/services/action-audit.ts`, `tests/phase1-audit.cjs`, `tests/phase1-transfers.cjs`.
 
-Verification: `node tests/phase1-audit.cjs` checks synchronous transfer-number access, malformed input, no parsing audit event, and existing operation auditing. POS TypeScript checking passed. These tests do not exercise a native camera or a live transfer receipt.
+Verification: `node tests/phase1-audit.cjs` checks synchronous transfer-number access, malformed input, no parsing audit event, and existing operation auditing. `node tests/phase1-transfers.cjs` also exercises the actual wrapped TransferService parser with OMS-format, malformed and incomplete QR payloads. POS TypeScript checking passed. These tests do not exercise a native camera or a live transfer receipt.
 
 Device acceptance:
 
