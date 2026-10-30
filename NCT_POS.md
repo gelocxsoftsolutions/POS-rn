@@ -4,6 +4,9 @@ This application is an OMS-dependent NCT terminal. Activate it with an NCT OMS
 device QR code. Catalog, inventory, and incoming transfers come from OMS;
 completed sales are saved locally and synchronized through the NCT POS API.
 
+The staging app targets Expo SDK 58. Use Node 22.13 or newer on the Node 22 line,
+or a supported Node 24/26 release, and Expo Go for SDK 58.
+
 Business branding, receipt design, reports, returns, permissions, and local
 backup/restore remain available. Closing a shift creates a local recovery file
 and queues NCT closure evidence. A separate daily snapshot is scheduled for

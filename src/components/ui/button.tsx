@@ -32,7 +32,7 @@ export function Button({
   style,
 }: ButtonProps) {
   const theme = usePosTheme();
-  const variants: Record<ButtonVariant, { container: ViewStyle; text: TextStyle }> = {
+  const variants: Record<ButtonVariant, { container: ViewStyle; text: TextStyle & { color: string } }> = {
     primary: { container: { backgroundColor: theme.primary }, text: { color: theme.onPrimary } },
     secondary: { container: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: theme.primary }, text: { color: theme.primary } },
     danger: { container: { backgroundColor: "#dc3545" }, text: { color: "#ffffff" } },

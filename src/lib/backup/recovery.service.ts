@@ -115,7 +115,7 @@ async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file:
   const bytes = forceRollbackJournalMode(await database.serializeAsync());
   const temp = new File(Paths.cache, `pos-${uuid()}.sqlite`);
   temp.create({ overwrite: true });
-  temp.write(bytes);
+  temp.writeSync(bytes);
   const assets = (await Promise.all([
     readAsset("businessLogo", business.businessLogoUri),
     readAsset("receiptLogo", business.receiptLogoUri),
@@ -136,7 +136,7 @@ async function createBackupFile(source: "MANUAL" | "AUTOMATIC"): Promise<{ file:
   directory.create({ intermediates: true, idempotent: true });
   const file = new File(directory, `${business.businessId}-${source.toLowerCase()}-${uuid()}-${Date.now()}.nctposbackup`);
   file.create({ overwrite: false });
-  file.write(JSON.stringify(envelope));
+  file.writeSync(JSON.stringify(envelope));
   return { file, envelope };
 }
 

@@ -119,7 +119,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
-      <StatusBar barStyle={dark ? "light-content" : "dark-content"} backgroundColor={background} />
+      <StatusBar barStyle={dark ? "light-content" : "dark-content"} />
       <ScrollView
         contentContainerStyle={[
           styles.scroll,

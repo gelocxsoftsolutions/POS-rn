@@ -7,6 +7,7 @@ import { serializeLocalOperation } from "@/lib/db/local-operation";
 import { mapNctPermissions } from "@/lib/permissions/nct-permission-map";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { isLocalSuperAdmin } from "@/lib/permissions/local-super-admin";
 
 interface EmployeeDirectory {
   users: Array<{
@@ -95,7 +96,7 @@ export const EmployeeSyncService = {
       }),
     );
     const session = useCashierStore.getState().session;
-    if (session) {
+    if (session && !isLocalSuperAdmin(session)) {
       const employee = users.find((user) => user.id === session.cashierId);
       if (!employee || `oms-role:${employee.roleId}` !== session.roleId) {
         useCashierStore.getState().clearSession();

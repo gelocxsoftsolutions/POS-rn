@@ -364,7 +364,7 @@ export default function ReportsScreen() {
       const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
       const file = new File(Paths.cache, `sales-report-${dayjs(startDate).format("YYYYMMDD")}-${dayjs(endDate).format("YYYYMMDD")}.csv`);
       file.create({ overwrite: true, intermediates: true });
-      file.write(csv);
+      file.writeSync(csv);
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(file.uri, { mimeType: "text/csv", dialogTitle: "Export sales report", UTI: "public.comma-separated-values-text" });
       } else {
