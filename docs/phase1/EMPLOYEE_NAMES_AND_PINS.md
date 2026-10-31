@@ -43,3 +43,9 @@ The new NCT endpoint is `POST /api/pos/users/pin`. It updates linked verifiers a
 6. Try incorrect operator credentials, a user lacking management grants, an unassigned employee and a wrong device key. Confirm no credential change. Inspect `EMPLOYEE_PIN_CHANGED` audit entries without PIN, hash or device-secret contents.
 
 Native two-device PIN/login acceptance remains unexecuted. A new APK is required for the new POS controls; this task does not build one.
+
+## Staging delivery
+
+Deployed on October 31, 2026 to `nct_nextjs_app_staging` using image `nct-pos-employee-pins-staging:20261031`. The staging container is healthy. Deployment checked that its configured environment was unchanged and its database remained `staging_db`; production container/image identities were unchanged. The additional compose layer is `docker-compose.nct-employee-pins-staging.yml` in the OMS source directory.
+
+Post-deployment checks: live Employee directory returned Chris Buenafe / cbbuenafe; a PIN request without a device key returned 401; an authenticated request with an invalid PIN format returned 400 before any credential update. Read-only SQL was used to select the test device. No account PINs, existing business records or database schema were changed. The image build validated its generated Next.js manifests. POS TypeScript, the isolated PIN/policy tests, settings-access checks, audit checks, existing employee-access router fixtures, and desktop/mobile PIN browser fixtures passed. Live PIN changes and native two-device login remain human acceptance checks.
