@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 export interface EscPosReceiptItem {
   name: string;
   quantity: number;
@@ -40,7 +41,7 @@ const clean = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const money = (value: number) => `PHP ${Number(value || 0).toFixed(2)}`;
+const money = (value: number) => `PHP ${formatAmount(Number(value || 0))}`;
 
 function center(value: string, width: number) {
   const text = clean(value).slice(0, width);

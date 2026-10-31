@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -179,7 +180,7 @@ export default function ProductsScreen() {
     setPrintingBarcode(barcode);
     try {
       await BluetoothPrinter.printBarcode(selectedPrinter.address, detailProduct.name, barcode);
-      Alert.alert("Barcode Printed", `${barcode} was sent to ${selectedPrinter.name}.`);
+      Alert.alert("Barcode Sent", `${barcode} was sent to ${selectedPrinter.name}.`);
     } catch (error) {
       Alert.alert("Print Failed", error instanceof Error ? error.message : "The barcode could not be printed.");
     } finally {
@@ -233,7 +234,7 @@ export default function ProductsScreen() {
             )}
           </View>
           <Text style={[styles.gridProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+          <Text style={[styles.gridProductPrice, { color: theme.primary }]}>₱{formatAmount(item.retailPrice ?? 0)}</Text>
           <Text style={[styles.gridStockText, { color: dark ? "#94a3b8" : "#64748b" }]}>Available: {item.availableQty ?? 0}</Text>
           <Badge label={badge.label} color={badge.color} size="sm" style={{ marginTop: 6 }} />
         </Card>
@@ -258,7 +259,7 @@ export default function ProductsScreen() {
               <Text style={[styles.listProductName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
               <Text style={[styles.listProductSku, { color: dark ? "#4a6785" : "#8e99a4" }]}>{item.sku}</Text>
               <View style={styles.listMeta}>
-                <Text style={[styles.listProductPrice, { color: theme.primary }]}>₱{(item.retailPrice ?? 0).toFixed(2)}</Text>
+                <Text style={[styles.listProductPrice, { color: theme.primary }]}>₱{formatAmount(item.retailPrice ?? 0)}</Text>
                 <Badge label={badge.label} color={badge.color} size="sm" />
               </View>
               {item.categoryName && (
@@ -371,7 +372,7 @@ export default function ProductsScreen() {
     const totalStock = group.reduce((s, p) => s + (p.availableQty ?? 0), 0);
     const minPrice = Math.min(...group.map((p) => p.retailPrice ?? 0));
     const maxPrice = Math.max(...group.map((p) => p.retailPrice ?? 0));
-    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
+    const priceText = isMulti ? `₱${formatAmount(minPrice)} - ₱${formatAmount(maxPrice)}` : `₱${formatAmount(base.retailPrice ?? 0)}`;
     const badge = stockBadge(base);
     const totalBadge = isMulti ? { label: `${group.length} variations`, color: "#6f42c1" } : badge;
     return (
@@ -408,7 +409,7 @@ export default function ProductsScreen() {
     const totalStock = group.reduce((s, p) => s + (p.availableQty ?? 0), 0);
     const minPrice = Math.min(...group.map((p) => p.retailPrice ?? 0));
     const maxPrice = Math.max(...group.map((p) => p.retailPrice ?? 0));
-    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${(base.retailPrice ?? 0).toFixed(2)}`;
+    const priceText = isMulti ? `₱${formatAmount(minPrice)} - ₱${formatAmount(maxPrice)}` : `₱${formatAmount(base.retailPrice ?? 0)}`;
     return (
       <TouchableOpacity onPress={() => handleGroupPress(group)} activeOpacity={0.7}>
         <Card style={[styles.listCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -683,7 +684,7 @@ export default function ProductsScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{(variant.retailPrice ?? 0).toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{formatAmount(variant.retailPrice ?? 0)}</Text>
                       <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
                         <Badge label={badge.label} color={badge.color} size="sm" />
                         <Text style={[styles.variationStock, { color: dark ? "#94a3b8" : "#6b7b8d" }]}>Stock: {variant.availableQty ?? 0}</Text>
@@ -808,7 +809,7 @@ export default function ProductsScreen() {
                 )}
                 <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>
                   <Text style={[styles.detailInfoLabel, { color: theme.muted }]}>Price</Text>
-                  <Text style={[styles.detailInfoValueBold, { color: theme.primary }]}>₱{(detailProduct.retailPrice ?? 0).toFixed(2)}</Text>
+                  <Text style={[styles.detailInfoValueBold, { color: theme.primary }]}>₱{formatAmount(detailProduct.retailPrice ?? 0)}</Text>
                 </View>
                 {detailProduct.description && (
                   <View style={[styles.detailInfoRow, { borderBottomColor: theme.border }]}>

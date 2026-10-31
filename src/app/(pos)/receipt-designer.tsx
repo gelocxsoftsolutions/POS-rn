@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Image, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -92,7 +93,7 @@ export default function ReceiptDesignerScreen() {
         <Text style={styles.centerText}>{business.address}</Text><Text style={styles.centerText}>{business.supportPhone}</Text>
         <Text style={styles.rule}>--------------------------------</Text><Text style={styles.centerText}>SAMPLE-0001</Text>
         {template.showCustomer ? <Text>Customer: Sample Customer</Text> : null}{template.showCashier ? <Text>Cashier: Sample Cashier</Text> : null}<Text style={styles.rule}>--------------------------------</Text>
-        {SAMPLE_RECEIPT.items.map((item) => <View key={item.name} style={styles.item}><View style={{ flex: 1 }}><Text style={styles.itemName}>{item.name}</Text><Text>{item.quantity} x PHP {item.unitPrice.toFixed(2)}</Text></View><Text>PHP {(item.quantity * item.unitPrice).toFixed(2)}</Text></View>)}
+        {SAMPLE_RECEIPT.items.map((item) => <View key={item.name} style={styles.item}><View style={{ flex: 1 }}><Text style={styles.itemName}>{item.name}</Text><Text>{item.quantity} x PHP {formatAmount(item.unitPrice)}</Text></View><Text>PHP {formatAmount(item.quantity * item.unitPrice)}</Text></View>)}
         <Text style={styles.rule}>--------------------------------</Text><View style={styles.item}><Text style={styles.total}>TOTAL</Text><Text style={styles.total}>PHP 1325.00</Text></View>
         {template.showPaymentDetails ? <><View style={styles.item}><Text>Paid (CASH)</Text><Text>PHP 1500.00</Text></View><View style={styles.item}><Text>Change</Text><Text>PHP 175.00</Text></View></> : null}
         <Text style={[styles.footer, { textAlign: template.footerAlignment }]}>{template.footerMessage}</Text>

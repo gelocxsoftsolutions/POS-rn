@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -224,9 +225,9 @@ export default function ReceiptsScreen() {
         <div class="item">
           <div class="item-copy">
             <strong>${escapeHtml(item.productName)}</strong>
-            <span>${item.quantity} x &#8369;${item.unitPrice.toFixed(2)}</span>
+            <span>${item.quantity} x &#8369;${formatAmount(item.unitPrice)}</span>
           </div>
-          <strong>&#8369;${item.lineTotal.toFixed(2)}</strong>
+          <strong>&#8369;${formatAmount(item.lineTotal)}</strong>
         </div>
       `
         )
@@ -274,12 +275,12 @@ export default function ReceiptsScreen() {
             <div class="rule"></div>
             ${itemRows}
             <div class="rule"></div>
-            <div class="total-row"><span>Subtotal</span><strong>&#8369;${selected.subtotal.toFixed(2)}</strong></div>
-            ${selected.discount > 0 ? `<div class="total-row"><span>Discount</span><strong>-&#8369;${selected.discount.toFixed(2)}</strong></div>` : ""}
-            <div class="total-row"><span>Tax</span><strong>&#8369;${selected.tax.toFixed(2)}</strong></div>
-            <div class="total-row total"><span>Total</span><span>&#8369;${selected.total.toFixed(2)}</span></div>
-            <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(selected.paymentMethod))})</span><span>&#8369;${selected.paidAmount.toFixed(2)}</span></div>
-            <div class="total-row"><span>Change</span><span>&#8369;${selected.changeAmount.toFixed(2)}</span></div>
+            <div class="total-row"><span>Subtotal</span><strong>&#8369;${formatAmount(selected.subtotal)}</strong></div>
+            ${selected.discount > 0 ? `<div class="total-row"><span>Discount</span><strong>-&#8369;${formatAmount(selected.discount)}</strong></div>` : ""}
+            <div class="total-row"><span>Tax</span><strong>&#8369;${formatAmount(selected.tax)}</strong></div>
+            <div class="total-row total"><span>Total</span><span>&#8369;${formatAmount(selected.total)}</span></div>
+            <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(selected.paymentMethod))})</span><span>&#8369;${formatAmount(selected.paidAmount)}</span></div>
+            <div class="total-row"><span>Change</span><span>&#8369;${formatAmount(selected.changeAmount)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(historicalSettings?.receiptFooter || "Thank you for your purchase!")}</p>
             ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
@@ -407,7 +408,7 @@ export default function ReceiptsScreen() {
             ) : null}
           </View>
           <View style={styles.receiptRight}>
-            <Text style={[styles.receiptTotal, { color: theme.primary }]}>₱{item.total.toFixed(2)}</Text>
+            <Text style={[styles.receiptTotal, { color: theme.primary }]}>₱{formatAmount(item.total)}</Text>
             <Badge
               label={paymentMethodLabel(item.paymentMethod)}
               color={methodColor(item.paymentMethod)}

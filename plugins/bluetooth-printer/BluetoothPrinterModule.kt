@@ -227,11 +227,6 @@ class BluetoothPrinterModule(
           promise.reject("PRINTER_NOT_CONNECTED", "Connect a printer before printing a barcode.")
           return@execute
         }
-        val barcodeData = "{B$value".toByteArray(Charsets.US_ASCII)
-        if (barcodeData.size > 255) {
-          promise.reject("BARCODE_TOO_LONG", "This barcode is too long for the printer.")
-          return@execute
-        }
         val safeLabel = label.replace(Regex("[^\\x20-\\x7E]"), " ").take(32)
         val output = ByteArrayOutputStream()
         output.write(byteArrayOf(0x1B, 0x40, 0x1B, 0x61, 0x01))
@@ -251,16 +246,7 @@ class BluetoothPrinterModule(
   }
 
   private fun writeCode128(output: ByteArrayOutputStream, value: String, showText: Boolean = true) {
-    val data = "{B$value".toByteArray(Charsets.US_ASCII)
-    if (data.size > 255) return
-    output.write(byteArrayOf(0x1B, 0x61, 0x01))
-    output.write(byteArrayOf(0x1D, 0x48, (if (showText) 0x02 else 0x00).toByte()))
-    output.write(byteArrayOf(0x1D, 0x68, 0x50))
-    output.write(byteArrayOf(0x1D, 0x77, 0x02))
-    output.write(byteArrayOf(0x1D, 0x6B, 0x49, data.size.toByte()))
-    output.write(data)
-    output.write('\n'.code)
-    output.write(byteArrayOf(0x1B, 0x61, 0x00))
+    output.write(Code128Raster.encode(value, showText, 384))
   }
 
   private fun writeRasterLogo(output: ByteArrayOutputStream, logoDataUri: String?) {

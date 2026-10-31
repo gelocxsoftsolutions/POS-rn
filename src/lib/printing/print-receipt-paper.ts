@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import { Alert, Platform } from "react-native";
 import * as Print from "expo-print";
 import QRCodeLib from "qrcode";
@@ -100,9 +101,9 @@ export async function printReceiptPaper(input: {
       <div class="item">
         <div class="item-copy">
           <strong>${escapeHtml(item.name)}</strong>
-          <span>${item.quantity} x &#8369;${item.unitPrice.toFixed(2)}</span>
+          <span>${item.quantity} x &#8369;${formatAmount(item.unitPrice)}</span>
         </div>
-        <strong>&#8369;${(item.unitPrice * item.quantity).toFixed(2)}</strong>
+        <strong>&#8369;${formatAmount(item.unitPrice * item.quantity)}</strong>
       </div>
     `).join("");
 
@@ -149,10 +150,10 @@ export async function printReceiptPaper(input: {
           <div class="rule"></div>
           ${itemRows}
           <div class="rule"></div>
-          <div class="total-row"><span>Subtotal</span><strong>&#8369;${receipt.subtotal.toFixed(2)}</strong></div>
-          <div class="total-row"><span>${escapeHtml(settings?.taxLabel || "Tax")}</span><strong>&#8369;${receipt.tax.toFixed(2)}</strong></div>
-          <div class="total-row total"><span>Total</span><span>&#8369;${receipt.total.toFixed(2)}</span></div>
-          ${settings?.showPaymentDetails !== false ? `<div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(receipt.paymentMethod))})</span><span>&#8369;${receipt.paidAmount.toFixed(2)}</span></div><div class="total-row"><span>Change</span><span>&#8369;${receipt.change.toFixed(2)}</span></div>` : ""}
+          <div class="total-row"><span>Subtotal</span><strong>&#8369;${formatAmount(receipt.subtotal)}</strong></div>
+          <div class="total-row"><span>${escapeHtml(settings?.taxLabel || "Tax")}</span><strong>&#8369;${formatAmount(receipt.tax)}</strong></div>
+          <div class="total-row total"><span>Total</span><span>&#8369;${formatAmount(receipt.total)}</span></div>
+          ${settings?.showPaymentDetails !== false ? `<div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(receipt.paymentMethod))})</span><span>&#8369;${formatAmount(receipt.paidAmount)}</span></div><div class="total-row"><span>Change</span><span>&#8369;${formatAmount(receipt.change)}</span></div>` : ""}
           <div class="rule"></div>
           <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
           ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}

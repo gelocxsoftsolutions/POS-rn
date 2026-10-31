@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
@@ -31,7 +32,7 @@ import { useIsDarkTheme, usePosTheme } from "@/lib/stores/ui-store";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { getVisibleCashierIds } from "@/lib/stores/access-settings-store";
 
-const peso = (value: number) => `₱${Number(value ?? 0).toFixed(2)}`;
+const peso = (value: number) => `₱${formatAmount(Number(value ?? 0))}`;
 
 const AVATAR_TINTS = [
   "#dbeafe",

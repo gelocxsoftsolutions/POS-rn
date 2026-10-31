@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
@@ -610,9 +611,9 @@ export default function SalesScreen() {
         <div class="item">
           <div class="item-copy">
             <strong>${escapeHtml(item.name)}</strong>
-            <span>${item.quantity} x &#8369;${item.unitPrice.toFixed(2)}</span>
+            <span>${item.quantity} x &#8369;${formatAmount(item.unitPrice)}</span>
           </div>
-          <strong>&#8369;${(item.unitPrice * item.quantity).toFixed(2)}</strong>
+          <strong>&#8369;${formatAmount(item.unitPrice * item.quantity)}</strong>
         </div>
       `).join("");
 
@@ -658,11 +659,11 @@ export default function SalesScreen() {
             <div class="rule"></div>
             ${itemRows}
             <div class="rule"></div>
-            <div class="total-row"><span>Subtotal</span><strong>&#8369;${lastReceipt.subtotal.toFixed(2)}</strong></div>
-            <div class="total-row"><span>${escapeHtml(settings?.taxLabel || "Tax")}</span><strong>&#8369;${lastReceipt.tax.toFixed(2)}</strong></div>
-            <div class="total-row total"><span>Total</span><span>&#8369;${lastReceipt.total.toFixed(2)}</span></div>
-            <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(lastReceipt.paymentMethod))})</span><span>&#8369;${lastReceipt.paidAmount.toFixed(2)}</span></div>
-            <div class="total-row"><span>Change</span><span>&#8369;${lastReceipt.change.toFixed(2)}</span></div>
+            <div class="total-row"><span>Subtotal</span><strong>&#8369;${formatAmount(lastReceipt.subtotal)}</strong></div>
+            <div class="total-row"><span>${escapeHtml(settings?.taxLabel || "Tax")}</span><strong>&#8369;${formatAmount(lastReceipt.tax)}</strong></div>
+            <div class="total-row total"><span>Total</span><span>&#8369;${formatAmount(lastReceipt.total)}</span></div>
+            <div class="total-row"><span>Paid (${escapeHtml(paymentMethodLabel(lastReceipt.paymentMethod))})</span><span>&#8369;${formatAmount(lastReceipt.paidAmount)}</span></div>
+            <div class="total-row"><span>Change</span><span>&#8369;${formatAmount(lastReceipt.change)}</span></div>
             <div class="rule"></div>
             <p class="footer">${escapeHtml(settings?.receiptFooter || "Thank you for your purchase!")}</p>
             ${receiptBarcodeSvg ? `<div class="barcode">${receiptBarcodeSvg}</div>` : ""}
@@ -746,7 +747,7 @@ export default function SalesScreen() {
           )}
         </View>
         <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={[styles.productPrice, { color: theme.primary }]}>₱{item.unitPrice.toFixed(2)}</Text>
+        <Text style={[styles.productPrice, { color: theme.primary }]}>₱{formatAmount(item.unitPrice)}</Text>
         <View style={styles.productFooter}>
           <Badge
             label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -790,7 +791,7 @@ export default function SalesScreen() {
         </View>
         <View style={styles.productListDetails}>
           <Text style={[styles.productName, { color: dark ? "#e2e8f0" : "#1a202c" }]} numberOfLines={2}>{item.name}</Text>
-          <Text style={[styles.productPrice, { color: theme.primary }]}>₱{item.unitPrice.toFixed(2)}</Text>
+          <Text style={[styles.productPrice, { color: theme.primary }]}>₱{formatAmount(item.unitPrice)}</Text>
           <View style={styles.productFooter}>
             <Badge
               label={effective > 0 ? `Stock: ${effective}` : "Out of Stock"}
@@ -841,7 +842,7 @@ export default function SalesScreen() {
     const totalStock = group.reduce((sum, g) => sum + (stockMap.get(g.productId) ?? g.maxQuantity), 0);
     const effectiveTotal = group.reduce((sum, g) => sum + effectiveStock(g.productId, stockMap.get(g.productId) ?? g.maxQuantity), 0);
     const cartCount = group.reduce((sum, g) => sum + (cart.items.find((i) => i.productId === g.productId)?.quantity ?? 0), 0);
-    const priceText = isMulti ? `₱${minPrice.toFixed(2)} - ₱${maxPrice.toFixed(2)}` : `₱${base.unitPrice.toFixed(2)}`;
+    const priceText = isMulti ? `₱${formatAmount(minPrice)} - ₱${formatAmount(maxPrice)}` : `₱${formatAmount(base.unitPrice)}`;
 
     if (viewMode === "list") {
       return (
@@ -1103,7 +1104,7 @@ export default function SalesScreen() {
                           {item.description ? ` • ${item.description}` : ""}
                         </Text>
                       )}
-                      <Text style={[styles.cartItemPrice, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>₱{item.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.cartItemPrice, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>₱{formatAmount(item.unitPrice)}</Text>
                     </View>
                     <View style={styles.cartItemActions}>
                       <TouchableOpacity
@@ -1127,7 +1128,7 @@ export default function SalesScreen() {
                       </TouchableOpacity>
                     </View>
                     <Text style={[styles.cartItemTotal, { color: dark ? "#ffffff" : "#17386b" }]}>
-                      ₱{(item.unitPrice * item.quantity).toFixed(2)}
+                      ₱{formatAmount(item.unitPrice * item.quantity)}
                     </Text>
                     <TouchableOpacity
                       style={styles.removeBtn}
@@ -1143,15 +1144,15 @@ export default function SalesScreen() {
             <View style={styles.cartSummary}>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Subtotal</Text>
-                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{cart.total().toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{formatAmount(cart.total())}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: dark ? "#9ca3af" : "#6b7b8d" }]}>Tax ({settings?.taxLabel || "VAT"} {(checkoutTaxRate * 100).toFixed(0)}%)</Text>
-                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{checkoutTaxAmount.toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{formatAmount(checkoutTaxAmount)}</Text>
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={[styles.totalLabel, { color: dark ? "#e2e8f0" : "#1a202c" }]}>Total</Text>
-                <Text style={[styles.totalValue, { color: dark ? "#ffffff" : "#17386b" }]}>₱{checkoutTotalAmount.toFixed(2)}</Text>
+                <Text style={[styles.totalValue, { color: dark ? "#ffffff" : "#17386b" }]}>₱{formatAmount(checkoutTotalAmount)}</Text>
               </View>
             </View>
 
@@ -1254,7 +1255,7 @@ export default function SalesScreen() {
                         {variant.weight ? ` • ${variant.weight}${variant.unitName ?? ""}` : ""}
                         {variant.description ? ` • ${variant.description}` : ""}
                       </Text>
-                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{variant.unitPrice.toFixed(2)}</Text>
+                      <Text style={[styles.variationPrice, { color: theme.primary }]}>₱{formatAmount(variant.unitPrice)}</Text>
                       <Text style={[styles.variationStock, { color: effective > 0 ? "#16a34a" : "#dc2626" }]}>Stock: {effective}</Text>
                     </View>
                     <View style={styles.variationAdd}>
@@ -1328,17 +1329,17 @@ export default function SalesScreen() {
               </View>
               <View style={styles.checkoutBreakdownRow}>
                 <Text style={[styles.checkoutBreakdownLabel, { color: dark ? "#94a3b8" : "#667085" }]}>Subtotal</Text>
-                <Text style={[styles.checkoutBreakdownValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{checkoutSubtotal.toFixed(2)}</Text>
+                <Text style={[styles.checkoutBreakdownValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{formatAmount(checkoutSubtotal)}</Text>
               </View>
               <View style={styles.checkoutBreakdownRow}>
                 <Text style={[styles.checkoutBreakdownLabel, { color: dark ? "#94a3b8" : "#667085" }]}>{settings?.taxLabel || "Tax"} ({(checkoutTaxRate * 100).toFixed(0)}%)</Text>
-                <Text style={[styles.checkoutBreakdownValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{checkoutTaxAmount.toFixed(2)}</Text>
+                <Text style={[styles.checkoutBreakdownValue, { color: dark ? "#e2e8f0" : "#1a202c" }]}>₱{formatAmount(checkoutTaxAmount)}</Text>
               </View>
             </View>
 
             <View style={styles.checkoutSummary}>
               <Text style={[styles.checkoutTotal, { color: dark ? "#e2e8f0" : "#1a202c" }]}>
-                Total: ₱{checkoutTotalAmount.toFixed(2)}
+                Total: ₱{formatAmount(checkoutTotalAmount)}
               </Text>
               <Text
                 style={[
@@ -1349,7 +1350,7 @@ export default function SalesScreen() {
                 accessibilityElementsHidden={!hasPaidAmount}
                 importantForAccessibility={hasPaidAmount ? "auto" : "no-hide-descendants"}
               >
-                Change: ₱{checkoutChangeAmount.toFixed(2)}
+                Change: ₱{formatAmount(checkoutChangeAmount)}
               </Text>
             </View>
 

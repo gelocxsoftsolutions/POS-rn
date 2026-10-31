@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React from "react";
 import {
   View,
@@ -113,32 +114,32 @@ export function ReceiptPreviewModal({
                         {item.description ? ` • ${item.description}` : ""}
                       </Text>
                     )}
-                    <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{item.unitPrice.toFixed(2)}</Text>
+                    <Text style={styles.receiptItemQty}>×{item.quantity} @ ₱{formatAmount(item.unitPrice)}</Text>
                   </View>
-                  <Text style={styles.receiptItemPrice}>₱{(item.unitPrice * item.quantity).toFixed(2)}</Text>
+                  <Text style={styles.receiptItemPrice}>₱{formatAmount(item.unitPrice * item.quantity)}</Text>
                 </View>
               ))}
               <View style={styles.receiptDivider} />
               <View style={styles.receiptItem}>
                 <Text style={styles.receiptItemName}>Subtotal</Text>
-                <Text style={styles.receiptItemPrice}>₱{receipt.subtotal.toFixed(2)}</Text>
+                <Text style={styles.receiptItemPrice}>₱{formatAmount(receipt.subtotal)}</Text>
               </View>
               <View style={styles.receiptItem}>
                 <Text style={styles.receiptItemName}>{settings?.taxLabel || "Tax"}</Text>
-                <Text style={styles.receiptItemPrice}>₱{receipt.tax.toFixed(2)}</Text>
+                <Text style={styles.receiptItemPrice}>₱{formatAmount(receipt.tax)}</Text>
               </View>
               <View style={[styles.receiptItem, { marginTop: 8 }]}>
                 <Text style={styles.receiptTotal}>Total</Text>
-                <Text style={styles.receiptTotal}>₱{receipt.total.toFixed(2)}</Text>
+                <Text style={styles.receiptTotal}>₱{formatAmount(receipt.total)}</Text>
               </View>
               {settings?.showPaymentDetails !== false ? <>
               <View style={styles.receiptItem}>
                 <Text style={styles.receiptItemName}>Paid ({paymentMethodLabel(receipt.paymentMethod)})</Text>
-                <Text style={styles.receiptItemPrice}>₱{receipt.paidAmount.toFixed(2)}</Text>
+                <Text style={styles.receiptItemPrice}>₱{formatAmount(receipt.paidAmount)}</Text>
               </View>
               <View style={styles.receiptItem}>
                 <Text style={styles.receiptItemName}>Change</Text>
-                <Text style={styles.receiptItemPrice}>₱{receipt.change.toFixed(2)}</Text>
+                <Text style={styles.receiptItemPrice}>₱{formatAmount(receipt.change)}</Text>
               </View>
               </> : null}
               <View style={styles.receiptDivider} />

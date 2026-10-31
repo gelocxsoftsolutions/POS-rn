@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import { withNctActionAudit } from "./action-audit";
 import { ReceiptRepository } from "@/lib/repositories/receipt.repository";
 import { queryFirst } from "@/lib/db/connection";
@@ -88,25 +89,25 @@ export const ReceiptService = withNctActionAudit("Receipt", {
     for (const item of items) {
       const name = item.productName;
       const qty = `x${item.quantity}`;
-      const price = item.lineTotal.toFixed(2);
+      const price = formatAmount(item.lineTotal);
       lines.push(`${name} ${qty}`);
-      lines.push(`  @ ${item.unitPrice.toFixed(2)}   ${price}`);
+      lines.push(`  @ ${formatAmount(item.unitPrice)}   ${price}`);
     }
 
     lines.push("");
     lines.push(divider);
-    lines.push(`Subtotal:   ${sale.subtotal.toFixed(2)}`);
+    lines.push(`Subtotal:   ${formatAmount(sale.subtotal)}`);
     if (sale.discount > 0) {
-      lines.push(`Discount:  -${sale.discount.toFixed(2)}`);
+      lines.push(`Discount:  -${formatAmount(sale.discount)}`);
     }
     if (sale.tax > 0) {
-      lines.push(`Tax:        ${sale.tax.toFixed(2)}`);
+      lines.push(`Tax:        ${formatAmount(sale.tax)}`);
     }
-    lines.push(`TOTAL:      ${sale.total.toFixed(2)}`);
+    lines.push(`TOTAL:      ${formatAmount(sale.total)}`);
     lines.push("");
     lines.push(`Payment: ${sale.paymentMethod}`);
-    lines.push(`Paid:    ${sale.paidAmount.toFixed(2)}`);
-    lines.push(`Change:  ${sale.changeAmount.toFixed(2)}`);
+    lines.push(`Paid:    ${formatAmount(sale.paidAmount)}`);
+    lines.push(`Change:  ${formatAmount(sale.changeAmount)}`);
     lines.push("");
     lines.push(divider);
     lines.push(settings.receiptFooter ?? "Thank you for your purchase!");

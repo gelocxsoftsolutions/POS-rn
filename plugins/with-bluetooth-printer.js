@@ -8,7 +8,7 @@ const {
 } = require("@expo/config-plugins");
 
 const PACKAGE_NAME = "com.nctseafoods.pos";
-const SOURCE_FILES = ["BluetoothPrinterModule.kt", "BluetoothPrinterPackage.kt"];
+const SOURCE_FILES = ["BluetoothPrinterModule.kt", "BluetoothPrinterPackage.kt", "Code128Raster.java"];
 
 function addPermission(manifest, name, attributes = {}) {
   const permissions = manifest.manifest["uses-permission"] ?? [];

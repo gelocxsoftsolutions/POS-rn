@@ -1,3 +1,4 @@
+import { formatAmount } from "@/lib/formatting/money";
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
@@ -59,7 +60,7 @@ const STATUS_LABELS: Record<ReturnRequestStatus, string> = {
 };
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
-const peso = (value: number) => `₱${value.toFixed(2)}`;
+const peso = (value: number) => `₱${formatAmount(value)}`;
 
 const paymentMethodLabel = (method: PaymentMethodType | string) =>
   method === "DIGITAL" ? "GCash/QRPh" : method;
