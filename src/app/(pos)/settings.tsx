@@ -41,6 +41,8 @@ import { DeviceService } from "@/lib/services/device.service";
 import { PermissionService, type PermissionRoleRow, type PermissionUserRow, type UserPermissionOverrides } from "@/lib/services/permission.service";
 import { PERMISSION_CATEGORIES, PERMISSION_PRESETS, POS_PERMISSIONS, type PermissionPresetKey } from "@/lib/permissions/catalog";
 import { useRolePermissions } from "@/lib/permissions/use-role-permissions";
+import { canOpenSettingsSection as canAccessSettingsSection } from "@/lib/permissions/settings-access";
+import { NctAccessSettings } from "@/components/ui/nct-access-settings";
 import { query } from "@/lib/db/connection";
 import { playFeedbackSound } from "@/lib/audio/feedback-sound";
 import { RecoveryService, type BackupEnvelope } from "@/lib/backup/recovery.service";
@@ -244,7 +246,12 @@ export default function SettingsScreen() {
   const settingsSectionRestoredRef = useRef(false);
   const detailAnimation = useRef(new Animated.Value(1)).current;
   const detailScrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
-  const activeSectionDefinition = SETTINGS_SECTIONS.find((item) => item.id === activeSection) ?? null;
+  const settingsSections = SETTINGS_SECTIONS.map((item) => isNctPos() && item.id === "users"
+    ? { ...item, title: "Users", description: "View assigned OMS employees and refresh this device’s directory." }
+    : isNctPos() && item.id === "permissions"
+      ? { ...item, description: "Review Super Admin access and synced OMS role permissions." }
+      : item);
+  const activeSectionDefinition = settingsSections.find((item) => item.id === activeSection) ?? null;
   const checkoutPreviewPlayer = useAudioPlayer(
     require("../../../assets/sounds/cash-register-sound.wav")
   );
@@ -1158,18 +1165,10 @@ export default function SettingsScreen() {
     const requested = keywords.join(" ").toLowerCase();
     return SECTION_MATCHERS[activeSection].some((matcher) => requested.includes(matcher) || matcher.includes(requested));
   };
-  const canOpenSettingsSection = (item: SettingsSectionDefinition) => {
-    if (isNctPos() && ["users", "permissions"].includes(item.id)) return false;
-    if (isSuperAdmin) return true;
-    if (item.id === "store" || item.id === "tax" || item.id === "auto_lock") return canManageSettings;
-    if (!item.adminOnly) return true;
-    if (item.id === "users" || item.id === "security") return canManageUsers;
-    if (item.id === "audit") return canViewAudit;
-    if (item.id === "database") return canManageBackups;
-    if (item.id === "permissions") return false;
-    return canManageSettings;
-  };
-  const visibleSettingsSections = SETTINGS_SECTIONS.filter((item) => {
+  const canOpenSettingsSection = (item: SettingsSectionDefinition) => canAccessSettingsSection(item, {
+    isSuperAdmin, nct: isNctPos(), canManageSettings, canManageUsers, canViewAudit, canManageBackups,
+  });
+  const visibleSettingsSections = settingsSections.filter((item) => {
     if (!canOpenSettingsSection(item)) return false;
     if (!normalizedSettingsSearch) return true;
     return `${item.title} ${item.description} ${item.keywords}`.toLowerCase().includes(normalizedSettingsSearch);
@@ -1347,7 +1346,10 @@ export default function SettingsScreen() {
       </View>
 
       {/* Users Card */}
-      <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("users cashiers roles") && styles.hidden]}>
+      {isNctPos() && canManageUsers && (activeSection === "users" || activeSection === "permissions") && (
+        <NctAccessSettings section={activeSection} builtInSuperAdmin={isBuiltInSuperAdmin && isSuperAdmin} />
+      )}
+      {!isNctPos() && <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("users cashiers roles") && styles.hidden]}>
         <View style={styles.sectionHeadingRow}>
           <View style={styles.sectionHeadingCopy}>
             <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>
@@ -1435,9 +1437,9 @@ export default function SettingsScreen() {
             </View>
           ))
         )}
-      </Card>
+      </Card>}
 
-      {isSuperAdmin && (
+      {isSuperAdmin && !isNctPos() && (
         <Card style={[styles.section, { backgroundColor: cardBg, borderColor: cardBorder }, !showSettingsSection("permissions access roles presets") && styles.hidden]}>
           <Text style={[styles.sectionTitle, { color: sectionTitleColor }]}>Roles & Permissions</Text>
           <Text style={[styles.sectionDesc, { color: sectionDescColor }]}>Choose a role to find its users, then customize access for one person. Role permissions remain the default until a user override is added.</Text>
