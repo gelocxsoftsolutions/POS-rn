@@ -42,6 +42,22 @@ The new NCT endpoint is `POST /api/pos/users/pin`. It updates linked verifiers a
 5. Disconnect and try saving a PIN: no local-only change should be accepted. Reconnect and repeat. Keep the second device offline during a change; confirm its old cache remains until a successful refresh.
 6. Try incorrect operator credentials, a user lacking management grants, an unassigned employee and a wrong device key. Confirm no credential change. Inspect `EMPLOYEE_PIN_CHANGED` audit entries without PIN, hash or device-secret contents.
 
+## PIN-save correction and registration setup
+
+The original PIN endpoint selected `pg_advisory_xact_lock(...)` directly. PostgreSQL returns `void`, which Prisma cannot deserialize. The resulting P2010 error occurred before the credential update and was presented as a generic 503. Earlier mocked tests missed this PostgreSQL-specific failure. The query now casts the result to `text`, preserving transaction-level serialization.
+
+`node tests/employee-pin-postgres.cjs` exercises the actual corrected handler and real staging Prisma/PostgreSQL queries, inside read-only transactions. Its device proof is a fixture and credential/audit writes are intercepted. It verifies the handler gets past the database error to the expected writes without changing any real PIN. This is not a claim of a completed live credential update.
+
+After successful NCT activation, POS now opens **Set up employee PINs**. It refreshes the assigned Employee directory, provides new-PIN/confirmation fields, and uses that installation's activation credentials without requiring an employee to sign in first. Employees without a configured PIN must have one saved before continuing. Existing PINs can be retained; activation never resets them automatically. New PINs use the same shared OMS endpoint and propagate to other assigned devices. No PIN input is persisted as registration progress.
+
+The temporary client registration capability is cleared when setup completes or the registration screen closes, and is bound to the activated device. If the app is closed before setup finishes, sign in as the recovery administrator and use Settings > Users; activation has already completed and must not be repeated just to set a PIN. If no employees were assigned, the screen explains how to assign them in OMS or continue with the recovery administrator. Failed directory refreshes do not masquerade as an empty successful directory.
+
+PIN fields now have persistent visible labels, including the operator's current PIN or Super Admin password in Settings. Registration only asks for the new employee PIN and its confirmation.
+
+Additional files: `src/components/ui/registration-pin-setup.tsx`, `src/app/(auth)/register.tsx`, `tests/employee-pin-postgres.cjs`. No SQL, dependency or locking-feature changes are required.
+
+Human checks: retry the existing Settings PIN save after the staging fix; activate an assigned test device and set its first PIN before employee sign-in; repeat on another assigned device and keep the existing PIN; test mismatched confirmation, offline save, failed directory refresh, and interrupted setup. Compare sign-in on two devices after successful directory refresh. Native activation and a real employee PIN change remain unverified by the implementation agent.
+
 Native two-device PIN/login acceptance remains unexecuted. A new APK is required for the new POS controls; this task does not build one.
 
 ## Staging delivery

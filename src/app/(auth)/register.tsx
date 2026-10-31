@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -31,6 +31,8 @@ import { useBusinessConfigStore } from "@/lib/stores/business-config-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import * as Constants from "expo-constants";
 import { isNctPos } from "@/lib/services/nct-scope";
+import { EmployeePinService } from "@/lib/services/employee-pin.service";
+import { RegistrationPinSetup } from "@/components/ui/registration-pin-setup";
 
 type Step = "choose" | "qr" | "manual" | "set-pins" | "success";
 
@@ -112,6 +114,7 @@ function extractQrPayload(data: string): { activationToken?: string; url?: strin
 }
 
 export default function RegisterDevice() {
+  useEffect(() => () => EmployeePinService.endRegistration(), []);
   const [step, setStep] = useState<Step>("choose");
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
@@ -234,6 +237,11 @@ export default function RegisterDevice() {
           } catch { /* non-blocking */ }
         }
 
+        if (isNctPos()) {
+          EmployeePinService.beginRegistration(deviceState.deviceId!);
+          setStep("set-pins");
+          return;
+        }
         const cashiers = await CashierRepository.findAll();
         if (!isNctPos() && cashiers.length > 0) {
           setCashierPins(cashiers.map((c) => ({
@@ -412,6 +420,7 @@ export default function RegisterDevice() {
   }
 
   if (step === "set-pins") {
+    if (isNctPos()) return <RegistrationPinSetup onComplete={() => setStep("success")} />;
     const handlePinChange = (id: string, pin: string) => {
       setCashierPins((prev) =>
         prev.map((c) => (c.id === id ? { ...c, pin } : c))

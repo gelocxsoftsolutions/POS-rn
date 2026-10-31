@@ -16,7 +16,13 @@ async function serverTests() {
   const actor = { id: actorId, employeeId: 'oms:8', roleId: 'actor-role', pinHash: hash('654321'), pinLoginEnabled: true };
   const db = {
     dealershipDevice: { findUnique: async () => null },
-    async $queryRaw() { return [{ id: targetId }, { id: 'linked-access-other-branch' }]; },
+    async $queryRaw(strings) {
+      if (strings.join('').includes('pg_advisory_xact_lock')) {
+        assert.match(strings.join(''), /pg_advisory_xact_lock\(68173327\)::text/, 'Prisma cannot deserialize a PostgreSQL void result');
+        return [{ lock: '' }];
+      }
+      return [{ id: targetId }, { id: 'linked-access-other-branch' }];
+    },
     posDevice: { findUnique: async () => ({ status: disabled ? 'DISABLED' : 'ONLINE', deviceSecretHash: 'verifier' }) },
     posUser: { updateMany: async ({ where, data }) => { updates.push(where.id.in); let count = 0; pins = pins.map(pin => { if (pin !== data.pinHash) count++; return data.pinHash; }); target.pinHash = data.pinHash; return { count }; } },
     posAuditLog: { create: async ({ data }) => { if (auditFailure) throw Error('audit failed'); events.push(data); } },
@@ -64,7 +70,7 @@ async function clientTests() {
   const { EmployeePinService } = load(path.resolve(__dirname, '../src/lib/services/employee-pin.service.ts'), {
     '@noble/hashes/sha2.js': { sha256: bytes => crypto.createHash('sha256').update(bytes).digest() }, '@noble/hashes/utils.js': { bytesToHex: bytes => Buffer.from(bytes).toString('hex') },
     '@/lib/api/http': { api: { post: async (route, body) => { requests.push({ route, body }); return ack ? { ok: true, data: { success: true } } : { ok: false, error: { error: 'No access' } }; } } },
-    '@/lib/stores/cashier-store': { useCashierStore: { getState: () => ({ session }) } }, '@/lib/stores/device-store': { useDeviceStore: { getState: () => ({ device: { deviceSecret: secret } }) } },
+    '@/lib/stores/cashier-store': { useCashierStore: { getState: () => ({ session }) } }, '@/lib/stores/device-store': { useDeviceStore: { getState: () => ({ device: { deviceId: 'device-1', deviceSecret: secret } }) } },
     '@/lib/permissions/local-super-admin': { isLocalSuperAdmin: () => admin }, './cashier.service': { CashierService: { verifyCurrentUserPin: async () => ({ success: verified }) } },
     './employee-sync.service': { EmployeeSyncService: { refresh: async () => refreshed } }, './network.service': { useNetworkStore: { getState: () => ({ isOnline: online }) } }, './nct-scope': { isNctPos: () => true },
     '@/lib/db/connection': { execute: async (sql, params) => writes.push({ sql, params }) }, '@/lib/db/local-operation': { serializeLocalOperation: fn => fn() },
@@ -77,6 +83,14 @@ async function clientTests() {
   secret = null; await assert.rejects(() => EmployeePinService.save(targetId, '112233', 'password'), /Reconnect/); secret = 'device-secret-proof-long-enough';
   refreshed = false; assert.match(await EmployeePinService.save(targetId, '112233', 'password'), /saved in OMS/);
   assert.equal(requests.at(-1).body.deviceSecret, secret); assert.equal(requests.at(-1).body.currentPin, undefined, 'local admin password never uploaded');
+  session = null;
+  await assert.rejects(() => EmployeePinService.saveDuringRegistration(targetId, '112233'), /freshly activated/);
+  assert.throws(() => EmployeePinService.beginRegistration('different-device'), /activation/);
+  EmployeePinService.beginRegistration('device-1');
+  await EmployeePinService.saveDuringRegistration(targetId, '112233');
+  assert.equal(requests.at(-1).body.deviceSecret, secret); assert.equal(requests.at(-1).body.actorId, undefined);
+  EmployeePinService.endRegistration();
+  await assert.rejects(() => EmployeePinService.saveDuringRegistration(targetId, '112233'), /freshly activated/);
   console.log('POS PIN tests passed: online saves, reauthentication, proof selection and confirmed-save cache recovery.');
 }
 async function omsPolicyTests() {
