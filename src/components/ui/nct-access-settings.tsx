@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Linking, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "./card";
+import { EmployeePinEditor } from "./employee-pin-editor";
 import { usePosTheme } from "@/lib/stores/ui-store";
 import { EmployeeSyncService } from "@/lib/services/employee-sync.service";
 import { getApiConfig } from "@/lib/api/http";
@@ -64,6 +65,7 @@ export function NctAccessSettings({ section, builtInSuperAdmin }: {
       {employees.map((employee) => <View key={employee.id} style={{ borderTopWidth: 1, borderColor: theme.border, paddingVertical: 12 }}>
         <Text style={{ color: theme.text, fontWeight: "700" }}>{employee.displayName}</Text>
         <Text style={{ color: theme.muted, marginTop: 3 }}>{employee.username ? `@${employee.username} · ` : ""}{employee.roleName}</Text>
+        <EmployeePinEditor userId={employee.id} builtInSuperAdmin={builtInSuperAdmin} />
       </View>)}
     </> : <>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>

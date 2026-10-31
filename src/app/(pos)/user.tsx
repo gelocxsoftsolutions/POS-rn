@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { CashierService } from "@/lib/services/cashier.service";
 import { useCashierStore } from "@/lib/stores/cashier-store";
 import { usePosTheme } from "@/lib/stores/ui-store";
+import { isNctPos } from "@/lib/services/nct-scope";
+import { EmployeePinEditor } from "@/components/ui/employee-pin-editor";
 
 export default function UserScreen() {
   const router = useRouter();
@@ -73,6 +75,17 @@ export default function UserScreen() {
   const border = theme.border;
   const text = theme.text;
   const muted = theme.muted;
+
+  if (isNctPos() && session && !session.isSuperAdmin) return (
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
+      <TouchableOpacity accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}><Ionicons name="arrow-back" size={20} color={text} /></TouchableOpacity>
+      <Card style={[styles.profileCard, { backgroundColor: surface, borderColor: border }]}>
+        <Text style={[styles.title, { color: text }]}>{session.cashierName}</Text>
+        <Text style={{ color: muted, marginTop: 8 }}>Your name and access are managed through OMS Employees. Set or change your shared POS PIN here.</Text>
+        <EmployeePinEditor userId={session.cashierId} />
+      </Card>
+    </ScrollView>
+  );
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
